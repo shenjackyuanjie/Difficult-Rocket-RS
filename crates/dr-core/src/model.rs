@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 pub type PartId = i64;
 
+/// SR1 部件在物理和编辑器中的功能分类。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PartKind {
     Pod,
@@ -29,6 +30,7 @@ impl Default for PartKind {
 }
 
 impl PartKind {
+    /// 将 PartList.xml 中的字符串转换为类型枚举。
     pub fn from_xml(value: &str) -> Self {
         match value {
             "pod" => Self::Pod,
@@ -69,13 +71,24 @@ impl PartKind {
     }
 }
 
+/// 部件上的一个连接点。
+///
+/// 坐标以部件中心为原点，单位与 SR1 的网格单位一致。`fuel_line`、
+/// `group` 和断裂参数是编辑器及未来物理模拟所需的元数据。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttachPoint {
     pub x: f64,
     pub y: f64,
     pub dock: bool,
+    pub fuel_line: bool,
+    pub flip_x: bool,
+    pub group: Option<i32>,
+    pub order: Option<i32>,
+    pub break_angle: Option<f64>,
+    pub break_force: Option<f64>,
 }
 
+/// PartList.xml 中描述的一种可放置部件。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PartType {
     pub id: String,
@@ -91,6 +104,8 @@ pub struct PartType {
     pub ignore_editor_intersections: bool,
     pub disable_editor_rotation: bool,
     pub max_occurrences: Option<u32>,
+    pub tank: Option<TankSpec>,
+    pub engine: Option<EngineSpec>,
     pub attach_points: Vec<AttachPoint>,
 }
 
@@ -100,6 +115,61 @@ impl PartType {
     }
 }
 
+/// 燃料箱的静态规格。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TankSpec {
+    pub fuel: f64,
+    pub dry_mass: Option<f64>,
+    pub fuel_type: Option<i32>,
+}
+
+/// 发动机的静态规格。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EngineSpec {
+    pub power: Option<f64>,
+    pub consumption: Option<f64>,
+    pub size: Option<f64>,
+    pub turn: Option<f64>,
+    pub fuel_type: Option<i32>,
+    pub throttle_exponential: bool,
+}
+
+/// 部件实例中的燃料来源，用于区分 SR1 的 Tank 和 Engine 子节点。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FuelKind {
+    Tank,
+    Engine,
+}
+
+/// Pod 的运行状态和名称。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PodState {
+    pub throttle: f64,
+    pub name: String,
+    pub staging: Option<StagingState>,
+}
+
+/// 船体的分级控制数据。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StagingState {
+    pub current_stage: i32,
+    pub steps: Vec<StageStep>,
+}
+
+/// 一个分级步骤及其激活动作。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StageStep {
+    pub activations: Vec<Activation>,
+}
+
+/// 分级步骤中对某个部件的激活动作。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Activation {
+    pub id: PartId,
+    pub moved: bool,
+}
+
+/// 船体中的一个部件实例。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Part {
     pub id: PartId,
@@ -114,9 +184,12 @@ pub struct Part {
     pub active: bool,
     pub exploded: bool,
     pub fuel: Option<f64>,
+    pub fuel_kind: Option<FuelKind>,
     pub extension: Option<f64>,
+    pub pod: Option<PodState>,
 }
 
+/// 两个部件之间的连接关系。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Connection {
     Normal {
@@ -133,6 +206,7 @@ pub enum Connection {
 }
 
 impl Connection {
+    /// 判断连接是否引用给定部件。
     pub fn touches(&self, id: PartId) -> bool {
         match self {
             Self::Normal { parent, child, .. } | Self::Dock { parent, child, .. } => {
@@ -142,12 +216,14 @@ impl Connection {
     }
 }
 
+/// 一个与主船体断开的部件组。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ShipGroup {
     pub parts: Vec<Part>,
     pub connections: Vec<Connection>,
 }
 
+/// SR1 船体文档及其已断开的部件组。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Ship {
     pub version: i32,
@@ -159,6 +235,7 @@ pub struct Ship {
 }
 
 impl Ship {
+    /// 返回所有部件中可用的下一个正整数 ID。
     pub fn next_part_id(&self) -> PartId {
         self.parts
             .iter()
@@ -224,6 +301,7 @@ impl Ship {
     }
 }
 
+/// 可复用的部件目录及其快速索引。
 #[derive(Debug, Clone, Default)]
 pub struct PartCatalog {
     pub name: String,
@@ -232,6 +310,7 @@ pub struct PartCatalog {
 }
 
 impl PartCatalog {
+    /// 构建目录，同时建立部件 ID 到数组索引的映射。
     pub fn new(name: impl Into<String>, types: Vec<PartType>) -> Self {
         let index = types
             .iter()

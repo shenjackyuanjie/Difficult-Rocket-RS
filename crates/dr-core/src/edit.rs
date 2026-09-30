@@ -164,7 +164,9 @@ mod tests {
             active: false,
             exploded: false,
             fuel: None,
+            fuel_kind: None,
             extension: None,
+            pod: None,
         }
     }
     #[test]

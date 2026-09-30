@@ -119,7 +119,9 @@ mod tests {
             active: false,
             exploded: false,
             fuel: None,
+            fuel_kind: None,
             extension: None,
+            pod: None,
         }
     }
     fn t(points: Vec<AttachPoint>) -> PartType {
@@ -137,6 +139,8 @@ mod tests {
             ignore_editor_intersections: false,
             disable_editor_rotation: false,
             max_occurrences: None,
+            tank: None,
+            engine: None,
             attach_points: points,
         }
     }
@@ -153,11 +157,23 @@ mod tests {
             x: 1.0,
             y: 0.0,
             dock: false,
+            fuel_line: false,
+            flip_x: false,
+            group: None,
+            order: None,
+            break_angle: None,
+            break_force: None,
         }]);
         let b = t(vec![AttachPoint {
             x: -1.0,
             y: 0.0,
             dock: false,
+            fuel_line: false,
+            flip_x: false,
+            group: None,
+            order: None,
+            break_angle: None,
+            break_force: None,
         }]);
         assert!(find_snap(&p(1, 0.0), &a, &p(2, 2.01), &b, 0.1).is_some());
     }
