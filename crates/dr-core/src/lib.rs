@@ -6,6 +6,9 @@ pub mod io;
 pub mod model;
 
 pub use edit::{CommandError, EditorCommand, EditorHistory, EditorState};
-pub use geometry::{SnapCandidate, Vec2d};
-pub use io::{CoreError, load_catalog, load_ship, save_ship};
-pub use model::{Connection, Part, PartCatalog, PartType, Ship, ShipGroup};
+pub use geometry::{SnapCandidate, Vec2d, find_snap, intersects, part_world_attach};
+pub use io::{CoreError, load_catalog, load_ship, save_ship, ship_from_xml, ship_to_xml};
+pub use model::{
+    Activation, AttachPoint, Connection, EngineSpec, FuelKind, Part, PartCatalog, PartKind,
+    PartType, PodState, Ship, ShipGroup, StageStep, StagingState, TankSpec,
+};

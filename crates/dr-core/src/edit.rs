@@ -166,6 +166,7 @@ mod tests {
             fuel: None,
             fuel_kind: None,
             extension: None,
+            parachute: Default::default(),
             pod: None,
         }
     }

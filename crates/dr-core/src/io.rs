@@ -283,6 +283,22 @@ struct RawPart {
     exploded: i8,
     #[serde(rename = "@extension")]
     extension: Option<f64>,
+    #[serde(rename = "@chuteX")]
+    chute_x: Option<f64>,
+    #[serde(rename = "@chuteY")]
+    chute_y: Option<f64>,
+    #[serde(rename = "@chuteAngle")]
+    chute_angle: Option<f64>,
+    #[serde(rename = "@chuteHeight")]
+    chute_height: Option<f64>,
+    #[serde(rename = "@inflation")]
+    inflation: Option<f64>,
+    #[serde(rename = "@inflate")]
+    inflate: Option<i8>,
+    #[serde(rename = "@deployed")]
+    deployed: Option<i8>,
+    #[serde(rename = "@rope")]
+    rope: Option<i8>,
     #[serde(rename = "Tank")]
     tank: Option<RawFuel>,
     #[serde(rename = "Engine")]
@@ -373,6 +389,16 @@ fn convert_part(raw: RawPart) -> Part {
         fuel,
         fuel_kind,
         extension: raw.extension,
+        parachute: ParachuteState {
+            x: raw.chute_x,
+            y: raw.chute_y,
+            angle: raw.chute_angle,
+            height: raw.chute_height,
+            inflation: raw.inflation,
+            inflate: raw.inflate,
+            deployed: raw.deployed,
+            rope: raw.rope,
+        },
         pod: raw.pod.map(|pod| PodState {
             throttle: pod.throttle,
             name: pod.name,
@@ -430,7 +456,12 @@ pub fn load_ship(path: impl AsRef<Path>) -> Result<Ship, CoreError> {
         path: path_ref.display().to_string(),
         source,
     })?;
-    let raw: RawShip = from_str(&source)?;
+    ship_from_xml(&source)
+}
+
+/// 按 dr_rs 的 SR1 字段与默认值读取船体。
+pub fn ship_from_xml(source: &str) -> Result<Ship, CoreError> {
+    let raw: RawShip = from_str(source)?;
     Ok(Ship {
         version: raw.version,
         lifted_off: raw.lifted_off != 0,
@@ -460,6 +491,7 @@ pub fn load_ship(path: impl AsRef<Path>) -> Result<Ship, CoreError> {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename = "Ship")]
 struct OutShip<'a> {
     #[serde(rename = "@version")]
     version: i32,
@@ -472,7 +504,12 @@ struct OutShip<'a> {
     #[serde(rename = "Connections")]
     connections: OutConnections,
     #[serde(rename = "DisconnectedParts")]
-    disconnected: Vec<OutGroup<'a>>,
+    disconnected: OutDisconnected<'a>,
+}
+#[derive(Debug, Serialize)]
+struct OutDisconnected<'a> {
+    #[serde(rename = "DisconnectedPart")]
+    groups: Vec<OutGroup<'a>>,
 }
 #[derive(Debug, Serialize)]
 struct OutParts<'a> {
@@ -517,6 +554,22 @@ struct OutPart<'a> {
     exploded: i8,
     #[serde(rename = "@extension", skip_serializing_if = "Option::is_none")]
     extension: Option<f64>,
+    #[serde(rename = "@chuteX", skip_serializing_if = "Option::is_none")]
+    chute_x: Option<f64>,
+    #[serde(rename = "@chuteY", skip_serializing_if = "Option::is_none")]
+    chute_y: Option<f64>,
+    #[serde(rename = "@chuteAngle", skip_serializing_if = "Option::is_none")]
+    chute_angle: Option<f64>,
+    #[serde(rename = "@chuteHeight", skip_serializing_if = "Option::is_none")]
+    chute_height: Option<f64>,
+    #[serde(rename = "@inflation", skip_serializing_if = "Option::is_none")]
+    inflation: Option<f64>,
+    #[serde(rename = "@inflate", skip_serializing_if = "Option::is_none")]
+    inflate: Option<i8>,
+    #[serde(rename = "@deployed", skip_serializing_if = "Option::is_none")]
+    deployed: Option<i8>,
+    #[serde(rename = "@rope", skip_serializing_if = "Option::is_none")]
+    rope: Option<i8>,
     #[serde(rename = "Tank", skip_serializing_if = "Option::is_none")]
     tank: Option<OutFuel>,
     #[serde(rename = "Engine", skip_serializing_if = "Option::is_none")]
@@ -605,6 +658,15 @@ fn out_part(part: &Part) -> OutPart<'_> {
         active: part.active as i8,
         exploded: part.exploded as i8,
         extension: part.extension,
+        chute_x: part.parachute.x,
+        chute_y: part.parachute.y,
+        chute_angle: part.parachute.angle,
+        chute_height: part.parachute.height,
+        inflation: part.parachute.inflation,
+        inflate: part.parachute.inflate,
+        deployed: part.parachute.deployed,
+        rope: part.parachute.rope,
+
         tank,
         engine,
         pod: part.pod.as_ref().map(|pod| OutPod {
@@ -655,7 +717,7 @@ fn out_connection(connection: &Connection) -> OutConnection {
     }
 }
 
-pub fn save_ship(path: impl AsRef<Path>, ship: &Ship) -> Result<(), CoreError> {
+pub fn ship_to_xml(ship: &Ship) -> Result<String, CoreError> {
     let data = OutShip {
         version: ship.version,
         lifted_off: ship.lifted_off as i8,
@@ -666,20 +728,26 @@ pub fn save_ship(path: impl AsRef<Path>, ship: &Ship) -> Result<(), CoreError> {
         connections: OutConnections {
             connections: ship.connections.iter().map(out_connection).collect(),
         },
-        disconnected: ship
-            .disconnected
-            .iter()
-            .map(|g| OutGroup {
-                parts: OutParts {
-                    parts: g.parts.iter().map(out_part).collect(),
-                },
-                connections: OutConnections {
-                    connections: g.connections.iter().map(out_connection).collect(),
-                },
-            })
-            .collect(),
+        disconnected: OutDisconnected {
+            groups: ship
+                .disconnected
+                .iter()
+                .map(|g| OutGroup {
+                    parts: OutParts {
+                        parts: g.parts.iter().map(out_part).collect(),
+                    },
+                    connections: OutConnections {
+                        connections: g.connections.iter().map(out_connection).collect(),
+                    },
+                })
+                .collect(),
+        },
     };
-    let xml = to_string(&data)?;
+    Ok(to_string(&data)?)
+}
+
+pub fn save_ship(path: impl AsRef<Path>, ship: &Ship) -> Result<(), CoreError> {
+    let xml = ship_to_xml(ship)?;
     fs::write(path.as_ref(), xml).map_err(|source| CoreError::Read {
         path: path.as_ref().display().to_string(),
         source,
@@ -690,6 +758,29 @@ pub fn save_ship(path: impl AsRef<Path>, ship: &Ship) -> Result<(), CoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn preserves_disconnected_groups_and_parachutes() {
+        let source = r#"<Ship><Parts><Part id="1" partType="pod-1"><Pod name="甲 &amp; 乙" throttle="0.5"><Staging currentStage="1"><Step/><Step><Activate Id="2" moved="1"/></Step></Staging></Pod></Part></Parts>
+        <Connections/><DisconnectedParts>
+        <DisconnectedPart><Parts><Part id="2" partType="parachute-1" chuteX="1" chuteY="2" chuteAngle="0.25" chuteHeight="5" inflation="0.1" inflate="1" rope="0" deployed="1" extension="0.5"/><Part id="3" partType="engine-1"><Engine fuel="2"/></Part></Parts><Connections><DockConnection dockPart="3" parentPart="2" childPart="3"/></Connections></DisconnectedPart>
+        <DisconnectedPart><Parts><Part id="4" partType="tank"><Tank fuel="5"/></Part></Parts><Connections/></DisconnectedPart>
+        </DisconnectedParts></Ship>"#;
+        let ship = ship_from_xml(source).unwrap();
+        assert_eq!(ship.version, 1);
+        assert!(ship.touching_ground);
+        assert_eq!(ship.disconnected.len(), 2);
+        let chute = &ship.part(2).unwrap().parachute;
+        assert_eq!(chute.x, Some(1.0));
+        assert_eq!(chute.inflation, Some(0.1));
+        assert_eq!(chute.rope, Some(0));
+        assert_eq!(chute.deployed, Some(1));
+        let saved = ship_to_xml(&ship).unwrap();
+        assert!(saved.starts_with("<Ship "));
+        assert!(saved.contains("<DisconnectedParts><DisconnectedPart>"));
+        assert_eq!(ship, ship_from_xml(&saved).unwrap());
+        assert_eq!(Ship::default(), ship_from_xml("<Ship/>").unwrap());
+    }
+
     #[test]
     fn parses_minimal_ship() {
         let path = std::env::temp_dir().join("dr-core-test.xml");

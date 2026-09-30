@@ -75,7 +75,7 @@ impl PartKind {
 ///
 /// 坐标以部件中心为原点，单位与 SR1 的网格单位一致。`fuel_line`、
 /// `group` 和断裂参数是编辑器及未来物理模拟所需的元数据。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttachPoint {
     pub x: f64,
     pub y: f64,
@@ -89,7 +89,7 @@ pub struct AttachPoint {
 }
 
 /// PartList.xml 中描述的一种可放置部件。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PartType {
     pub id: String,
     pub name: String,
@@ -116,7 +116,7 @@ impl PartType {
 }
 
 /// 燃料箱的静态规格。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TankSpec {
     pub fuel: f64,
     pub dry_mass: Option<f64>,
@@ -124,7 +124,7 @@ pub struct TankSpec {
 }
 
 /// 发动机的静态规格。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EngineSpec {
     pub power: Option<f64>,
     pub consumption: Option<f64>,
@@ -142,7 +142,7 @@ pub enum FuelKind {
 }
 
 /// Pod 的运行状态和名称。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PodState {
     pub throttle: f64,
     pub name: String,
@@ -150,27 +150,27 @@ pub struct PodState {
 }
 
 /// 船体的分级控制数据。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct StagingState {
     pub current_stage: i32,
     pub steps: Vec<StageStep>,
 }
 
 /// 一个分级步骤及其激活动作。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct StageStep {
     pub activations: Vec<Activation>,
 }
 
 /// 分级步骤中对某个部件的激活动作。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Activation {
     pub id: PartId,
     pub moved: bool,
 }
 
 /// 船体中的一个部件实例。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Part {
     pub id: PartId,
     pub part_type: String,
@@ -186,11 +186,25 @@ pub struct Part {
     pub fuel: Option<f64>,
     pub fuel_kind: Option<FuelKind>,
     pub extension: Option<f64>,
+    pub parachute: ParachuteState,
     pub pod: Option<PodState>,
 }
 
+/// SR1 降落伞运行状态；缺省值与显式的零值分别保留。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ParachuteState {
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub angle: Option<f64>,
+    pub height: Option<f64>,
+    pub inflation: Option<f64>,
+    pub inflate: Option<i8>,
+    pub deployed: Option<i8>,
+    pub rope: Option<i8>,
+}
+
 /// 两个部件之间的连接关系。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Connection {
     Normal {
         parent_attach: i32,
@@ -217,14 +231,14 @@ impl Connection {
 }
 
 /// 一个与主船体断开的部件组。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ShipGroup {
     pub parts: Vec<Part>,
     pub connections: Vec<Connection>,
 }
 
 /// SR1 船体文档及其已断开的部件组。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Ship {
     pub version: i32,
     pub lifted_off: bool,
@@ -232,6 +246,19 @@ pub struct Ship {
     pub parts: Vec<Part>,
     pub connections: Vec<Connection>,
     pub disconnected: Vec<ShipGroup>,
+}
+
+impl Default for Ship {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            lifted_off: false,
+            touching_ground: true,
+            parts: Vec::new(),
+            connections: Vec::new(),
+            disconnected: Vec::new(),
+        }
+    }
 }
 
 impl Ship {
