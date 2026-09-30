@@ -23,7 +23,11 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 | 新建、打开 | Ctrl+N、Ctrl+O；支持单个 XML 文件拖入 |
 | 保存、另存为 | Ctrl+S、Ctrl+Shift+S；首次保存选择目标文件 |
 | 鼠标位置缩放、平移、视图复位 | 滚轮、中键拖动、Home |
+| 适配整船、适配选区 | F、Shift+F；视图居中到两侧目录之间 |
+| 调试显示、船体显隐 | F3 显示坐标、原点和选中轮廓/连接面；F4 隐藏或恢复贴图 |
 | 截图 | F12，输出到当前目录 |
+
+视图适配包含旋转后的贴图与真实实体轮廓；窗口最小尺寸为 960×640，调整窗口后可再按 F 适配。调试和显隐只影响显示，不改文档或撤销历史；属性草稿中不触发这些快捷键。
 
 文件操作也可使用顶部工具栏。新建、打开和退出前会提示保存、放弃或取消；保存或打开失败时保留当前文档。保存先写入同目录临时文件再替换目标，不直接截断原文件。无法解释的 XML 根节点、扩展字段和异常内容会报错，避免静默丢失数据后覆盖保存。
 
@@ -52,6 +56,7 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --pro
 cargo run -p dr-editor -- --connection-smoke-test
 cargo run -p dr-editor -- --scoped-smoke-test
 cargo run -p dr-editor -- --selection-smoke-test
+cargo run -p dr-editor -- --view-smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Heronb.xml --repair-smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Ophioglossum.xml --performance-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Ophioglossum.xml --performance-test --performance-selection-count 100
@@ -71,6 +76,8 @@ python -X utf8 scripts/check_native_dialogs.py
 `--repair-smoke-test` 使用真实 `Heronb.xml` 的发动机/油箱重复编号，通过实际 UI 按钮分配三条连接及一条分级引用，验证未分配拒绝、草稿隔离、一次撤销重做、修复后的独立删除和 XML 往返，输出 `target/editor-repair-draft.png`、`target/editor-repair-smoke.png` 及 `target/repair-smoke.xml`，不写回源样本。
 
 `--selection-smoke-test` 验证 Shift 多选及取消选择、真实轮廓框选、整体拖动与内部连接、复制粘贴的红色碰撞/绿色吸附预览、预览旋转取消、全选删除、一次撤销重做、侧栏释放与失焦取消，以及 XML 往返。输出 `target/editor-selection-preview.png`、`target/editor-selection-smoke.png` 和 `target/selection-smoke.xml`，截图捕获完成后才提交预览。
+
+`--view-smoke-test` 验证整船与选区适配、窗口缩小到 960×640 后重新适配、F3 调试标签和 F4 船体显隐，以及文档和历史不变；输出 `target/editor-view-smoke.png`。
 
 `--performance-test` 在真实窗口中适配船体视图并持续拖动 90 帧，确认部件实体保持不变、取消后船体数据未改动，输出 `target/editor-performance.json` 和 `target/editor-performance.png`。可加 `--performance-selection-count N` 测试从拖动锚点向外选择最近的 N 个部件，超过总数时全选；报告包含实际选择数。帧耗时包含实际吸附、碰撞和渲染流程，不是纯绘制基准；结果受硬件、驱动和构建配置影响。
 
