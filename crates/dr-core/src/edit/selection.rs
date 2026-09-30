@@ -130,21 +130,30 @@ pub(super) fn transform(
     transform: SelectionTransform,
 ) -> Result<(), CommandError> {
     let proposed = preview(ship, catalog, parts, transform)?;
+    let originals: HashMap<_, _> = ship.keyed_parts().collect();
     if proposed
         .iter()
-        .all(|(key, part)| ship.part_at(*key) == Some(part))
+        .all(|(key, part)| originals.get(key).is_some_and(|original| *original == part))
     {
         return Ok(());
     }
     let mut selected = HashMap::<usize, HashSet<PartId>>::new();
     for (key, _) in &proposed {
-        let (parts, connections) = ship.group(key.group).unwrap();
-        if parts.iter().filter(|part| part.id == key.id).count() > 1
-            && connections.iter().any(|c| c.touches(key.id))
-        {
-            return Err(CommandError::AmbiguousReference(*key));
-        }
         selected.entry(key.group).or_default().insert(key.id);
+    }
+    for (group, ids) in &selected {
+        let (parts, connections) = ship.group(*group).unwrap();
+        let mut counts = HashMap::<PartId, usize>::new();
+        for part in parts {
+            *counts.entry(part.id).or_default() += 1;
+        }
+        for id in ids {
+            if counts[id] > 1 && connections.iter().any(|connection| connection.touches(*id)) {
+                return Err(CommandError::AmbiguousReference(PartKey::new(
+                    *group, *id, 0,
+                )));
+            }
+        }
     }
     for (group, selected) in selected {
         ship.group_mut(group).unwrap().1.retain(|connection| {
@@ -153,8 +162,17 @@ pub(super) fn transform(
                 || ids.iter().all(|id| selected.contains(id))
         });
     }
-    for (key, part) in proposed {
-        *ship.part_at_mut(key).unwrap() = part;
+    let mut proposed: HashMap<_, _> = proposed.into_iter().collect();
+    for group in 0..=ship.disconnected.len() {
+        let mut occurrences = HashMap::<PartId, usize>::new();
+        for part in ship.group_mut(group).unwrap().0 {
+            let occurrence = occurrences.entry(part.id).or_default();
+            let key = PartKey::new(group, part.id, *occurrence);
+            *occurrence += 1;
+            if let Some(replacement) = proposed.remove(&key) {
+                *part = replacement;
+            }
+        }
     }
     Ok(())
 }
@@ -178,9 +196,6 @@ impl ShipFragment {
         let keys = keys(ship, selection)?;
         let mut selected = HashMap::<usize, HashSet<PartId>>::new();
         for key in keys {
-            if ship.group_part(key.group, key.id).is_none() {
-                return Err(CommandError::AmbiguousReference(key));
-            }
             selected.entry(key.group).or_default().insert(key.id);
         }
         let mut groups = vec![];
@@ -188,6 +203,15 @@ impl ShipFragment {
             let Some(ids) = selected.get(&group) else {
                 continue;
             };
+            let mut counts = HashMap::<PartId, usize>::new();
+            for part in parts {
+                *counts.entry(part.id).or_default() += 1;
+            }
+            if let Some(id) = ids.iter().find(|id| counts[id] > 1) {
+                return Err(CommandError::AmbiguousReference(PartKey::new(
+                    group, *id, 0,
+                )));
+            }
             let mut parts: Vec<_> = parts
                 .iter()
                 .filter(|part| ids.contains(&part.id))

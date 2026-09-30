@@ -95,6 +95,36 @@ pub fn intersects(a: &Part, at: &PartType, b: &Part, bt: &PartType) -> bool {
 
 const EPSILON: f64 = 1e-9;
 
+/// 框选依据实际实体轮廓；允许重叠的部件仍然可以被选择。
+pub fn intersects_rect(part: &Part, kind: &PartType, a: Vec2d, b: Vec2d) -> bool {
+    let low = Vec2d {
+        x: a.x.min(b.x),
+        y: a.y.min(b.y),
+    };
+    let high = Vec2d {
+        x: a.x.max(b.x),
+        y: a.y.max(b.y),
+    };
+    if high.x - low.x <= EPSILON || high.y - low.y <= EPSILON {
+        return false;
+    }
+    let rect = WorldShape::Polygon(vec![
+        low,
+        Vec2d {
+            x: high.x,
+            y: low.y,
+        },
+        high,
+        Vec2d {
+            x: low.x,
+            y: high.y,
+        },
+    ]);
+    world_shapes(part, kind)
+        .iter()
+        .any(|shape| shapes_intersect(shape, &rect))
+}
+
 fn bounding_radius(kind: &PartType) -> f64 {
     if kind.shapes.is_empty() {
         let (w, h) = kind.half_extents();
@@ -320,6 +350,44 @@ mod tests {
             attach_points: points,
             shapes: vec![],
         }
+    }
+    #[test]
+    fn rectangle_selection_uses_shape_and_ignores_collision_exemption() {
+        let mut kind = t(vec![]);
+        kind.ignore_editor_intersections = true;
+        kind.shapes = vec![crate::PolygonShape {
+            vertices: vec![(-2.0, -2.0), (2.0, -2.0), (-2.0, 2.0)],
+            sensor: false,
+        }];
+        let part = p(1, 0.0);
+        assert!(intersects_rect(
+            &part,
+            &kind,
+            Vec2d { x: -1.1, y: -0.2 },
+            Vec2d { x: -0.8, y: 0.2 }
+        ));
+        assert!(!intersects_rect(
+            &part,
+            &kind,
+            Vec2d { x: 0.5, y: 0.5 },
+            Vec2d { x: 0.9, y: 0.9 }
+        ));
+        kind.kind = PartKind::Wheel;
+        kind.shapes.clear();
+        kind.width = 4;
+        kind.height = 4;
+        assert!(!intersects_rect(
+            &part,
+            &kind,
+            Vec2d { x: 0.8, y: 0.8 },
+            Vec2d { x: 1.0, y: 1.0 }
+        ));
+        assert!(intersects_rect(
+            &part,
+            &kind,
+            Vec2d { x: 1.1, y: 0.2 },
+            Vec2d { x: 0.9, y: -0.2 }
+        ));
     }
     #[test]
     fn quarter_turn() {

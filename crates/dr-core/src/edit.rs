@@ -182,6 +182,23 @@ impl EditorCommand {
         ship: &mut Ship,
         catalog: Option<&PartCatalog>,
     ) -> Result<(), CommandError> {
+        *ship = self.preview_checked(ship, catalog)?;
+        Ok(())
+    }
+
+    pub fn preview_with_catalog(
+        &self,
+        ship: &Ship,
+        catalog: &PartCatalog,
+    ) -> Result<Ship, CommandError> {
+        self.preview_checked(ship, Some(catalog))
+    }
+
+    fn preview_checked(
+        &self,
+        ship: &Ship,
+        catalog: Option<&PartCatalog>,
+    ) -> Result<Ship, CommandError> {
         let mut after = ship.clone();
         self.apply_inner(&mut after, catalog, None)?;
         // 批量命令完成后再压缩被编辑清空的组，保留输入本身已有的空组。
@@ -195,8 +212,7 @@ impl EditorCommand {
                     original.parts.is_empty() && original.connections.is_empty()
                 })
         });
-        *ship = after;
-        Ok(())
+        Ok(after)
     }
 
     fn apply_inner(
