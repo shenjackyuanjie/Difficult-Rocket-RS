@@ -1,6 +1,7 @@
 use super::*;
 use std::path::{Path, PathBuf};
 
+pub(crate) mod browser_smoke;
 pub(crate) mod smoke;
 
 #[derive(Component)]

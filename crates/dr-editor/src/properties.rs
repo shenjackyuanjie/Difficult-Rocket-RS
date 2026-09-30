@@ -7,6 +7,7 @@ use dr_core::{
 
 pub(crate) mod repair_smoke;
 pub(crate) mod smoke;
+pub(crate) mod staging_smoke;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Field {

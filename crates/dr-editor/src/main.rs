@@ -185,6 +185,8 @@ struct SmokeTest {
     repair: bool,
     selection: bool,
     view: bool,
+    browser: bool,
+    staging: bool,
     started: std::time::Instant,
 }
 
@@ -232,6 +234,8 @@ fn main() -> anyhow::Result<()> {
             repair: args.iter().any(|arg| arg == "--repair-smoke-test"),
             selection: args.iter().any(|arg| arg == "--selection-smoke-test"),
             view: args.iter().any(|arg| arg == "--view-smoke-test"),
+            browser: args.iter().any(|arg| arg == "--browser-smoke-test"),
+            staging: args.iter().any(|arg| arg == "--staging-smoke-test"),
             started: std::time::Instant::now(),
         })
         .insert_resource(EditorPaths {
@@ -289,6 +293,8 @@ fn main() -> anyhow::Result<()> {
                         properties::repair_smoke::run,
                         selection_smoke::run,
                         view_smoke::run,
+                        panels::browser_smoke::run,
+                        properties::staging_smoke::run,
                     )
                         .chain(),
                     panels::pointer_over_ui,
