@@ -427,23 +427,14 @@ fn keyboard_commands(
                 .map(|part_type| !part_type.disable_editor_rotation)
                 .unwrap_or(false);
             if can_rotate {
-                let _ = document.execute(EditorCommand::Batch(vec![
-                    EditorCommand::Disconnect(id),
-                    EditorCommand::Rotate(id),
-                ]));
+                placement::transform(&mut document, id, EditorCommand::Rotate(id));
             }
         }
         if keys.just_pressed(KeyCode::KeyX) {
-            let _ = document.execute(EditorCommand::Batch(vec![
-                EditorCommand::Disconnect(id),
-                EditorCommand::FlipX(id),
-            ]));
+            placement::transform(&mut document, id, EditorCommand::FlipX(id));
         }
         if keys.just_pressed(KeyCode::KeyY) {
-            let _ = document.execute(EditorCommand::Batch(vec![
-                EditorCommand::Disconnect(id),
-                EditorCommand::FlipY(id),
-            ]));
+            placement::transform(&mut document, id, EditorCommand::FlipY(id));
         }
     }
 }
@@ -550,6 +541,8 @@ fn mouse_editor(
         let command = move_with_snap(&document.ship, &document.catalog, id, drag.preview);
         if let Some(command) = command {
             document.execute(command);
+        } else {
+            document.status = "无法移动：该位置与其他部件重叠".into();
         }
     }
 }
@@ -566,6 +559,9 @@ fn move_with_snap(
     source.x = position.0;
     source.y = position.1;
     let connection = placement::snap(ship, catalog, &mut source);
+    if placement::collides(ship, catalog, &source) {
+        return None;
+    }
     let to = (source.x, source.y);
     let mut commands = vec![
         EditorCommand::Disconnect(id),
@@ -606,7 +602,17 @@ fn sync_ship_visuals(
             .get(&part.part_type)
             .map(|ty| (ty.width as f32 * 30.0, ty.height as f32 * 30.0))
             .unwrap_or((30.0, 30.0));
-        let color = if Some(part.id) == document.selected {
+        let collision = if drag.id == Some(part.id) {
+            let mut preview = part.clone();
+            preview.x = drag.preview.0;
+            preview.y = drag.preview.1;
+            placement::collides(&document.ship, &document.catalog, &preview)
+        } else {
+            false
+        };
+        let color = if collision {
+            Color::srgb(1.0, 0.2, 0.2)
+        } else if Some(part.id) == document.selected {
             Color::srgb(0.95, 0.72, 0.18)
         } else {
             Color::WHITE

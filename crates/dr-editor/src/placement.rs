@@ -1,5 +1,39 @@
 use super::*;
 
+pub(crate) fn collides(ship: &Ship, catalog: &PartCatalog, part: &Part) -> bool {
+    let Some(kind) = catalog.get(&part.part_type) else {
+        return false;
+    };
+    ship.all_parts()
+        .filter(|other| other.id != part.id)
+        .any(|other| {
+            catalog
+                .get(&other.part_type)
+                .is_some_and(|other_kind| dr_core::intersects(part, kind, other, other_kind))
+        })
+}
+
+pub(crate) fn transform(document: &mut EditorDocument, id: i64, command: EditorCommand) {
+    let Some(part) = document.ship.part(id).cloned() else {
+        return;
+    };
+    let mut candidate = Ship {
+        parts: vec![part],
+        ..Ship::default()
+    };
+    if command.apply(&mut candidate).is_err() {
+        return;
+    }
+    if collides(&document.ship, &document.catalog, &candidate.parts[0]) {
+        document.status = "变换后的部件与其他部件重叠".into();
+        return;
+    }
+    document.execute(EditorCommand::Batch(vec![
+        EditorCommand::Disconnect(id),
+        command,
+    ]));
+}
+
 /// 预览和落点提交共用的吸附计算，不改变文档。
 pub(crate) fn snap(ship: &Ship, catalog: &PartCatalog, source: &mut Part) -> Option<Connection> {
     let source_type = catalog.get(&source.part_type)?;
@@ -71,6 +105,7 @@ pub(crate) fn preview(
         .max_occurrences
         .is_none_or(|limit| document.ship.count_type(&kind.id) < limit as usize);
     let connection = snap(&document.ship, &document.catalog, &mut part);
+    let allowed = allowed && !collides(&document.ship, &document.catalog, &part);
     Some((part, connection, allowed))
 }
 
@@ -79,7 +114,7 @@ pub(crate) fn place(document: &mut EditorDocument, cursor: &EditorCursor) -> boo
         return false;
     };
     if !allowed {
-        document.status = "该部件已达到目录规定的数量上限".into();
+        document.status = "无法放置：部件重叠或已达到数量上限".into();
         return false;
     }
     let id = part.id;

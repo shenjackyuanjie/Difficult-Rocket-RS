@@ -74,12 +74,56 @@ pub(crate) fn run(
         }
         4 => {
             keys.reset_all();
+            let pod = document
+                .ship
+                .all_parts()
+                .find(|part| part.pod.is_some())
+                .expect("自测样本需要驾驶舱");
+            window.focused = true;
+            let position = Vec2::new(
+                window.width() / 2.0 + pod.x as f32 * 60.0,
+                window.height() / 2.0 - pod.y as f32 * 60.0,
+            );
+            window.set_cursor_position(Some(position));
             mouse.press(MouseButton::Left);
         }
         5 => {
             assert_eq!(
+                state.before.as_ref(),
+                Some(&document.ship),
+                "重叠位置被错误放置"
+            );
+            assert!(!document.history.can_undo(), "被拒绝的放置产生了撤销记录");
+            assert_eq!(
+                previews.single().unwrap().0.color,
+                Color::srgba(1.0, 0.2, 0.2, 0.65)
+            );
+            use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+            commands
+                .spawn(Screenshot::primary_window())
+                .observe(save_to_disk("target/editor-collision-preview.png"));
+        }
+        6 => {
+            mouse.release(MouseButton::Left);
+            window.focused = true;
+            window.set_cursor_position(Some(Vec2::new(850.0, 600.0)));
+        }
+        7 => {
+            keys.reset_all();
+            window.focused = true;
+            window.set_cursor_position(Some(Vec2::new(850.0, 600.0)));
+            mouse.press(MouseButton::Left);
+        }
+        8 => {
+            assert_eq!(
                 document.ship.all_parts().count(),
-                state.before.as_ref().unwrap().all_parts().count() + 1
+                state.before.as_ref().unwrap().all_parts().count() + 1,
+                "合法放置失败：{}；光标 {:?}，有效 {}，预览 {}，焦点 {}",
+                document.status,
+                cursor.world,
+                cursor.valid,
+                cursor.placing,
+                window.focused,
             );
             assert!(document.dirty);
             state.after = Some(document.ship.clone());
@@ -87,7 +131,7 @@ pub(crate) fn run(
             keys.press(KeyCode::ControlLeft);
             keys.press(KeyCode::KeyZ);
         }
-        6 => {
+        9 => {
             assert_eq!(
                 state.before.as_ref(),
                 Some(&document.ship),
@@ -97,14 +141,14 @@ pub(crate) fn run(
             keys.press(KeyCode::ControlLeft);
             keys.press(KeyCode::KeyY);
         }
-        7 => {
+        10 => {
             assert_eq!(state.after.as_ref(), Some(&document.ship), "重做未恢复部件");
             keys.reset_all();
             window.focused = true;
             window.set_cursor_position(Some(Vec2::new(120.0, 400.0)));
             mouse.press(MouseButton::Left);
         }
-        8 => {
+        11 => {
             assert_eq!(
                 state.after.as_ref(),
                 Some(&document.ship),
@@ -122,7 +166,7 @@ pub(crate) fn run(
                 window: window_id,
             });
         }
-        9 => {
+        12 => {
             assert!(!cursor.placing, "Esc 未取消预览");
             assert!(scrolling.single().unwrap().y > 0.0, "目录滚轮没有滚动列表");
             let Projection::Orthographic(projection) = cameras.single().unwrap() else {
@@ -136,7 +180,7 @@ pub(crate) fn run(
                 .observe(save_to_disk("target/editor-panels-smoke.png"))
                 .observe(
                     |_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-                        info!("面板交互自测通过：选择、放置、撤销重做、取消及侧栏输入隔离");
+                        info!("面板交互自测通过：选择、碰撞拒绝及红色预览、放置、撤销重做、取消及侧栏输入隔离");
                         exit.write(AppExit::Success);
                     },
                 );

@@ -153,3 +153,60 @@ fn new_ship_includes_hidden_pod_with_staging_at_ground_level() {
     let restored = dr_core::ship_from_xml(&dr_core::ship_to_xml(&ship).unwrap()).unwrap();
     assert_eq!(restored, ship);
 }
+
+#[test]
+fn collision_preview_rejects_placement_and_move_without_losing_redo() {
+    let mut document = crate::tests::document();
+    document.catalog = catalog();
+    document.execute(EditorCommand::SetActive(1, true));
+    document.undo();
+    let before = document.ship.clone();
+    let cursor = EditorCursor {
+        world: (0.0, 0.0),
+        ..default()
+    };
+    assert!(!placement::preview(&document, &cursor).unwrap().2);
+    assert!(!placement::place(&mut document, &cursor));
+    assert_eq!(document.ship, before);
+    assert!(document.history.can_redo());
+    let source = document
+        .catalog
+        .get("pod")
+        .unwrap()
+        .instantiate(2, (5.0, 0.0));
+    document.ship.parts.push(source);
+    assert!(move_with_snap(&document.ship, &document.catalog, 2, (0.0, 0.0)).is_none());
+    assert_eq!(document.ship.part(2).unwrap().x, 5.0);
+    document.catalog.types[0].ignore_editor_intersections = true;
+    assert!(move_with_snap(&document.ship, &document.catalog, 2, (0.0, 0.0)).is_some());
+}
+
+#[test]
+fn rejected_rotation_keeps_pose_and_connections_and_valid_rotation_undoes() {
+    let mut document = crate::tests::document();
+    document.catalog = catalog();
+    document.catalog.types[0].width = 4;
+    let source = document
+        .catalog
+        .get("pod")
+        .unwrap()
+        .instantiate(2, (0.0, 1.25));
+    document.ship.parts.push(source);
+    document.ship.connections.push(Connection::Normal {
+        parent: 1,
+        child: 2,
+        parent_attach: 1,
+        child_attach: 2,
+    });
+    let before = document.ship.clone();
+    placement::transform(&mut document, 1, EditorCommand::Rotate(1));
+    assert_eq!(document.ship, before);
+    assert!(!document.history.can_undo());
+    document.ship.part_mut(2).unwrap().y = 5.0;
+    let before = document.ship.clone();
+    placement::transform(&mut document, 1, EditorCommand::Rotate(1));
+    assert_eq!(document.ship.part(1).unwrap().editor_angle, 1);
+    assert!(document.ship.connections.is_empty());
+    assert!(document.undo());
+    assert_eq!(document.ship, before);
+}
