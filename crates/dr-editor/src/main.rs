@@ -1,12 +1,14 @@
 mod files;
+mod panels;
+mod placement;
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 use dr_core::geometry::{Vec2d, contains_point};
 use dr_core::{
-    Connection, EditorCommand, EditorHistory, FuelKind, Part, PartCatalog, PartKind, Ship,
-    find_snap, load_catalog, load_ship, part_world_attach, save_ship,
+    Connection, EditorCommand, EditorHistory, Part, PartCatalog, PartKind, Ship, find_snap,
+    load_catalog, load_ship, part_world_attach, save_ship,
 };
 
 #[derive(Resource, Clone)]
@@ -72,6 +74,11 @@ struct DragState {
 struct EditorCursor {
     world: (f64, f64),
     catalog_index: usize,
+    placing: bool,
+    rotation: i32,
+    flip_x: bool,
+    flip_y: bool,
+    valid: bool,
 }
 
 #[derive(Component)]
@@ -86,6 +93,7 @@ struct CameraDrag(Option<Vec2>);
 struct SmokeTest {
     enabled: bool,
     native_dialogs: bool,
+    panels: bool,
     started: std::time::Instant,
 }
 
@@ -111,9 +119,15 @@ fn main() -> anyhow::Result<()> {
         .to_string_lossy()
         .into_owned();
     App::new()
+        .insert_resource(panels::ShipBrowser::new(
+            std::path::Path::new(&assets).join("ships"),
+        ))
+        .init_resource::<panels::Palette>()
+        .init_resource::<panels::UiPointer>()
         .insert_resource(SmokeTest {
             enabled: args.iter().any(|arg| arg == "--smoke-test"),
             native_dialogs: args.iter().any(|arg| arg == "--native-dialog-test"),
+            panels: args.iter().any(|arg| arg == "--panel-smoke-test"),
             started: std::time::Instant::now(),
         })
         .insert_resource(EditorPaths {
@@ -150,13 +164,21 @@ fn main() -> anyhow::Result<()> {
         .add_systems(
             Update,
             (
+                panels::smoke::run,
+                panels::pointer_over_ui,
+                panels::panel_actions,
                 files::toolbar_actions,
                 files::file_inputs,
+                placement::cancel_for_file_action,
                 files::file_actions,
                 mouse_editor,
                 keyboard_commands,
                 camera_controls,
+                panels::scroll_panels,
                 sync_ship_visuals,
+                placement::draw_preview,
+                panels::render_palette,
+                panels::render_browser,
                 draw_connections,
                 update_hud,
                 files::update_window_title,
@@ -207,7 +229,10 @@ fn capture_screenshot(
 
 fn load_document(ship_path: Option<&str>, catalog_path: &str) -> anyhow::Result<EditorDocument> {
     let catalog = load_catalog(catalog_path)?;
-    let ship = ship_path.map(load_ship).transpose()?.unwrap_or_default();
+    let ship = ship_path
+        .map(load_ship)
+        .transpose()?
+        .unwrap_or_else(|| new_ship(&catalog));
     Ok(EditorDocument {
         saved_ship: ship.clone(),
         status: String::new(),
@@ -219,10 +244,23 @@ fn load_document(ship_path: Option<&str>, catalog_path: &str) -> anyhow::Result<
     })
 }
 
+/// 与原版 assets/builtin/none_ship.xml 一致，新船体自带隐藏的驾驶舱。
+fn new_ship(catalog: &PartCatalog) -> Ship {
+    let Some(pod) = catalog.types.iter().find(|kind| kind.kind == PartKind::Pod) else {
+        return Ship::default();
+    };
+    Ship {
+        touching_ground: false,
+        parts: vec![pod.instantiate(1, (0.0, pod.half_extents().1))],
+        ..Ship::default()
+    }
+}
+
 fn setup_camera(mut commands: Commands) {
     commands.spawn((Camera2d, Name::new("Editor camera")));
 }
 
+#[allow(clippy::too_many_arguments)]
 fn camera_controls(
     mut wheels: MessageReader<MouseWheel>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -230,6 +268,7 @@ fn camera_controls(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
     mut drag: ResMut<CameraDrag>,
+    pointer: Res<panels::UiPointer>,
 ) {
     let Ok(window) = windows.single() else {
         return;
@@ -250,6 +289,11 @@ fn camera_controls(
         wheels.clear();
         return;
     };
+    if pointer.blocked {
+        drag.0 = None;
+        wheels.clear();
+        return;
+    }
     if mouse.pressed(MouseButton::Middle) {
         if let Some(previous) = drag.0 {
             let delta = cursor - previous;
@@ -289,6 +333,7 @@ fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
             },
             BackgroundColor(Color::srgba(0.03, 0.04, 0.06, 0.86)),
             Name::new("Editor HUD"),
+            panels::EditorPanel,
         ))
         .with_children(|root| {
             root.spawn((
@@ -313,6 +358,8 @@ fn keyboard_commands(
     mut document: ResMut<EditorDocument>,
     mut cursor: ResMut<EditorCursor>,
     drag: Res<DragState>,
+    palette: Res<panels::Palette>,
+    pointer: Res<panels::UiPointer>,
 ) {
     if drag.id.is_some() {
         return;
@@ -327,61 +374,26 @@ fn keyboard_commands(
         return;
     }
     if keys.just_pressed(KeyCode::Tab) {
-        let count = document.catalog.visible().count();
-        if count > 0 {
-            cursor.catalog_index = (cursor.catalog_index + 1) % count;
-        }
+        let reverse = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+        panels::cycle_part(&document, &palette, &mut cursor, reverse);
         return;
     }
-    if keys.just_pressed(KeyCode::KeyP) {
-        let selected_type = document
-            .catalog
-            .visible()
-            .nth(cursor.catalog_index)
-            .cloned();
-        if let Some(part_type) = selected_type {
-            if part_type
-                .max_occurrences
-                .is_some_and(|limit| document.ship.count_type(&part_type.id) >= limit as usize)
-            {
-                return;
-            }
-            let id = document.ship.next_part_id();
-            let fuel = part_type
-                .tank
-                .as_ref()
-                .map(|tank| tank.fuel)
-                .or_else(|| (part_type.engine.is_some()).then_some(0.0));
-            let fuel_kind = if part_type.tank.is_some() {
-                Some(FuelKind::Tank)
-            } else if part_type.engine.is_some() {
-                Some(FuelKind::Engine)
-            } else {
-                None
-            };
-            let part = Part {
-                id,
-                part_type: part_type.id.clone(),
-                x: (cursor.world.0 * 2.0).round() / 2.0,
-                y: (cursor.world.1 * 2.0).round() / 2.0,
-                angle: 0.0,
-                editor_angle: 0,
-                angle_v: 0.0,
-                flip_x: false,
-                flip_y: false,
-                active: false,
-                exploded: false,
-                fuel,
-                fuel_kind,
-                extension: None,
-                parachute: Default::default(),
-                lander: Default::default(),
-                pod: (part_type.kind == PartKind::Pod).then_some(Default::default()),
-            };
-            if document.execute(EditorCommand::Place(part.into())) {
-                document.selected = Some(id);
-            }
+    if cursor.placing {
+        if keys.just_pressed(KeyCode::KeyR) {
+            cursor.rotation = (cursor.rotation + 1).rem_euclid(4);
         }
+        if keys.just_pressed(KeyCode::KeyX) {
+            cursor.flip_x = !cursor.flip_x;
+        }
+        if keys.just_pressed(KeyCode::KeyY) {
+            cursor.flip_y = !cursor.flip_y;
+        }
+    }
+    if keys.just_pressed(KeyCode::KeyP) && cursor.valid && !pointer.blocked {
+        placement::place(&mut document, &cursor);
+        return;
+    }
+    if cursor.placing {
         return;
     }
     if keys.just_pressed(KeyCode::Delete)
@@ -419,6 +431,7 @@ fn keyboard_commands(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn mouse_editor(
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -427,9 +440,11 @@ fn mouse_editor(
     mut drag: ResMut<DragState>,
     mut document: ResMut<EditorDocument>,
     mut cursor: ResMut<EditorCursor>,
+    pointer: Res<panels::UiPointer>,
 ) {
     if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right) {
         drag.id = None;
+        cursor.placing = false;
         return;
     }
     let Ok(window) = windows.single() else {
@@ -437,7 +452,15 @@ fn mouse_editor(
     };
     // 失焦或窗口外释放必须取消预览，不能让部件继续粘在鼠标上。
     if !window.focused || window.cursor_position().is_none() {
+        cursor.valid = false;
         if !window.focused || !mouse.pressed(MouseButton::Left) {
+            drag.id = None;
+        }
+        return;
+    }
+    if pointer.blocked {
+        cursor.valid = false;
+        if mouse.just_released(MouseButton::Left) {
             drag.id = None;
         }
         return;
@@ -451,6 +474,13 @@ fn mouse_editor(
     };
     let logical = (world.x as f64 / 60.0, world.y as f64 / 60.0);
     cursor.world = logical;
+    cursor.valid = true;
+    if cursor.placing {
+        if mouse.just_pressed(MouseButton::Left) {
+            placement::place(&mut document, &cursor);
+        }
+        return;
+    }
     if mouse.just_pressed(MouseButton::Left) {
         let selected = document
             .ship
@@ -488,6 +518,14 @@ fn mouse_editor(
             drag.origin.1 + dy.round() / 2.0,
         );
     }
+    if let Some(id) = drag.id
+        && let Some(mut part) = document.ship.part(id).cloned()
+    {
+        part.x = drag.preview.0;
+        part.y = drag.preview.1;
+        placement::snap(&document.ship, &document.catalog, &mut part);
+        drag.preview = (part.x, part.y);
+    }
     if mouse.just_released(MouseButton::Left)
         && let Some(id) = drag.id.take()
         && drag.preview != drag.origin
@@ -510,48 +548,8 @@ fn move_with_snap(
     let origin = (source.x, source.y);
     source.x = position.0;
     source.y = position.1;
-    let mut best = None;
-    if let Some(source_type) = catalog.get(&source.part_type) {
-        for target in ship.all_parts().filter(|target| target.id != id) {
-            let Some(target_type) = catalog.get(&target.part_type) else {
-                continue;
-            };
-            if let Some(candidate) = find_snap(&source, source_type, target, target_type, 0.35)
-                && best
-                    .as_ref()
-                    .is_none_or(|(_, prior): &(Connection, dr_core::SnapCandidate)| {
-                        candidate.distance < prior.distance
-                    })
-            {
-                let connection = if candidate.dock {
-                    let dock = if source_type.kind == PartKind::DockConnector {
-                        id
-                    } else if target_type.kind == PartKind::DockConnector {
-                        target.id
-                    } else {
-                        continue;
-                    };
-                    Connection::Dock {
-                        dock,
-                        parent: target.id,
-                        child: id,
-                    }
-                } else {
-                    Connection::Normal {
-                        parent: target.id,
-                        child: id,
-                        parent_attach: candidate.target_index as i32 + 1,
-                        child_attach: candidate.source_index as i32 + 1,
-                    }
-                };
-                best = Some((connection, candidate));
-            }
-        }
-    }
-    let to = best
-        .as_ref()
-        .map(|(_, candidate)| (candidate.position.x, candidate.position.y))
-        .unwrap_or(position);
+    let connection = placement::snap(ship, catalog, &mut source);
+    let to = (source.x, source.y);
     let mut commands = vec![
         EditorCommand::Disconnect(id),
         EditorCommand::Move {
@@ -560,7 +558,7 @@ fn move_with_snap(
             to,
         },
     ];
-    if let Some((connection, _)) = best {
+    if let Some(connection) = connection {
         commands.push(EditorCommand::Connect(connection));
     }
     Some(EditorCommand::Batch(commands))
@@ -629,8 +627,11 @@ fn sync_ship_visuals(
 }
 
 /// 绘制 SR1 连接关系，帮助用户确认吸附和连接点是否正确。
-fn draw_connections(mut gizmos: Gizmos, document: Res<EditorDocument>) {
+fn draw_connections(mut gizmos: Gizmos, document: Res<EditorDocument>, drag: Res<DragState>) {
     for connection in document.ship.all_connections() {
+        if drag.id.is_some_and(|id| connection.touches(id)) {
+            continue;
+        }
         let (parent_id, child_id, parent_attach, child_attach) = match connection {
             Connection::Normal {
                 parent,

@@ -147,7 +147,7 @@ fn apply_action(
         FileAction::Exit => return can_replace(document, paths, dialogs),
         FileAction::New => {
             if can_replace(document, paths, dialogs) {
-                replace_document(document, Ship::default());
+                replace_document(document, new_ship(&document.catalog));
                 paths.ship = None;
                 document.status = "已新建船体".into();
             }
@@ -281,6 +281,7 @@ pub(crate) fn setup_file_toolbar(mut commands: Commands, assets: Res<AssetServer
                 ..default()
             },
             Name::new("文件工具栏"),
+            panels::EditorPanel,
         ))
         .with_children(|root| {
             for (label, action) in [

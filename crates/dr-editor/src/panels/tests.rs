@@ -1,0 +1,155 @@
+use super::*;
+
+pub(crate) fn catalog() -> PartCatalog {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("目录.xml");
+    std::fs::write(&path, r#"<PartTypes>
+        <PartType id="pod" name="驾驶舱" type="pod" width="2" height="2"><AttachPoints><AttachPoint x="-1"/><AttachPoint x="1"/></AttachPoints></PartType>
+        <PartType id="hidden" name="隐藏" hidden="true"/>
+        <PartType id="engine" name="发动机" type="engine" width="2" height="2" category="推进" maxOccurrences="1"><Engine power="1"/></PartType>
+        <PartType id="tank" name="燃料箱" type="tank" width="2" height="2" category="推进" disableEditorRotation="true"><Tank fuel="100"/></PartType>
+    </PartTypes>"#).unwrap();
+    load_catalog(path).unwrap()
+}
+
+#[test]
+fn category_and_keyboard_navigation_exclude_hidden_parts() {
+    let mut document = crate::tests::document();
+    document.catalog = catalog();
+    let mut palette = Palette::default();
+    assert_eq!(palette.indices(&document.catalog), vec![0, 1, 2]);
+    palette.category = Some("推进".into());
+    assert_eq!(palette.indices(&document.catalog), vec![1, 2]);
+    let mut cursor = EditorCursor {
+        catalog_index: 1,
+        ..default()
+    };
+    cycle_part(&document, &palette, &mut cursor, false);
+    assert_eq!(cursor.catalog_index, 2);
+    assert!(cursor.placing);
+    cycle_part(&document, &palette, &mut cursor, false);
+    assert_eq!(cursor.catalog_index, 1);
+    cycle_part(&document, &palette, &mut cursor, true);
+    assert_eq!(cursor.catalog_index, 2);
+}
+
+#[test]
+fn folder_listing_filters_invalid_files_and_retains_previous_folder_on_error() {
+    let directory = tempfile::tempdir().unwrap();
+    save_ship(directory.path().join("B.xml"), &Ship::default()).unwrap();
+    save_ship(directory.path().join("a.XML"), &Ship::default()).unwrap();
+    std::fs::write(directory.path().join("bad.xml"), "<NotShip/>").unwrap();
+    std::fs::write(directory.path().join("ignore.txt"), "<Ship/>").unwrap();
+    std::fs::create_dir(directory.path().join("folder.xml")).unwrap();
+    let mut browser = ShipBrowser::new(directory.path().to_path_buf());
+    assert_eq!(browser.files.len(), 2);
+    assert_eq!(browser.files[0].file_name().unwrap(), "a.XML");
+    assert_eq!(browser.rejected, 1);
+    let before = browser.files.clone();
+    browser.set_folder(directory.path().join("missing"));
+    assert_eq!(browser.folder, directory.path());
+    assert_eq!(browser.files, before);
+    assert!(browser.error.is_some());
+}
+
+#[test]
+fn palette_click_selects_template_without_mutating_ship_or_history() {
+    let mut document = crate::tests::document();
+    document.catalog = catalog();
+    let before = document.ship.clone();
+    let mut app = App::new();
+    app.insert_resource(document)
+        .init_resource::<Palette>()
+        .init_resource::<ShipBrowser>()
+        .init_resource::<EditorCursor>()
+        .init_resource::<DragState>()
+        .add_message::<files::FileAction>()
+        .add_systems(Update, panel_actions);
+    app.world_mut()
+        .spawn((PanelButton::Part(2), Interaction::Pressed));
+    app.update();
+    let cursor = app.world().resource::<EditorCursor>();
+    assert_eq!(cursor.catalog_index, 2);
+    assert!(cursor.placing);
+    let document = app.world().resource::<EditorDocument>();
+    assert_eq!(document.ship, before);
+    assert!(!document.dirty);
+    assert!(!document.history.can_undo());
+}
+
+#[test]
+fn preview_and_placement_share_snap_and_undo_restores_whole_operation() {
+    let mut document = crate::tests::document();
+    document.catalog = catalog();
+    let before = document.ship.clone();
+    let cursor = EditorCursor {
+        world: (1.2, 0.0),
+        placing: true,
+        valid: true,
+        ..default()
+    };
+    let (preview, connection, allowed) = placement::preview(&document, &cursor).unwrap();
+    assert!(allowed && connection.is_some());
+    assert_eq!((preview.x, preview.y), (1.0, 0.0));
+    assert_eq!(document.ship, before);
+    assert!(placement::place(&mut document, &cursor));
+    assert_eq!(document.ship.part(preview.id), Some(&preview));
+    assert_eq!(document.ship.connections, vec![connection.unwrap()]);
+    assert!(document.undo());
+    assert_eq!(document.ship, before);
+    assert!(!document.history.can_undo());
+}
+
+#[test]
+fn templates_respect_fuel_rotation_flags_and_occurrence_limits() {
+    let mut document = crate::tests::document();
+    document.catalog = catalog();
+    let mut cursor = EditorCursor {
+        catalog_index: 2,
+        world: (10.0, 10.0),
+        rotation: 1,
+        flip_x: true,
+        ..default()
+    };
+    let (tank, _, _) = placement::preview(&document, &cursor).unwrap();
+    assert_eq!(tank.fuel, Some(100.0));
+    assert_eq!(tank.fuel_kind, Some(dr_core::FuelKind::Tank));
+    assert_eq!(tank.angle, 0.0);
+    assert!(tank.flip_x);
+    cursor.catalog_index = 1;
+    assert!(placement::place(&mut document, &cursor));
+    let before = document.ship.clone();
+    assert!(!placement::preview(&document, &cursor).unwrap().2);
+    assert!(!placement::place(&mut document, &cursor));
+    assert_eq!(document.ship, before);
+    let pod = document
+        .catalog
+        .get("pod")
+        .unwrap()
+        .instantiate(99, (0.0, 0.0));
+    assert!(pod.pod.unwrap().staging.is_some());
+}
+
+#[test]
+fn new_ship_includes_hidden_pod_with_staging_at_ground_level() {
+    let mut catalog = catalog();
+    catalog.types[0].hidden = true;
+    let ship = new_ship(&catalog);
+    assert_eq!(ship.parts.len(), 1);
+    let pod = &ship.parts[0];
+    assert_eq!(pod.part_type, "pod");
+    assert_eq!((pod.x, pod.y), (0.0, 0.5));
+    assert!(!ship.touching_ground);
+    assert_eq!(
+        pod.pod
+            .as_ref()
+            .unwrap()
+            .staging
+            .as_ref()
+            .unwrap()
+            .current_stage,
+        0
+    );
+    let restored = dr_core::ship_from_xml(&dr_core::ship_to_xml(&ship).unwrap()).unwrap();
+    assert_eq!(restored, ship);
+}
