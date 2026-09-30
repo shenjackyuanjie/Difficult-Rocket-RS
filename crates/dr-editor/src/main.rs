@@ -1,8 +1,10 @@
 mod connection_smoke;
 mod files;
 mod panels;
+mod performance;
 mod placement;
 mod properties;
+mod render;
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
@@ -87,8 +89,6 @@ struct EditorCursor {
 }
 
 #[derive(Component)]
-struct ShipPartVisual;
-#[derive(Component)]
 struct EditorHud;
 
 #[derive(Resource, Default)]
@@ -101,6 +101,7 @@ struct SmokeTest {
     panels: bool,
     properties: bool,
     connections: bool,
+    performance: bool,
     started: std::time::Instant,
 }
 
@@ -138,6 +139,7 @@ fn main() -> anyhow::Result<()> {
             panels: args.iter().any(|arg| arg == "--panel-smoke-test"),
             properties: args.iter().any(|arg| arg == "--properties-smoke-test"),
             connections: args.iter().any(|arg| arg == "--connection-smoke-test"),
+            performance: args.iter().any(|arg| arg == "--performance-test"),
             started: std::time::Instant::now(),
         })
         .insert_resource(EditorPaths {
@@ -183,6 +185,7 @@ fn main() -> anyhow::Result<()> {
                     panels::smoke::run,
                     properties::smoke::run,
                     connection_smoke::run,
+                    performance::run,
                     panels::pointer_over_ui,
                     properties::actions,
                     properties::input,
@@ -198,12 +201,12 @@ fn main() -> anyhow::Result<()> {
                 )
                     .chain(),
                 panels::scroll_panels,
-                sync_ship_visuals,
+                render::sync,
                 placement::draw_preview,
                 panels::render_palette,
                 panels::render_browser,
                 properties::render,
-                draw_connections,
+                render::connections,
                 update_hud,
                 files::update_window_title,
                 capture_screenshot,
@@ -582,97 +585,6 @@ fn move_with_snap(
         commands.push(EditorCommand::Connect(connection));
     }
     Some(EditorCommand::Batch(commands))
-}
-
-fn sync_ship_visuals(
-    mut commands: Commands,
-    document: Res<EditorDocument>,
-    existing: Query<Entity, With<ShipPartVisual>>,
-    drag: Res<DragState>,
-    assets: Res<AssetServer>,
-) {
-    if !document.is_changed() && !drag.is_changed() {
-        return;
-    }
-    for entity in &existing {
-        commands.entity(entity).despawn();
-    }
-    for part in document.ship.parts.iter().chain(
-        document
-            .ship
-            .disconnected
-            .iter()
-            .flat_map(|group| group.parts.iter()),
-    ) {
-        let (width, height) = document
-            .catalog
-            .get(&part.part_type)
-            .map(|ty| (ty.width as f32 * 30.0, ty.height as f32 * 30.0))
-            .unwrap_or((30.0, 30.0));
-        let collision = if drag.id == Some(part.id) {
-            let mut preview = part.clone();
-            preview.x = drag.preview.0;
-            preview.y = drag.preview.1;
-            placement::collides(&document.ship, &document.catalog, &preview)
-        } else {
-            false
-        };
-        let color = if collision {
-            Color::srgb(1.0, 0.2, 0.2)
-        } else if Some(part.id) == document.selected {
-            Color::srgb(0.95, 0.72, 0.18)
-        } else {
-            Color::WHITE
-        };
-        let (x, y) = if drag.id == Some(part.id) {
-            drag.preview
-        } else {
-            (part.x, part.y)
-        };
-        let sprite = document
-            .catalog
-            .get(&part.part_type)
-            .map(|ty| ty.sprite.as_str())
-            .unwrap_or("");
-        let mut visual = if sprite.is_empty() {
-            Sprite::from_color(color, Vec2::new(width, height))
-        } else {
-            Sprite::from_image(assets.load(format!("textures/parts/{sprite}")))
-        };
-        visual.custom_size = Some(Vec2::new(width, height));
-        visual.color = color;
-        visual.flip_x = part.flip_x;
-        visual.flip_y = part.flip_y;
-        commands.spawn((
-            visual,
-            Transform {
-                translation: Vec3::new(x as f32 * 60.0, y as f32 * 60.0, 0.0),
-                rotation: Quat::from_rotation_z(part.angle as f32),
-                ..default()
-            },
-            ShipPartVisual,
-            Name::new(format!("Part {}", part.id)),
-        ));
-    }
-}
-
-/// 绘制 SR1 连接关系，帮助用户确认吸附和连接点是否正确。
-fn draw_connections(mut gizmos: Gizmos, document: Res<EditorDocument>, drag: Res<DragState>) {
-    for connection in document.ship.all_connections() {
-        if drag.id.is_some_and(|id| connection.touches(id)) {
-            continue;
-        }
-        let Some((parent, child)) =
-            dr_core::connections::positions(&document.ship, &document.catalog, connection)
-        else {
-            continue;
-        };
-        gizmos.line_2d(
-            Vec2::new(parent.x as f32 * 60.0, parent.y as f32 * 60.0),
-            Vec2::new(child.x as f32 * 60.0, child.y as f32 * 60.0),
-            Color::srgb(0.25, 0.9, 0.55),
-        );
-    }
 }
 
 fn update_hud(
