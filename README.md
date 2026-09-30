@@ -17,15 +17,21 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 | 切换待放置部件、放置 | Tab、P |
 | 删除、旋转、镜像 | Delete、R、X / Y |
 | 撤销、重做 | Ctrl+Z、Ctrl+Y |
-| 保存 | Ctrl+S；保存至输入路径，空白文档暂存为 `editor-output.xml` |
+| 新建、打开 | Ctrl+N、Ctrl+O；支持单个 XML 文件拖入 |
+| 保存、另存为 | Ctrl+S、Ctrl+Shift+S；首次保存选择目标文件 |
 | 鼠标位置缩放、平移、视图复位 | 滚轮、中键拖动、Home |
 | 截图 | F12，输出到当前目录 |
+
+文件操作也可使用顶部工具栏。新建、打开和退出前会提示保存、放弃或取消；保存或打开失败时保留当前文档。保存先写入同目录临时文件再替换目标，不直接截断原文件。无法解释的 XML 根节点、扩展字段和异常内容会报错，避免静默丢失数据后覆盖保存。
 
 ```powershell
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p dr-core --example verify_ships -- ../Difficult-Rocket/assets/ships
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --smoke-test
+python -X utf8 scripts/check_native_dialogs.py
 ```
 
-最后一条启动真实窗口，在约 5 秒后截图并自动退出，图片位于 `target/editor-smoke.png`。它验证启动和渲染，不代替交互测试。船体批量校验遇到异常输入会报告并继续检查剩余文件，最后以失败状态退出；不会修改样本。
+`--smoke-test` 启动真实窗口，在约 5 秒后截图并自动退出，图片位于 `target/editor-smoke.png`。它验证启动和渲染，不代替交互测试。最后一条是 Windows 原生对话框测试：使用构建好的程序，自动验证取消和退出保护，不保存样本，也不要求抢占桌面焦点。
+
+船体批量校验同时对照模型和输入 XML 的原始元素、属性；遇到异常输入会报告并继续检查剩余文件，最后以失败状态退出，不修改样本。当前原版库有 185 个正常船体和 5 个被拒绝的异常输入，详见进度文档。
