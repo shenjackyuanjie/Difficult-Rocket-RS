@@ -178,6 +178,7 @@ struct SmokeTest {
     properties: bool,
     connections: bool,
     performance: bool,
+    performance_selection_count: usize,
     scoped: bool,
     repair: bool,
     selection: bool,
@@ -219,6 +220,11 @@ fn main() -> anyhow::Result<()> {
             properties: args.iter().any(|arg| arg == "--properties-smoke-test"),
             connections: args.iter().any(|arg| arg == "--connection-smoke-test"),
             performance: args.iter().any(|arg| arg == "--performance-test"),
+            performance_selection_count: args
+                .windows(2)
+                .find(|pair| pair[0] == "--performance-selection-count")
+                .and_then(|pair| pair[1].parse().ok())
+                .unwrap_or(1),
             scoped: args.iter().any(|arg| arg == "--scoped-smoke-test"),
             repair: args.iter().any(|arg| arg == "--repair-smoke-test"),
             selection: args.iter().any(|arg| arg == "--selection-smoke-test"),

@@ -98,6 +98,24 @@ pub(crate) fn run(
                 document.selected =
                     Some(PartKey::new(state.moving.0, state.moving.1, state.moving.2));
                 drag.id = Some(PartKey::new(state.moving.0, state.moving.1, state.moving.2));
+                if mode.performance_selection_count > 1 {
+                    let anchor = document.selected.unwrap();
+                    let mut nearest: Vec<_> = document.ship.keyed_parts().collect();
+                    nearest.sort_by(|(_, a), (_, b)| {
+                        (a.x - state.origin.0)
+                            .hypot(a.y - state.origin.1)
+                            .total_cmp(&(b.x - state.origin.0).hypot(b.y - state.origin.1))
+                    });
+                    let mut selected: BTreeSet<_> = nearest
+                        .into_iter()
+                        .map(|(key, _)| key)
+                        .filter(|key| *key != anchor)
+                        .take(mode.performance_selection_count - 1)
+                        .collect();
+                    selected.insert(anchor);
+                    document.selection = selected.clone();
+                    drag.members = selected;
+                }
                 drag.origin = state.origin;
                 drag.preview = state.origin;
                 drag.offset = (0.0, 0.0);
@@ -149,8 +167,9 @@ pub(crate) fn run(
             let p95 = state.frame_ms[(count * 95 / 100).min(count - 1)];
             let max = state.frame_ms[count - 1];
             let report = format!(
-                "{{\"parts\":{},\"frames\":{count},\"average_ms\":{average:.3},\"median_ms\":{median:.3},\"p95_ms\":{p95:.3},\"max_ms\":{max:.3},\"recreated_entities\":0}}\n",
-                now.len()
+                "{{\"parts\":{},\"selected\":{},\"frames\":{count},\"average_ms\":{average:.3},\"median_ms\":{median:.3},\"p95_ms\":{p95:.3},\"max_ms\":{max:.3},\"recreated_entities\":0}}\n",
+                now.len(),
+                document.selected_keys().len()
             );
             std::fs::write("target/editor-performance.json", &report).unwrap();
             info!("大船体性能自测通过：{}", report.trim());

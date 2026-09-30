@@ -32,6 +32,41 @@ fn connection(parent: i64, child: i64, pa: i32, ca: i32) -> Connection {
 }
 
 #[test]
+fn distant_rejection_preserves_offset_points_and_rotated_surface_ends() {
+    let catalog = catalog();
+    let mut kind = catalog.get("small").unwrap().clone();
+    kind.attach_points.truncate(1);
+    kind.attach_points[0].location.clear();
+    kind.attach_points[0].x = 100.0;
+    kind.attach_points[0].y = 0.0;
+    for angle in [0.0_f64, 0.37, std::f64::consts::FRAC_PI_2] {
+        let mut source = kind.instantiate(1, (0.0, 0.0));
+        source.angle = angle;
+        let mut target = kind.instantiate(2, (100.0 * angle.cos(), 100.0 * angle.sin()));
+        target.angle = angle;
+        target.flip_x = true;
+        assert_eq!(candidates(&source, &kind, &target, &kind, 0.001).len(), 1);
+        target.x += 1000.0;
+        assert!(candidates(&source, &kind, &target, &kind, 0.35).is_empty());
+    }
+    let beam = catalog.get("beam").unwrap();
+    let small = catalog.get("small").unwrap();
+    for angle in [0.0_f64, 0.37, std::f64::consts::FRAC_PI_2] {
+        let mut source = beam.instantiate(1, (0.0, 0.0));
+        source.angle = angle;
+        let mut target = small.instantiate(
+            2,
+            (
+                2.0 * angle.cos() - angle.sin(),
+                2.0 * angle.sin() + angle.cos(),
+            ),
+        );
+        target.angle = angle;
+        assert!(!candidates(&source, beam, &target, small, 0.001).is_empty());
+    }
+}
+
+#[test]
 fn occupancy_only_uses_the_target_group_and_does_not_ignore_a_foreign_duplicate() {
     use crate::{PartKey, ShipGroup};
     let catalog = catalog();

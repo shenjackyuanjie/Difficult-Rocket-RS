@@ -93,6 +93,34 @@ pub fn intersects(a: &Part, at: &PartType, b: &Part, bt: &PartType) -> bool {
         .any(|a| b_shapes.iter().any(|b| shapes_intersect(a, b)))
 }
 
+/// 一次预览中的静止部件集合；缓存目录查询和保守半径，供多个落点重复检查。
+pub struct CollisionSet<'a>(Vec<(&'a Part, &'a PartType, f64)>);
+
+impl<'a> CollisionSet<'a> {
+    pub fn new(parts: impl Iterator<Item = &'a Part>, catalog: &'a crate::PartCatalog) -> Self {
+        Self(
+            parts
+                .filter_map(|part| {
+                    let kind = catalog.get(&part.part_type)?;
+                    (!kind.ignore_editor_intersections).then(|| (part, kind, bounding_radius(kind)))
+                })
+                .collect(),
+        )
+    }
+
+    pub fn intersects(&self, part: &Part, kind: &PartType) -> bool {
+        if kind.ignore_editor_intersections {
+            return false;
+        }
+        let radius = bounding_radius(kind);
+        self.0.iter().any(|(other, other_kind, other_radius)| {
+            let distance_squared = (part.x - other.x).powi(2) + (part.y - other.y).powi(2);
+            distance_squared <= (radius + other_radius).powi(2)
+                && intersects(part, kind, other, other_kind)
+        })
+    }
+}
+
 const EPSILON: f64 = 1e-9;
 
 /// 框选依据实际实体轮廓；允许重叠的部件仍然可以被选择。
@@ -351,6 +379,56 @@ mod tests {
             shapes: vec![],
         }
     }
+    #[test]
+    fn cached_collision_set_matches_direct_shapes_and_exemptions() {
+        let mut triangle = t(vec![]);
+        triangle.id = "triangle".into();
+        triangle.shapes = vec![crate::PolygonShape {
+            // 轮廓超出贴图边界，不能按 width/height 剔除。
+            vertices: vec![(4.0, -2.0), (8.0, -2.0), (4.0, 2.0)],
+            sensor: false,
+        }];
+        let mut wheel = t(vec![]);
+        wheel.id = "wheel".into();
+        wheel.kind = PartKind::Wheel;
+        wheel.width = 4;
+        wheel.height = 4;
+        let mut ignored = t(vec![]);
+        ignored.id = "ignored".into();
+        ignored.ignore_editor_intersections = true;
+        let catalog = crate::PartCatalog::new("测试", vec![t(vec![]), triangle, wheel, ignored]);
+        let targets: Vec<_> = catalog
+            .types
+            .iter()
+            .enumerate()
+            .map(|(i, kind)| {
+                let mut part = kind.instantiate(i as i64 + 1, (i as f64 * 5.0, 0.0));
+                part.angle = 0.37;
+                part.flip_x = true;
+                part
+            })
+            .collect();
+        let cached = CollisionSet::new(targets.iter(), &catalog);
+        for kind in &catalog.types {
+            for angle in [0.0, 0.71, std::f64::consts::FRAC_PI_2] {
+                for x in -20..=80 {
+                    let mut part = kind.instantiate(100, (x as f64 / 4.0, 0.13));
+                    part.angle = angle;
+                    part.flip_y = true;
+                    let direct = targets.iter().any(|other| {
+                        intersects(&part, kind, other, catalog.get(&other.part_type).unwrap())
+                    });
+                    assert_eq!(
+                        cached.intersects(&part, kind),
+                        direct,
+                        "{} {angle} {x}",
+                        kind.id
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn rectangle_selection_uses_shape_and_ignores_collision_exemption() {
         let mut kind = t(vec![]);

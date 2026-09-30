@@ -143,6 +143,11 @@ pub fn candidates(
     if !threshold.is_finite() || threshold < 0.0 {
         return vec![];
     }
+    // 连接面可能超出贴图边界，必须按连接点偏移和整段长度保守排除远处部件。
+    let radius = attachment_radius(st) + attachment_radius(tt) + threshold + EPSILON;
+    if (source.x - target.x).hypot(source.y - target.y) > radius {
+        return vec![];
+    }
     let mut result = vec![];
     for (source_index, sa) in st.attach_points.iter().enumerate() {
         for (target_index, ta) in tt.attach_points.iter().enumerate() {
@@ -183,6 +188,25 @@ pub fn candidates(
             })
     });
     result
+}
+
+/// 所有连接点及沿边连接面的保守半径，包含超出贴图边界的偏移。
+pub fn attachment_radius(kind: &PartType) -> f64 {
+    kind.attach_points
+        .iter()
+        .map(|attach| {
+            let (x, y) = (attach.x.abs() / 2.0, attach.y.abs() / 2.0);
+            match attach.location.as_str() {
+                "Top" | "Bottom" | "TopSide" | "BottomSide" => {
+                    (x + kind.width as f64 / 4.0).hypot(y)
+                }
+                "Left" | "Right" | "LeftSide" | "RightSide" => {
+                    x.hypot(y + kind.height as f64 / 4.0)
+                }
+                _ => x.hypot(y),
+            }
+        })
+        .fold(0.0, f64::max)
 }
 
 /// 同一接触面可有多个接触位置；固定点和共享 group 独占。

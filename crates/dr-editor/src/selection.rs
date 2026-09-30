@@ -85,6 +85,15 @@ fn snaps(
         .iter()
         .copied()
         .filter(|(key, _)| !selected.contains(key))
+        .filter_map(|(key, part)| {
+            let kind = catalog.get(&part.part_type)?;
+            Some((
+                key,
+                part,
+                kind,
+                dr_core::connections::attachment_radius(kind),
+            ))
+        })
         .collect();
     let mut result = vec![];
     for &(source_key, source) in parts.iter().filter(|(key, _)| selected.contains(key)) {
@@ -94,10 +103,12 @@ fn snaps(
         let mut source = source.clone();
         source.x += delta.0;
         source.y += delta.1;
-        for &(target_key, target) in &targets {
-            let Some(tt) = catalog.get(&target.part_type) else {
+        let source_radius = dr_core::connections::attachment_radius(st);
+        for &(target_key, target, tt, target_radius) in &targets {
+            let distance_squared = (source.x - target.x).powi(2) + (source.y - target.y).powi(2);
+            if distance_squared > (source_radius + target_radius + 0.350001).powi(2) {
                 continue;
-            };
+            }
             for candidate in dr_core::connections::candidates(&source, st, target, tt, 0.35) {
                 let kind = if candidate.dock {
                     LinkKind::Dock {
@@ -145,13 +156,60 @@ pub(crate) fn movement(
         },
     };
     if delta != (0.0, 0.0) {
-        for (_, offset, connection) in snaps(&document.ship, &document.catalog, keys, delta) {
-            let command = EditorCommand::Batch(vec![translate(offset), connection]);
-            if command
-                .preview_with_catalog(&document.ship, &document.catalog)
-                .is_ok()
-            {
-                return (offset, command, true);
+        let selected: HashSet<_> = keys.iter().copied().collect();
+        let collision_set = dr_core::geometry::CollisionSet::new(
+            document
+                .ship
+                .keyed_parts()
+                .filter(|(key, _)| !selected.contains(key))
+                .map(|(_, part)| part),
+            &document.catalog,
+        );
+        let moving: Vec<_> = document
+            .ship
+            .keyed_parts()
+            .filter(|(key, _)| selected.contains(key))
+            .filter_map(|(_, part)| {
+                document
+                    .catalog
+                    .get(&part.part_type)
+                    .map(|kind| (part, kind))
+            })
+            .collect();
+        let mut invalid_offsets = HashSet::new();
+        let candidates = snaps(&document.ship, &document.catalog, keys, delta);
+        for (_, offset, connection) in candidates {
+            let offset_key = (offset.0.to_bits(), offset.1.to_bits());
+            if invalid_offsets.contains(&offset_key) {
+                continue;
+            }
+            if moving.iter().any(|(part, kind)| {
+                let mut proposed = (*part).clone();
+                proposed.x += offset.0;
+                proposed.y += offset.1;
+                collision_set.intersects(&proposed, kind)
+            }) {
+                invalid_offsets.insert(offset_key);
+                continue;
+            }
+            let movement = translate(offset);
+            match movement.preview_with_catalog(&document.ship, &document.catalog) {
+                Ok(moved) => {
+                    if connection
+                        .preview_with_catalog(&moved, &document.catalog)
+                        .is_ok()
+                    {
+                        return (
+                            offset,
+                            EditorCommand::Batch(vec![movement, connection]),
+                            true,
+                        );
+                    }
+                }
+                Err(_) => {
+                    // 同一落点的整体碰撞与连接点选择无关，只校验一次。
+                    invalid_offsets.insert(offset_key);
+                }
             }
         }
     }
@@ -293,17 +351,43 @@ fn paste_preview(document: &EditorDocument, cursor: &EditorCursor) -> Option<Pas
             .filter(|(_, part)| !existing.contains(&part.id))
             .map(|(key, _)| key)
             .collect();
+        let mut invalid_offsets = HashSet::new();
+        let collision_set =
+            dr_core::geometry::CollisionSet::new(document.ship.all_parts(), &document.catalog);
         for (_, delta, connection) in snaps(&temporary, &document.catalog, &added, (0.0, 0.0)) {
             let proposed = (offset.0 + delta.0, offset.1 + delta.1);
-            let candidate = EditorCommand::Batch(vec![paste(proposed), connection]);
-            if candidate
-                .preview_with_catalog(&document.ship, &document.catalog)
-                .is_ok()
-            {
-                offset = proposed;
-                command = candidate;
-                snapped = true;
-                break;
+            let offset_key = (proposed.0.to_bits(), proposed.1.to_bits());
+            if invalid_offsets.contains(&offset_key) {
+                continue;
+            }
+            if fragment.parts().any(|part| {
+                let Some(kind) = document.catalog.get(&part.part_type) else {
+                    return false;
+                };
+                let mut part = part.clone();
+                part.x += proposed.0;
+                part.y += proposed.1;
+                collision_set.intersects(&part, kind)
+            }) {
+                invalid_offsets.insert(offset_key);
+                continue;
+            }
+            let paste = paste(proposed);
+            match paste.preview_with_catalog(&document.ship, &document.catalog) {
+                Ok(pasted) => {
+                    if connection
+                        .preview_with_catalog(&pasted, &document.catalog)
+                        .is_ok()
+                    {
+                        offset = proposed;
+                        command = EditorCommand::Batch(vec![paste, connection]);
+                        snapped = true;
+                        break;
+                    }
+                }
+                Err(_) => {
+                    invalid_offsets.insert(offset_key);
+                }
             }
         }
     }
