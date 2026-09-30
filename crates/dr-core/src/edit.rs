@@ -1,4 +1,4 @@
-use crate::model::{Connection, Part, PartId, Ship};
+use crate::model::{Connection, Part, PartId, Ship, StagingState};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -25,6 +25,11 @@ pub enum EditorCommand {
     FlipY(PartId),
     Connect(Connection),
     Disconnect(PartId),
+    SetActive(PartId, bool),
+    SetFuel(PartId, f64),
+    RenamePod(PartId, String),
+    SetThrottle(PartId, f64),
+    SetStaging(PartId, Option<StagingState>),
     Batch(Vec<EditorCommand>),
 }
 
@@ -108,6 +113,49 @@ impl EditorCommand {
                 for command in commands {
                     command.apply_inner(ship)?;
                 }
+            }
+            Self::SetActive(id, active) => {
+                ship.part_mut(*id)
+                    .ok_or(CommandError::MissingPart(*id))?
+                    .active = *active;
+            }
+            Self::SetFuel(id, fuel) => {
+                let part = ship.part_mut(*id).ok_or(CommandError::MissingPart(*id))?;
+                if !fuel.is_finite() || *fuel < 0.0 || part.fuel_kind.is_none() {
+                    return Err(CommandError::Invalid);
+                }
+                part.fuel = Some(*fuel);
+            }
+            Self::RenamePod(id, name) => {
+                let part = ship.part_mut(*id).ok_or(CommandError::MissingPart(*id))?;
+                part.pod.as_mut().ok_or(CommandError::Invalid)?.name = name.clone();
+            }
+            Self::SetThrottle(id, throttle) => {
+                if !throttle.is_finite() || !(0.0..=1.0).contains(throttle) {
+                    return Err(CommandError::Invalid);
+                }
+                let part = ship.part_mut(*id).ok_or(CommandError::MissingPart(*id))?;
+                part.pod.as_mut().ok_or(CommandError::Invalid)?.throttle = *throttle;
+            }
+            Self::SetStaging(id, staging) => {
+                if let Some(staging) = staging {
+                    if staging.current_stage < 0 {
+                        return Err(CommandError::Invalid);
+                    }
+                    for step in &staging.steps {
+                        let mut ids = std::collections::HashSet::new();
+                        for activation in &step.activations {
+                            if ship.part(activation.id).is_none() {
+                                return Err(CommandError::MissingPart(activation.id));
+                            }
+                            if !ids.insert(activation.id) {
+                                return Err(CommandError::Invalid);
+                            }
+                        }
+                    }
+                }
+                let part = ship.part_mut(*id).ok_or(CommandError::MissingPart(*id))?;
+                part.pod.as_mut().ok_or(CommandError::Invalid)?.staging = staging.clone();
             }
             Self::Disconnect(id) => {
                 if ship.part(*id).is_none() {
@@ -416,5 +464,125 @@ mod tests {
         assert!(ship.parts.is_empty());
         assert!(history.redo(&mut ship));
         assert_eq!(ship.parts.len(), 1);
+    }
+
+    #[test]
+    fn properties_and_staging_are_one_transaction_and_roundtrip_xml() {
+        use crate::{Activation, FuelKind, PodState, StageStep};
+        let mut pod = part(1);
+        pod.pod = Some(PodState::default());
+        let mut tank = part(2);
+        tank.fuel_kind = Some(FuelKind::Tank);
+        tank.fuel = Some(10.0);
+        let mut ship = Ship {
+            parts: vec![pod, tank],
+            ..Ship::default()
+        };
+        let before = ship.clone();
+        let staging = StagingState {
+            current_stage: 0,
+            steps: vec![StageStep {
+                activations: vec![Activation { id: 2, moved: true }],
+            }],
+        };
+        let mut history = EditorHistory::default();
+        history
+            .execute(
+                &mut ship,
+                EditorCommand::Batch(vec![
+                    EditorCommand::RenamePod(1, "中文 & 火箭".into()),
+                    EditorCommand::SetThrottle(1, 0.25),
+                    EditorCommand::SetActive(2, true),
+                    EditorCommand::SetFuel(2, 3.5),
+                    EditorCommand::SetStaging(1, Some(staging)),
+                ]),
+            )
+            .unwrap();
+        let after = ship.clone();
+        assert_eq!(
+            crate::ship_from_xml(&crate::ship_to_xml(&ship).unwrap()).unwrap(),
+            ship
+        );
+        assert!(history.undo(&mut ship));
+        assert_eq!(ship, before);
+        assert!(!history.can_undo());
+        assert!(history.redo(&mut ship));
+        assert_eq!(ship, after);
+    }
+
+    #[test]
+    fn invalid_properties_do_not_mutate_ship_or_clear_redo() {
+        use crate::{Activation, FuelKind, PodState, StageStep};
+        let mut pod = part(1);
+        pod.pod = Some(PodState::default());
+        let mut tank = part(2);
+        tank.fuel_kind = Some(FuelKind::Tank);
+        tank.fuel = Some(10.0);
+        let mut ship = Ship {
+            parts: vec![pod, tank],
+            ..Ship::default()
+        };
+        let mut history = EditorHistory::default();
+        history
+            .execute(&mut ship, EditorCommand::SetActive(2, true))
+            .unwrap();
+        history.undo(&mut ship);
+        let before = ship.clone();
+        for invalid in [
+            EditorCommand::SetFuel(2, f64::NAN),
+            EditorCommand::SetFuel(2, -1.0),
+            EditorCommand::SetFuel(1, 1.0),
+            EditorCommand::SetThrottle(1, f64::INFINITY),
+            EditorCommand::SetThrottle(1, 1.1),
+            EditorCommand::RenamePod(2, "不是驾驶舱".into()),
+            EditorCommand::SetStaging(
+                1,
+                Some(StagingState {
+                    current_stage: -1,
+                    steps: vec![],
+                }),
+            ),
+            EditorCommand::SetStaging(
+                1,
+                Some(StagingState {
+                    current_stage: 0,
+                    steps: vec![StageStep {
+                        activations: vec![Activation {
+                            id: 99,
+                            moved: false,
+                        }],
+                    }],
+                }),
+            ),
+            EditorCommand::SetStaging(
+                1,
+                Some(StagingState {
+                    current_stage: 0,
+                    steps: vec![StageStep {
+                        activations: vec![
+                            Activation {
+                                id: 2,
+                                moved: false
+                            };
+                            2
+                        ],
+                    }],
+                }),
+            ),
+        ] {
+            assert!(
+                history
+                    .execute(
+                        &mut ship,
+                        EditorCommand::Batch(vec![
+                            EditorCommand::RenamePod(1, "不应保留".into()),
+                            invalid,
+                        ])
+                    )
+                    .is_err()
+            );
+            assert_eq!(ship, before);
+            assert!(history.can_redo());
+        }
     }
 }
