@@ -4,7 +4,7 @@ use std::collections::HashMap;
 pub type PartId = i64;
 
 /// SR1 部件在物理和编辑器中的功能分类。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PartKind {
     Pod,
     Detacher,
@@ -20,13 +20,8 @@ pub enum PartKind {
     DockConnector,
     DockPort,
     Lander,
+    #[default]
     Unknown,
-}
-
-impl Default for PartKind {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 impl PartKind {

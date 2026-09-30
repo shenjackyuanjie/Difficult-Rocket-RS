@@ -1,11 +1,17 @@
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
-use dr_core::{EditorCommand, EditorHistory, PartCatalog, Ship, load_catalog, load_ship};
+use dr_core::geometry::{Vec2d, contains_point};
+use dr_core::{
+    Connection, EditorCommand, EditorHistory, FuelKind, Part, PartCatalog, PartKind, Ship,
+    find_snap, load_catalog, load_ship, part_world_attach, save_ship,
+};
 
 #[derive(Resource, Clone)]
 pub struct EditorPaths {
     pub ship: Option<String>,
     pub catalog: String,
+    pub assets: String,
 }
 
 #[derive(Resource)]
@@ -15,17 +21,39 @@ pub struct EditorDocument {
     pub selected: Option<i64>,
     pub dirty: bool,
     pub history: EditorHistory,
+    saved_ship: Ship,
+    status: String,
 }
 
 impl EditorDocument {
+    fn refresh(&mut self) {
+        self.dirty = self.ship != self.saved_ship;
+        if self.selected.is_some_and(|id| self.ship.part(id).is_none()) {
+            self.selected = None;
+        }
+    }
     fn undo(&mut self) -> bool {
-        self.history.undo(&mut self.ship)
+        let changed = self.history.undo(&mut self.ship);
+        self.refresh();
+        changed
     }
     fn redo(&mut self) -> bool {
-        self.history.redo(&mut self.ship)
+        let changed = self.history.redo(&mut self.ship);
+        self.refresh();
+        changed
     }
     fn execute(&mut self, command: EditorCommand) -> bool {
-        self.history.execute(&mut self.ship, command).is_ok()
+        match self.history.execute(&mut self.ship, command) {
+            Ok(()) => {
+                self.refresh();
+                self.status.clear();
+                true
+            }
+            Err(error) => {
+                self.status = error.to_string();
+                false
+            }
+        }
     }
 }
 
@@ -33,16 +61,32 @@ impl EditorDocument {
 struct DragState {
     id: Option<i64>,
     origin: (f64, f64),
+    offset: (f64, f64),
+    preview: (f64, f64),
+}
+
+/// 当前鼠标在编辑器世界坐标中的位置，以及目录中待放置的部件。
+#[derive(Resource, Default)]
+struct EditorCursor {
+    world: (f64, f64),
+    catalog_index: usize,
 }
 
 #[derive(Component)]
-struct ShipPartVisual {
-    id: i64,
-}
+struct ShipPartVisual;
 #[derive(Component)]
 struct EditorHud;
 
-fn main() {
+#[derive(Resource, Default)]
+struct CameraDrag(Option<Vec2>);
+
+#[derive(Resource)]
+struct SmokeTest {
+    enabled: bool,
+    started: std::time::Instant,
+}
+
+fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let ship = args
         .windows(2)
@@ -53,58 +97,173 @@ fn main() {
         .find(|w| w[0] == "--catalog" || w[0] == "-c")
         .map(|w| w[1].clone())
         .unwrap_or_else(|| "../Difficult-Rocket/assets/builtin/PartList.xml".into());
-    let document = load_document(ship.as_deref(), &catalog_path);
+    let document = load_document(ship.as_deref(), &catalog_path)?;
+    let assets = args
+        .windows(2)
+        .find(|w| w[0] == "--assets")
+        .map(|w| w[1].clone())
+        .unwrap_or_else(|| "../Difficult-Rocket/assets".into());
+    let assets = std::path::absolute(&assets)
+        .expect("资源路径无效")
+        .to_string_lossy()
+        .into_owned();
     App::new()
+        .insert_resource(SmokeTest {
+            enabled: args.iter().any(|arg| arg == "--smoke-test"),
+            started: std::time::Instant::now(),
+        })
         .insert_resource(EditorPaths {
             ship,
             catalog: catalog_path,
+            assets: assets.clone(),
         })
         .insert_resource(document)
         .init_resource::<DragState>()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Difficult Rocket Editor".into(),
-                resolution: WindowResolution::new(1440, 900),
-                present_mode: PresentMode::AutoVsync,
-                ..default()
-            }),
-            ..default()
-        }))
+        .init_resource::<EditorCursor>()
+        .init_resource::<CameraDrag>()
+        .add_plugins(
+            DefaultPlugins
+                .set(AssetPlugin {
+                    file_path: assets,
+                    ..default()
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Difficult Rocket Editor".into(),
+                        resolution: WindowResolution::new(1440, 900),
+                        present_mode: PresentMode::AutoVsync,
+                        ..default()
+                    }),
+                    ..default()
+                }),
+        )
         .add_systems(Startup, (setup_camera, setup_hud))
         .add_systems(
             Update,
             (
-                keyboard_commands,
                 mouse_editor,
+                keyboard_commands,
+                camera_controls,
                 sync_ship_visuals,
+                draw_connections,
                 update_hud,
-            ),
+                capture_screenshot,
+            )
+                .chain(),
         )
         .run();
+    Ok(())
 }
 
-fn load_document(ship_path: Option<&str>, catalog_path: &str) -> EditorDocument {
-    let catalog = load_catalog(catalog_path).unwrap_or_else(|error| {
-        eprintln!("部件表加载失败: {error}");
-        PartCatalog::default()
-    });
-    let ship = ship_path
-        .and_then(|path| load_ship(path).ok())
-        .unwrap_or_default();
-    EditorDocument {
+fn capture_screenshot(
+    mut commands: Commands,
+    mode: Res<SmokeTest>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut captured: Local<bool>,
+) {
+    use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
+    if mode.enabled && mode.started.elapsed().as_secs() > 30 {
+        panic!("窗口截图自测超时");
+    }
+    let smoke = mode.enabled && !*captured && mode.started.elapsed().as_secs() >= 5;
+    if smoke || keys.just_pressed(KeyCode::F12) {
+        *captured = true;
+        let path = if smoke {
+            "target/editor-smoke.png".to_owned()
+        } else {
+            format!(
+                "editor-{}.png",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis()
+            )
+        };
+        let mut entity = commands.spawn(Screenshot::primary_window());
+        entity.observe(save_to_disk(path));
+        if smoke {
+            entity.observe(
+                |_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+                    exit.write(AppExit::Success);
+                },
+            );
+        }
+    }
+}
+
+fn load_document(ship_path: Option<&str>, catalog_path: &str) -> anyhow::Result<EditorDocument> {
+    let catalog = load_catalog(catalog_path)?;
+    let ship = ship_path.map(load_ship).transpose()?.unwrap_or_default();
+    Ok(EditorDocument {
+        saved_ship: ship.clone(),
+        status: String::new(),
         ship,
         catalog,
         selected: None,
         dirty: false,
         history: EditorHistory::with_limit(256),
-    }
+    })
 }
 
 fn setup_camera(mut commands: Commands) {
     commands.spawn((Camera2d, Name::new("Editor camera")));
 }
 
-fn setup_hud(mut commands: Commands) {
+fn camera_controls(
+    mut wheels: MessageReader<MouseWheel>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    mut cameras: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
+    mut drag: ResMut<CameraDrag>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Ok((mut transform, mut projection)) = cameras.single_mut() else {
+        return;
+    };
+    let Projection::Orthographic(projection) = &mut *projection else {
+        return;
+    };
+    if keys.just_pressed(KeyCode::Home) {
+        transform.translation.x = 0.0;
+        transform.translation.y = 0.0;
+        projection.scale = 1.0;
+    }
+    let Some(cursor) = window.cursor_position().filter(|_| window.focused) else {
+        drag.0 = None;
+        wheels.clear();
+        return;
+    };
+    if mouse.pressed(MouseButton::Middle) {
+        if let Some(previous) = drag.0 {
+            let delta = cursor - previous;
+            transform.translation.x -= delta.x * projection.scale;
+            transform.translation.y += delta.y * projection.scale;
+        }
+        drag.0 = Some(cursor);
+    } else {
+        drag.0 = None;
+    }
+    let offset = Vec2::new(
+        cursor.x - window.width() / 2.0,
+        window.height() / 2.0 - cursor.y,
+    );
+    for wheel in wheels.read() {
+        let delta = match wheel.unit {
+            MouseScrollUnit::Line => wheel.y,
+            MouseScrollUnit::Pixel => wheel.y / 40.0,
+        };
+        let old = projection.scale;
+        projection.scale = (old * 2.0_f32.powf(-delta * 0.25)).clamp(0.1, 100.0);
+        let shift = offset * (old - projection.scale);
+        transform.translation.x += shift.x;
+        transform.translation.y += shift.y;
+    }
+}
+
+fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
     commands
         .spawn((
             Node {
@@ -115,13 +274,17 @@ fn setup_hud(mut commands: Commands) {
                 ..default()
             },
             BackgroundColor(Color::srgba(0.03, 0.04, 0.06, 0.86)),
-            EditorHud,
             Name::new("Editor HUD"),
         ))
         .with_children(|root| {
             root.spawn((
+                EditorHud,
+                TextLayout::default().with_no_wrap(),
                 Text::new("DR Editor | O:打开示例  Delete:删除  R:旋转  X/Y:镜像  Ctrl+S:保存"),
                 TextFont {
+                    font: bevy::text::FontSource::Handle(assets.load(
+                        "fonts/HarmonyOS_Sans/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ttf",
+                    )),
                     font_size: FontSize::Px(16.0),
                     ..default()
                 },
@@ -130,131 +293,288 @@ fn setup_hud(mut commands: Commands) {
         });
 }
 
-fn keyboard_commands(keys: Res<ButtonInput<KeyCode>>, mut document: ResMut<EditorDocument>) {
+/// 处理全局快捷键，并将所有会改变船体的操作记录到历史栈。
+fn keyboard_commands(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut document: ResMut<EditorDocument>,
+    paths: Res<EditorPaths>,
+    mut cursor: ResMut<EditorCursor>,
+    drag: Res<DragState>,
+) {
+    if drag.id.is_some() {
+        return;
+    }
     let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
+    if control && keys.just_pressed(KeyCode::KeyS) {
+        let path = paths
+            .ship
+            .clone()
+            .unwrap_or_else(|| "editor-output.xml".into());
+        match save_ship(&path, &document.ship) {
+            Ok(()) => {
+                document.saved_ship = document.ship.clone();
+                document.refresh();
+                document.status = format!("已保存：{path}");
+            }
+            Err(error) => document.status = format!("保存船体失败（{path}）：{error}"),
+        }
+        return;
+    }
     if control && keys.just_pressed(KeyCode::KeyZ) {
-        let changed = document.undo();
-        document.dirty = changed;
+        document.undo();
         return;
     }
     if control && keys.just_pressed(KeyCode::KeyY) {
-        let changed = document.redo();
-        document.dirty = changed;
+        document.redo();
         return;
     }
-    if keys.just_pressed(KeyCode::Delete) {
-        if let Some(id) = document.selected.take() {
-            document.ship.remove_part(id);
-            document.dirty = true;
+    if keys.just_pressed(KeyCode::Tab) {
+        let count = document.catalog.visible().count();
+        if count > 0 {
+            cursor.catalog_index = (cursor.catalog_index + 1) % count;
         }
+        return;
+    }
+    if keys.just_pressed(KeyCode::KeyP) {
+        let selected_type = document
+            .catalog
+            .visible()
+            .nth(cursor.catalog_index)
+            .cloned();
+        if let Some(part_type) = selected_type {
+            if part_type
+                .max_occurrences
+                .is_some_and(|limit| document.ship.count_type(&part_type.id) >= limit as usize)
+            {
+                return;
+            }
+            let id = document.ship.next_part_id();
+            let fuel = part_type
+                .tank
+                .as_ref()
+                .map(|tank| tank.fuel)
+                .or_else(|| (part_type.engine.is_some()).then_some(0.0));
+            let fuel_kind = if part_type.tank.is_some() {
+                Some(FuelKind::Tank)
+            } else if part_type.engine.is_some() {
+                Some(FuelKind::Engine)
+            } else {
+                None
+            };
+            let part = Part {
+                id,
+                part_type: part_type.id.clone(),
+                x: (cursor.world.0 * 2.0).round() / 2.0,
+                y: (cursor.world.1 * 2.0).round() / 2.0,
+                angle: 0.0,
+                editor_angle: 0,
+                angle_v: 0.0,
+                flip_x: false,
+                flip_y: false,
+                active: false,
+                exploded: false,
+                fuel,
+                fuel_kind,
+                extension: None,
+                parachute: Default::default(),
+                pod: (part_type.kind == PartKind::Pod).then_some(Default::default()),
+            };
+            if document.execute(EditorCommand::Place(part.into())) {
+                document.selected = Some(id);
+            }
+        }
+        return;
+    }
+    if keys.just_pressed(KeyCode::Delete)
+        && let Some(id) = document.selected.take()
+    {
+        let _ = document.execute(EditorCommand::Delete(id));
     }
     if let Some(id) = document.selected {
         if keys.just_pressed(KeyCode::KeyR) {
-            if let Some(part) = document.ship.part_mut(id) {
-                part.editor_angle = (part.editor_angle + 1).rem_euclid(4);
-                part.angle = part.editor_angle as f64 * std::f64::consts::FRAC_PI_2;
-                document.dirty = true;
+            let can_rotate = document
+                .ship
+                .part(id)
+                .and_then(|part| document.catalog.get(&part.part_type))
+                .map(|part_type| !part_type.disable_editor_rotation)
+                .unwrap_or(false);
+            if can_rotate {
+                let _ = document.execute(EditorCommand::Batch(vec![
+                    EditorCommand::Disconnect(id),
+                    EditorCommand::Rotate(id),
+                ]));
             }
         }
         if keys.just_pressed(KeyCode::KeyX) {
-            if let Some(part) = document.ship.part_mut(id) {
-                part.flip_x = !part.flip_x;
-                document.dirty = true;
-            }
+            let _ = document.execute(EditorCommand::Batch(vec![
+                EditorCommand::Disconnect(id),
+                EditorCommand::FlipX(id),
+            ]));
         }
         if keys.just_pressed(KeyCode::KeyY) {
-            if let Some(part) = document.ship.part_mut(id) {
-                part.flip_y = !part.flip_y;
-                document.dirty = true;
-            }
+            let _ = document.execute(EditorCommand::Batch(vec![
+                EditorCommand::Disconnect(id),
+                EditorCommand::FlipY(id),
+            ]));
         }
     }
 }
 
 fn mouse_editor(
     mouse: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     mut drag: ResMut<DragState>,
     mut document: ResMut<EditorDocument>,
+    mut cursor: ResMut<EditorCursor>,
 ) {
+    if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right) {
+        drag.id = None;
+        return;
+    }
     let Ok(window) = windows.single() else {
         return;
     };
-    let Some(cursor) = window.cursor_position() else {
+    // 失焦或窗口外释放必须取消预览，不能让部件继续粘在鼠标上。
+    if !window.focused || window.cursor_position().is_none() {
+        if !window.focused || !mouse.pressed(MouseButton::Left) {
+            drag.id = None;
+        }
         return;
-    };
+    }
     let Ok((camera, transform)) = cameras.single() else {
         return;
     };
-    let Ok(world) = camera.viewport_to_world_2d(transform, cursor) else {
+    let Ok(world) = camera.viewport_to_world_2d(transform, window.cursor_position().unwrap())
+    else {
         return;
     };
     let logical = (world.x as f64 / 60.0, world.y as f64 / 60.0);
+    cursor.world = logical;
     if mouse.just_pressed(MouseButton::Left) {
-        document.selected = document
+        let selected = document
             .ship
-            .parts
-            .iter()
-            .chain(
-                document
-                    .ship
-                    .disconnected
-                    .iter()
-                    .flat_map(|g| g.parts.iter()),
-            )
+            .all_parts()
             .rev()
             .find(|part| {
-                let ty = document.catalog.get(&part.part_type);
-                ty.map(|t| {
-                    let (w, h) = t.half_extents();
-                    (logical.0 - part.x).abs() <= w && (logical.1 - part.y).abs() <= h
+                document.catalog.get(&part.part_type).is_some_and(|ty| {
+                    contains_point(
+                        part,
+                        ty,
+                        Vec2d {
+                            x: logical.0,
+                            y: logical.1,
+                        },
+                    )
                 })
-                .unwrap_or(false)
             })
             .map(|part| part.id);
-        if let Some(id) = document.selected {
-            if let Some(part) = document.ship.part(id) {
-                drag.id = Some(id);
-                drag.origin = (part.x, part.y);
-            }
+        document.selected = selected;
+        if let Some(part) = document.selected.and_then(|id| document.ship.part(id)) {
+            drag.id = Some(part.id);
+            drag.origin = (part.x, part.y);
+            drag.preview = drag.origin;
+            drag.offset = (part.x - logical.0, part.y - logical.1);
         }
     }
-    if mouse.pressed(MouseButton::Left) {
-        if let Some(id) = drag.id {
-            if let Some(part) = document.ship.part_mut(id) {
-                part.x = (logical.0 * 2.0).round() / 2.0;
-                part.y = (logical.1 * 2.0).round() / 2.0;
-                document.dirty = true;
-            }
-        }
+    if drag.id.is_some()
+        && (mouse.pressed(MouseButton::Left) || mouse.just_released(MouseButton::Left))
+    {
+        // 以按下位置为锚点，单击不会把原有非网格坐标改写。
+        let dx = (logical.0 + drag.offset.0 - drag.origin.0) * 2.0;
+        let dy = (logical.1 + drag.offset.1 - drag.origin.1) * 2.0;
+        drag.preview = (
+            drag.origin.0 + dx.round() / 2.0,
+            drag.origin.1 + dy.round() / 2.0,
+        );
     }
-    if mouse.just_released(MouseButton::Left) {
-        if let Some(id) = drag.id.take() {
-            if let Some(part) = document.ship.part(id) {
-                let to = (part.x, part.y);
-                let from = drag.origin;
-                part_mut_set(&mut document.ship, id, from);
-                let _ = document.execute(EditorCommand::Move { id, from, to });
-                document.dirty = true;
-            }
+    if mouse.just_released(MouseButton::Left)
+        && let Some(id) = drag.id.take()
+        && drag.preview != drag.origin
+    {
+        let command = move_with_snap(&document.ship, &document.catalog, id, drag.preview);
+        if let Some(command) = command {
+            document.execute(command);
         }
     }
 }
 
-fn part_mut_set(ship: &mut Ship, id: i64, position: (f64, f64)) {
-    if let Some(part) = ship.part_mut(id) {
-        part.x = position.0;
-        part.y = position.1;
+/// 将预览落点、断开旧连接和新吸附作为一个可撤销操作。
+fn move_with_snap(
+    ship: &Ship,
+    catalog: &PartCatalog,
+    id: i64,
+    position: (f64, f64),
+) -> Option<EditorCommand> {
+    let mut source = ship.part(id)?.clone();
+    let origin = (source.x, source.y);
+    source.x = position.0;
+    source.y = position.1;
+    let mut best = None;
+    if let Some(source_type) = catalog.get(&source.part_type) {
+        for target in ship.all_parts().filter(|target| target.id != id) {
+            let Some(target_type) = catalog.get(&target.part_type) else {
+                continue;
+            };
+            if let Some(candidate) = find_snap(&source, source_type, target, target_type, 0.35)
+                && best
+                    .as_ref()
+                    .is_none_or(|(_, prior): &(Connection, dr_core::SnapCandidate)| {
+                        candidate.distance < prior.distance
+                    })
+            {
+                let connection = if candidate.dock {
+                    let dock = if source_type.kind == PartKind::DockConnector {
+                        id
+                    } else if target_type.kind == PartKind::DockConnector {
+                        target.id
+                    } else {
+                        continue;
+                    };
+                    Connection::Dock {
+                        dock,
+                        parent: target.id,
+                        child: id,
+                    }
+                } else {
+                    Connection::Normal {
+                        parent: target.id,
+                        child: id,
+                        parent_attach: candidate.target_index as i32 + 1,
+                        child_attach: candidate.source_index as i32 + 1,
+                    }
+                };
+                best = Some((connection, candidate));
+            }
+        }
     }
+    let to = best
+        .as_ref()
+        .map(|(_, candidate)| (candidate.position.x, candidate.position.y))
+        .unwrap_or(position);
+    let mut commands = vec![
+        EditorCommand::Disconnect(id),
+        EditorCommand::Move {
+            id,
+            from: origin,
+            to,
+        },
+    ];
+    if let Some((connection, _)) = best {
+        commands.push(EditorCommand::Connect(connection));
+    }
+    Some(EditorCommand::Batch(commands))
 }
 
 fn sync_ship_visuals(
     mut commands: Commands,
     document: Res<EditorDocument>,
     existing: Query<Entity, With<ShipPartVisual>>,
+    drag: Res<DragState>,
+    assets: Res<AssetServer>,
 ) {
-    if !document.is_changed() {
+    if !document.is_changed() && !drag.is_changed() {
         return;
     }
     for entity in &existing {
@@ -275,35 +595,116 @@ fn sync_ship_visuals(
         let color = if Some(part.id) == document.selected {
             Color::srgb(0.95, 0.72, 0.18)
         } else {
-            Color::srgb(0.32, 0.68, 0.88)
+            Color::WHITE
         };
+        let (x, y) = if drag.id == Some(part.id) {
+            drag.preview
+        } else {
+            (part.x, part.y)
+        };
+        let sprite = document
+            .catalog
+            .get(&part.part_type)
+            .map(|ty| ty.sprite.as_str())
+            .unwrap_or("");
+        let mut visual = if sprite.is_empty() {
+            Sprite::from_color(color, Vec2::new(width, height))
+        } else {
+            Sprite::from_image(assets.load(format!("textures/parts/{sprite}")))
+        };
+        visual.custom_size = Some(Vec2::new(width, height));
+        visual.color = color;
+        visual.flip_x = part.flip_x;
+        visual.flip_y = part.flip_y;
         commands.spawn((
-            Sprite::from_color(color, Vec2::new(width, height)),
+            visual,
             Transform {
-                translation: Vec3::new(part.x as f32 * 60.0, part.y as f32 * 60.0, 0.0),
+                translation: Vec3::new(x as f32 * 60.0, y as f32 * 60.0, 0.0),
                 rotation: Quat::from_rotation_z(part.angle as f32),
                 ..default()
             },
-            ShipPartVisual { id: part.id },
+            ShipPartVisual,
             Name::new(format!("Part {}", part.id)),
         ));
     }
 }
 
-fn update_hud(document: Res<EditorDocument>, mut labels: Query<&mut Text, With<EditorHud>>) {
-    if !document.is_changed() {
+/// 绘制 SR1 连接关系，帮助用户确认吸附和连接点是否正确。
+fn draw_connections(mut gizmos: Gizmos, document: Res<EditorDocument>) {
+    for connection in document.ship.all_connections() {
+        let (parent_id, child_id, parent_attach, child_attach) = match connection {
+            Connection::Normal {
+                parent,
+                child,
+                parent_attach,
+                child_attach,
+            } => (*parent, *child, Some(*parent_attach), Some(*child_attach)),
+            Connection::Dock { parent, child, .. } => (*parent, *child, None, None),
+        };
+        let Some(parent) = document.ship.part(parent_id) else {
+            continue;
+        };
+        let Some(child) = document.ship.part(child_id) else {
+            continue;
+        };
+        let parent_position = attachment_position(parent, parent_attach, &document.catalog);
+        let child_position = attachment_position(child, child_attach, &document.catalog);
+        let (Some(parent_position), Some(child_position)) = (parent_position, child_position)
+        else {
+            continue;
+        };
+        gizmos.line_2d(
+            parent_position,
+            child_position,
+            Color::srgb(0.25, 0.9, 0.55),
+        );
+    }
+}
+
+/// 获取连接点在 Bevy 世界中的像素位置。
+fn attachment_position(part: &Part, index: Option<i32>, catalog: &PartCatalog) -> Option<Vec2> {
+    let Some(index) = index else {
+        return Some(Vec2::new(part.x as f32 * 60.0, part.y as f32 * 60.0));
+    };
+    let index = index.checked_sub(1)?;
+    let part_type = catalog.get(&part.part_type)?;
+    let attach = part_type.attach_points.get(index as usize)?;
+    let position = part_world_attach(part, attach);
+    Some(Vec2::new(
+        position.x as f32 * 60.0,
+        position.y as f32 * 60.0,
+    ))
+}
+
+fn update_hud(
+    document: Res<EditorDocument>,
+    cursor: Res<EditorCursor>,
+    mut labels: Query<&mut Text, With<EditorHud>>,
+) {
+    if !document.is_changed() && !cursor.is_changed() {
         return;
     }
+    let chosen = document
+        .catalog
+        .visible()
+        .nth(cursor.catalog_index)
+        .map(|ty| ty.name.as_str())
+        .unwrap_or("无可用部件");
     for mut text in &mut labels {
         **text = format!(
-            "DR Editor | 部件: {} | 质量: {:.2} | {}",
-            document.ship.parts.len(),
+            "DR Editor | 部件: {} | 质量: {:.2} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存\n滚轮: 缩放 中键: 平移 Home: 复位 F12: 截图\n{}",
+            document.ship.all_parts().count(),
             document.ship.total_mass(&document.catalog),
             if document.dirty {
                 "未保存"
             } else {
                 "已保存"
-            }
+            },
+            chosen,
+            document.status
         );
     }
 }
+
+#[cfg(test)]
+mod tests;

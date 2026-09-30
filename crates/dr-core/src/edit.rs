@@ -13,7 +13,7 @@ pub enum CommandError {
 
 #[derive(Debug, Clone)]
 pub enum EditorCommand {
-    Place(Part),
+    Place(Box<Part>),
     Delete(PartId),
     Move {
         id: PartId,
@@ -122,7 +122,7 @@ impl EditorCommand {
                 if ship.part(part.id).is_some() {
                     return Err(CommandError::DuplicatePart(part.id));
                 }
-                ship.parts.push(part.clone());
+                ship.parts.push((**part).clone());
             }
             Self::Delete(id) => {
                 ship.remove_part(*id)
@@ -174,10 +174,10 @@ impl EditorCommand {
                 {
                     return Err(CommandError::Invalid);
                 }
-                if let Connection::Dock { dock, .. } = connection {
-                    if ship.part(*dock).is_none() {
-                        return Err(CommandError::MissingPart(*dock));
-                    }
+                if let Connection::Dock { dock, .. } = connection
+                    && ship.part(*dock).is_none()
+                {
+                    return Err(CommandError::MissingPart(*dock));
                 }
                 if ship
                     .all_connections()
@@ -246,7 +246,7 @@ mod tests {
         let mut ship = Ship::default();
         let mut history = EditorHistory::default();
         history
-            .execute(&mut ship, EditorCommand::Place(part(1)))
+            .execute(&mut ship, EditorCommand::Place(part(1).into()))
             .unwrap();
         history.undo(&mut ship);
         let before = ship.clone();
@@ -255,7 +255,7 @@ mod tests {
                 .execute(
                     &mut ship,
                     EditorCommand::Batch(vec![
-                        EditorCommand::Place(part(2)),
+                        EditorCommand::Place(part(2).into()),
                         EditorCommand::Delete(99)
                     ])
                 )
@@ -387,7 +387,7 @@ mod tests {
         };
         let mut history = EditorHistory::default();
         history
-            .execute(&mut ship, EditorCommand::Place(part(2)))
+            .execute(&mut ship, EditorCommand::Place(part(2).into()))
             .unwrap();
         history.undo(&mut ship);
         history
@@ -409,7 +409,7 @@ mod tests {
         let mut ship = Ship::default();
         let mut history = EditorHistory::with_limit(8);
         history
-            .execute(&mut ship, EditorCommand::Place(part(1)))
+            .execute(&mut ship, EditorCommand::Place(part(1).into()))
             .unwrap();
         assert!(history.undo(&mut ship));
         assert!(ship.parts.is_empty());
