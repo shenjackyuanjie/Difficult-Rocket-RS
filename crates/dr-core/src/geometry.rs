@@ -74,31 +74,9 @@ pub fn find_snap(
     target_type: &PartType,
     threshold: f64,
 ) -> Option<SnapCandidate> {
-    let mut best = None;
-    for (source_index, source_attach) in source_type.attach_points.iter().enumerate() {
-        let source_pos = part_world_attach(source, source_attach);
-        for (target_index, target_attach) in target_type.attach_points.iter().enumerate() {
-            let target_pos = part_world_attach(target, target_attach);
-            let distance = source_pos.distance(target_pos);
-            if distance <= threshold
-                && best
-                    .map(|b: SnapCandidate| b.distance > distance)
-                    .unwrap_or(true)
-            {
-                best = Some(SnapCandidate {
-                    source_index,
-                    target_index,
-                    position: Vec2d {
-                        x: source.x + target_pos.x - source_pos.x,
-                        y: source.y + target_pos.y - source_pos.y,
-                    },
-                    distance,
-                    dock: source_attach.dock || target_attach.dock,
-                });
-            }
-        }
-    }
-    best
+    crate::connections::candidates(source, source_type, target, target_type, threshold)
+        .into_iter()
+        .next()
 }
 
 pub fn intersects(a: &Part, at: &PartType, b: &Part, bt: &PartType) -> bool {
@@ -353,6 +331,8 @@ mod tests {
     #[test]
     fn snap() {
         let a = t(vec![AttachPoint {
+            location: String::new(),
+            flip_y: false,
             x: 1.0,
             y: 0.0,
             dock: false,
@@ -364,6 +344,8 @@ mod tests {
             break_force: None,
         }]);
         let b = t(vec![AttachPoint {
+            location: String::new(),
+            flip_y: false,
             x: -1.0,
             y: 0.0,
             dock: false,
@@ -404,6 +386,8 @@ mod tests {
     #[test]
     fn attachment_uses_ship_units_rotation_and_mirroring() {
         let attach = AttachPoint {
+            location: String::new(),
+            flip_y: false,
             x: 2.0,
             y: 1.0,
             dock: false,

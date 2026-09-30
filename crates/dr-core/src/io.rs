@@ -107,6 +107,8 @@ struct RawAttachPoint {
     fuel_line: bool,
     #[serde(rename = "@flipX", default)]
     flip_x: bool,
+    #[serde(rename = "@flipY", default)]
+    flip_y: bool,
     #[serde(rename = "@group")]
     group: Option<i32>,
     #[serde(rename = "@order")]
@@ -148,8 +150,8 @@ fn attach_location(location: &str, width: u32, height: u32) -> (f64, f64) {
     let half_width = width as f64 / 2.0;
     let half_height = height as f64 / 2.0;
     match location {
-        "Top" | "TopCenter" => (0.0, half_height),
-        "Bottom" | "BottomCenter" => (0.0, -half_height),
+        "Top" | "TopSide" | "TopCenter" => (0.0, half_height),
+        "Bottom" | "BottomSide" | "BottomCenter" => (0.0, -half_height),
         "Left" | "LeftSide" | "LeftCenter" => (-half_width, 0.0),
         "Right" | "RightSide" | "RightCenter" => (half_width, 0.0),
         _ => (0.0, 0.0),
@@ -172,6 +174,30 @@ pub fn load_catalog(path: impl AsRef<Path>) -> Result<PartCatalog, CoreError> {
         .map(|p| {
             let width = p.width;
             let height = p.height;
+            for attach in p.attach_points.iter().flat_map(|points| &points.points) {
+                if !matches!(
+                    attach.location.as_str(),
+                    "" | "Top"
+                        | "Bottom"
+                        | "Left"
+                        | "Right"
+                        | "TopCenter"
+                        | "BottomCenter"
+                        | "LeftCenter"
+                        | "RightCenter"
+                        | "TopSide"
+                        | "BottomSide"
+                        | "LeftSide"
+                        | "RightSide"
+                ) || !attach.x.is_finite()
+                    || !attach.y.is_finite()
+                {
+                    return Err(CoreError::InvalidDocument(format!(
+                        "部件 {} 的连接点位置无效",
+                        p.id
+                    )));
+                }
+            }
             let shapes = p
                 .shapes
                 .into_iter()
@@ -237,8 +263,10 @@ pub fn load_catalog(path: impl AsRef<Path>) -> Result<PartCatalog, CoreError> {
                                     attach_location(&p.location, width, height).1
                                 },
                                 dock: p.dock,
+                                location: p.location,
                                 fuel_line: p.fuel_line,
                                 flip_x: p.flip_x,
+                                flip_y: p.flip_y,
                                 group: p.group,
                                 order: p.order,
                                 break_angle: p.break_angle,

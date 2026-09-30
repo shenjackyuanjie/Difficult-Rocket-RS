@@ -100,6 +100,8 @@ fn snapped_connections_use_one_based_sr1_indices() {
     };
     for x in [-1.0, 1.0] {
         kind.attach_points.push(dr_core::AttachPoint {
+            location: String::new(),
+            flip_y: false,
             x,
             y: 0.0,
             dock: false,
@@ -129,10 +131,14 @@ fn snapped_connections_use_one_based_sr1_indices() {
             child_attach: 1,
         }]
     );
-    assert_eq!(
-        attachment_position(document.ship.part(1).unwrap(), Some(2), &document.catalog),
-        Some(Vec2::new(30.0, 0.0))
-    );
+    let (parent, child) = dr_core::connections::positions(
+        &document.ship,
+        &document.catalog,
+        &document.ship.connections[0],
+    )
+    .unwrap();
+    assert_eq!(parent, Vec2d { x: 0.5, y: 0.0 });
+    assert_eq!(parent, child);
     assert!(document.undo());
     assert_eq!(document.ship, before);
 }

@@ -72,11 +72,14 @@ impl PartKind {
 /// `group` 和断裂参数是编辑器及未来物理模拟所需的元数据。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttachPoint {
+    /// 保留 location，区分固定中心点与允许沿边移动的连接面。
+    pub location: String,
     pub x: f64,
     pub y: f64,
     pub dock: bool,
     pub fuel_line: bool,
     pub flip_x: bool,
+    pub flip_y: bool,
     pub group: Option<i32>,
     pub order: Option<i32>,
     pub break_angle: Option<f64>,

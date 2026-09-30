@@ -1,5 +1,6 @@
 //! Difficult Rocket 的可复用数据、XML 和编辑几何核心。
 
+pub mod connections;
 pub mod edit;
 pub mod geometry;
 pub mod io;

@@ -1,4 +1,4 @@
-use crate::model::{Connection, Part, PartId, Ship, StagingState};
+use crate::model::{Connection, Part, PartCatalog, PartId, Ship, StagingState};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -9,6 +9,8 @@ pub enum CommandError {
     DuplicatePart(PartId),
     #[error("操作不适用")]
     Invalid,
+    #[error("无法连接: {0}")]
+    InvalidConnection(String),
 }
 
 #[derive(Debug, Clone)]
@@ -54,8 +56,24 @@ impl EditorHistory {
         }
     }
     pub fn execute(&mut self, ship: &mut Ship, command: EditorCommand) -> Result<(), CommandError> {
+        self.execute_inner(ship, None, command)
+    }
+    pub fn execute_with_catalog(
+        &mut self,
+        ship: &mut Ship,
+        catalog: &PartCatalog,
+        command: EditorCommand,
+    ) -> Result<(), CommandError> {
+        self.execute_inner(ship, Some(catalog), command)
+    }
+    fn execute_inner(
+        &mut self,
+        ship: &mut Ship,
+        catalog: Option<&PartCatalog>,
+        command: EditorCommand,
+    ) -> Result<(), CommandError> {
         let before = ship.clone();
-        command.apply(ship)?;
+        command.apply_checked(ship, catalog)?;
         if *ship == before {
             return Ok(());
         }
@@ -101,17 +119,29 @@ impl EditorHistory {
 impl EditorCommand {
     /// 原子执行：任何子命令失败时保留原始船体。
     pub fn apply(&self, ship: &mut Ship) -> Result<(), CommandError> {
+        self.apply_checked(ship, None)
+    }
+
+    fn apply_checked(
+        &self,
+        ship: &mut Ship,
+        catalog: Option<&PartCatalog>,
+    ) -> Result<(), CommandError> {
         let mut after = ship.clone();
-        self.apply_inner(&mut after)?;
+        self.apply_inner(&mut after, catalog)?;
         *ship = after;
         Ok(())
     }
 
-    fn apply_inner(&self, ship: &mut Ship) -> Result<(), CommandError> {
+    fn apply_inner(
+        &self,
+        ship: &mut Ship,
+        catalog: Option<&PartCatalog>,
+    ) -> Result<(), CommandError> {
         match self {
             Self::Batch(commands) => {
                 for command in commands {
-                    command.apply_inner(ship)?;
+                    command.apply_inner(ship, catalog)?;
                 }
             }
             Self::SetActive(id, active) => {
@@ -232,6 +262,10 @@ impl EditorCommand {
                     .any(|existing| existing.equivalent(connection))
                 {
                     return Err(CommandError::Invalid);
+                }
+                if let Some(catalog) = catalog {
+                    crate::connections::validate(ship, catalog, connection)
+                        .map_err(CommandError::InvalidConnection)?;
                 }
                 ship.add_connection(connection.clone());
             }
