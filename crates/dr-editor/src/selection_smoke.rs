@@ -8,6 +8,7 @@ pub(crate) struct State {
     phase: u8,
     before: Option<Ship>,
     after: Option<Ship>,
+    pointer: Option<Vec2>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -32,6 +33,14 @@ pub(crate) fn run(
     let Ok(mut window) = windows.single_mut() else {
         return;
     };
+    // 系统桌面焦点/鼠标消息不应覆盖注入的输入；第 30 阶段单独测试失焦。
+    if state.phase != 31 {
+        window.focused = true;
+    }
+    let mut pointer = state.pointer;
+    if let Some(point) = pointer {
+        window.set_cursor_position(Some(point));
+    }
     let mut point = |x: f32, y: f32| {
         window.focused = true;
         let p = Vec2::new(
@@ -39,6 +48,7 @@ pub(crate) fn run(
             window.height() / 2.0 - y * 60.0,
         );
         window.set_cursor_position(Some(p));
+        pointer = Some(p);
     };
     match state.phase {
         0 => {
@@ -102,7 +112,7 @@ pub(crate) fn run(
             mouse.release(MouseButton::Left);
         }
         8 => {
-            assert_eq!(document.ship.parts[0].x, 1.0);
+            assert_eq!(document.ship.parts[0].x, 1.0, "{}", document.status);
             assert_eq!(document.ship.parts[1].x, 1.0);
             assert_eq!(document.ship.connections.len(), 1);
             keys.press(KeyCode::ControlLeft);
@@ -240,7 +250,8 @@ pub(crate) fn run(
         }
         27 => {
             assert_eq!(drag.members.len(), 5);
-            window.set_cursor_position(Some(Vec2::new(100.0, 400.0)));
+            pointer = Some(Vec2::new(100.0, 400.0));
+            window.set_cursor_position(pointer);
         }
         28 => {
             mouse.release(MouseButton::Left);
@@ -277,5 +288,6 @@ pub(crate) fn run(
         }
         _ => return,
     }
+    state.pointer = pointer;
     state.phase += 1;
 }
