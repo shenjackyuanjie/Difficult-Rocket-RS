@@ -203,12 +203,13 @@ pub(crate) fn valid_polygon(vertices: &[(f64, f64)]) -> bool {
 }
 
 #[derive(Debug)]
-enum WorldShape {
+pub enum WorldShape {
     Polygon(Vec<Vec2d>),
     Circle(Vec2d, f64),
 }
 
-fn world_shapes(part: &Part, kind: &PartType) -> Vec<WorldShape> {
+/// 用于命中、碰撞和调试显示的同一组世界坐标实体轮廓。
+pub fn world_shapes(part: &Part, kind: &PartType) -> Vec<WorldShape> {
     if !kind.shapes.is_empty() {
         return kind
             .shapes

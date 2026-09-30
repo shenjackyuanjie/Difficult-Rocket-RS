@@ -8,6 +8,8 @@ mod render;
 mod scoped_smoke;
 mod selection;
 mod selection_smoke;
+mod view;
+mod view_smoke;
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
@@ -182,6 +184,7 @@ struct SmokeTest {
     scoped: bool,
     repair: bool,
     selection: bool,
+    view: bool,
     started: std::time::Instant,
 }
 
@@ -228,6 +231,7 @@ fn main() -> anyhow::Result<()> {
             scoped: args.iter().any(|arg| arg == "--scoped-smoke-test"),
             repair: args.iter().any(|arg| arg == "--repair-smoke-test"),
             selection: args.iter().any(|arg| arg == "--selection-smoke-test"),
+            view: args.iter().any(|arg| arg == "--view-smoke-test"),
             started: std::time::Instant::now(),
         })
         .insert_resource(EditorPaths {
@@ -239,6 +243,7 @@ fn main() -> anyhow::Result<()> {
         .init_resource::<DragState>()
         .init_resource::<EditorCursor>()
         .init_resource::<CameraDrag>()
+        .init_resource::<view::ViewOptions>()
         .add_plugins(
             DefaultPlugins
                 .set(AssetPlugin {
@@ -250,6 +255,11 @@ fn main() -> anyhow::Result<()> {
                     primary_window: Some(Window {
                         title: "Difficult Rocket Editor".into(),
                         resolution: WindowResolution::new(1440, 900),
+                        resize_constraints: bevy::window::WindowResizeConstraints {
+                            min_width: 960.0,
+                            min_height: 640.0,
+                            ..default()
+                        },
                         present_mode: PresentMode::AutoVsync,
                         ..default()
                     }),
@@ -270,13 +280,17 @@ fn main() -> anyhow::Result<()> {
             Update,
             (
                 (
-                    panels::smoke::run,
-                    properties::smoke::run,
-                    connection_smoke::run,
-                    performance::run,
-                    scoped_smoke::run,
-                    properties::repair_smoke::run,
-                    selection_smoke::run,
+                    (
+                        panels::smoke::run,
+                        properties::smoke::run,
+                        connection_smoke::run,
+                        performance::run,
+                        scoped_smoke::run,
+                        properties::repair_smoke::run,
+                        selection_smoke::run,
+                        view_smoke::run,
+                    )
+                        .chain(),
                     panels::pointer_over_ui,
                     properties::actions,
                     properties::input,
@@ -289,6 +303,7 @@ fn main() -> anyhow::Result<()> {
                     mouse_editor.run_if(properties::closed),
                     keyboard_commands.run_if(properties::closed),
                     camera_controls.run_if(properties::closed),
+                    view::controls.run_if(properties::closed),
                 )
                     .chain(),
                 panels::scroll_panels,
@@ -299,6 +314,7 @@ fn main() -> anyhow::Result<()> {
                 panels::render_browser,
                 properties::render,
                 render::connections,
+                view::draw_debug,
                 update_hud,
                 files::update_window_title,
                 capture_screenshot,
@@ -399,7 +415,7 @@ fn camera_controls(
     let Projection::Orthographic(projection) = &mut *projection else {
         return;
     };
-    if keys.just_pressed(KeyCode::Home) {
+    if keys.just_pressed(KeyCode::Home) && window.focused {
         transform.translation.x = 0.0;
         transform.translation.y = 0.0;
         projection.scale = 1.0;
@@ -464,7 +480,7 @@ fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
                     font: bevy::text::FontSource::Handle(assets.load(
                         "fonts/HarmonyOS_Sans/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ttf",
                     )),
-                    font_size: FontSize::Px(16.0),
+                    font_size: FontSize::Px(14.0),
                     ..default()
                 },
                 TextColor(Color::srgb(0.9, 0.93, 0.98)),
@@ -742,7 +758,7 @@ fn update_hud(
         .unwrap_or("无可用部件");
     for mut text in &mut labels {
         **text = format!(
-            "DR Editor | 部件: {} | 质量: {:.2} | 已选: {} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存 Ctrl+Shift+S: 另存为\nShift: 增减选择 空白拖动: 框选 Ctrl+A: 全选 Ctrl+C/X/V: 复制/剪切/粘贴\nCtrl+N: 新建 Ctrl+O: 打开（也可拖入 XML）\n滚轮: 缩放 中键: 平移 Home: 复位 F12: 截图\n{}",
+            "DR Editor | 部件: {} | 质量: {:.2} | 已选: {} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存 Ctrl+Shift+S: 另存为\nShift: 增减选择 空白拖动: 框选 Ctrl+A: 全选 Ctrl+C/X/V: 复制/剪切/粘贴\nCtrl+N: 新建 Ctrl+O: 打开（也可拖入 XML）\n滚轮/中键: 视图 Home: 复位 F/Shift+F: 适配 F3: 调试 F4: 显隐 F12: 截图\n{}",
             document.ship.all_parts().count(),
             document.ship.total_mass(&document.catalog),
             document.selected_keys().len(),
