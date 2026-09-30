@@ -183,6 +183,7 @@ pub struct Part {
     pub fuel_kind: Option<FuelKind>,
     pub extension: Option<f64>,
     pub parachute: ParachuteState,
+    pub lander: LanderState,
     pub pod: Option<PodState>,
 }
 
@@ -197,6 +198,15 @@ pub struct ParachuteState {
     pub inflate: Option<i8>,
     pub deployed: Option<i8>,
     pub rope: Option<i8>,
+}
+
+/// 着陆架运行状态，来自原版船体的部件属性。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct LanderState {
+    pub lower: Option<i8>,
+    pub raise: Option<i8>,
+    pub length: Option<f64>,
+    pub leg_angle: Option<f64>,
 }
 
 /// 两个部件之间的连接关系。

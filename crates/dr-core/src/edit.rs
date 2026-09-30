@@ -229,6 +229,7 @@ mod tests {
             fuel_kind: None,
             extension: None,
             parachute: Default::default(),
+            lander: Default::default(),
             pod: None,
         }
     }

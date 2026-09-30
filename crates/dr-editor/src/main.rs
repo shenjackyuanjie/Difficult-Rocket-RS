@@ -377,6 +377,7 @@ fn keyboard_commands(
                 fuel_kind,
                 extension: None,
                 parachute: Default::default(),
+                lander: Default::default(),
                 pod: (part_type.kind == PartKind::Pod).then_some(Default::default()),
             };
             if document.execute(EditorCommand::Place(part.into())) {

@@ -1,11 +1,19 @@
 use crate::model::*;
 use quick_xml::{de::from_str, se::to_string};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::{fs, path::Path};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum CoreError {
+    #[error("船体 XML 格式错误: {0}")]
+    InvalidDocument(String),
+    #[error("无法保存 {path}: {source}")]
+    Write {
+        path: String,
+        source: std::io::Error,
+    },
     #[error("无法读取 {path}: {source}")]
     Read {
         path: String,
@@ -213,6 +221,7 @@ pub fn load_catalog(path: impl AsRef<Path>) -> Result<PartCatalog, CoreError> {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawShip {
     #[serde(rename = "@version", default = "default_version")]
     version: i32,
@@ -235,21 +244,25 @@ fn default_touching_ground() -> i8 {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawParts {
     #[serde(rename = "Part", default)]
     parts: Vec<RawPart>,
 }
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawConnections {
     #[serde(rename = "$value", default)]
     connections: Vec<RawConnection>,
 }
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawDisconnected {
     #[serde(rename = "DisconnectedPart", default)]
     groups: Vec<RawGroup>,
 }
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawGroup {
     #[serde(rename = "Parts", default)]
     parts: RawParts,
@@ -258,6 +271,7 @@ struct RawGroup {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawPart {
     #[serde(rename = "@partType", default)]
     part_type: String,
@@ -299,6 +313,14 @@ struct RawPart {
     deployed: Option<i8>,
     #[serde(rename = "@rope")]
     rope: Option<i8>,
+    #[serde(rename = "@lower")]
+    lower: Option<i8>,
+    #[serde(rename = "@raise")]
+    raise: Option<i8>,
+    #[serde(rename = "@length")]
+    length: Option<f64>,
+    #[serde(rename = "@legAngle")]
+    leg_angle: Option<f64>,
     #[serde(rename = "Tank")]
     tank: Option<RawFuel>,
     #[serde(rename = "Engine")]
@@ -307,12 +329,14 @@ struct RawPart {
     pod: Option<RawPod>,
 }
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawFuel {
     #[serde(rename = "@fuel", default)]
     fuel: f64,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawPod {
     #[serde(rename = "@throttle", default)]
     throttle: f64,
@@ -323,6 +347,7 @@ struct RawPod {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawStaging {
     #[serde(rename = "@currentStage", default)]
     current_stage: i32,
@@ -331,12 +356,14 @@ struct RawStaging {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawStageStep {
     #[serde(rename = "Activate", default)]
     activations: Vec<RawActivation>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawActivation {
     #[serde(rename = "@Id")]
     id: i64,
@@ -345,6 +372,7 @@ struct RawActivation {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 enum RawConnection {
     #[serde(rename = "Connection")]
     Normal {
@@ -389,6 +417,12 @@ fn convert_part(raw: RawPart) -> Part {
         fuel,
         fuel_kind,
         extension: raw.extension,
+        lander: LanderState {
+            lower: raw.lower,
+            raise: raw.raise,
+            length: raw.length,
+            leg_angle: raw.leg_angle,
+        },
         parachute: ParachuteState {
             x: raw.chute_x,
             y: raw.chute_y,
@@ -461,7 +495,21 @@ pub fn load_ship(path: impl AsRef<Path>) -> Result<Ship, CoreError> {
 
 /// 按 dr_rs 的 SR1 字段与默认值读取船体。
 pub fn ship_from_xml(source: &str) -> Result<Ship, CoreError> {
+    validate_ship_root(source)?;
     let raw: RawShip = from_str(source)?;
+    for part in raw.parts.parts.iter().chain(
+        raw.disconnected
+            .groups
+            .iter()
+            .flat_map(|group| &group.parts.parts),
+    ) {
+        if part.tank.is_some() && part.engine.is_some() {
+            return Err(CoreError::InvalidDocument(format!(
+                "部件 {} 同时包含 Tank 和 Engine，无法无损解释燃料状态",
+                part.id
+            )));
+        }
+    }
     Ok(Ship {
         version: raw.version,
         lifted_off: raw.lifted_off != 0,
@@ -488,6 +536,56 @@ pub fn ship_from_xml(source: &str) -> Result<Ship, CoreError> {
             })
             .collect(),
     })
+}
+
+// quick-xml 的 Serde 入口会忽略根元素名称及部分尾随内容，需要单独核对。
+fn validate_ship_root(source: &str) -> Result<(), CoreError> {
+    use quick_xml::{Reader, events::Event};
+    let mut reader = Reader::from_str(source);
+    let mut depth = 0_usize;
+    let mut seen_root = false;
+    loop {
+        let event = reader
+            .read_event()
+            .map_err(|error| CoreError::InvalidDocument(error.to_string()))?;
+        let empty = matches!(event, Event::Empty(_));
+        match event {
+            Event::Start(ref element) | Event::Empty(ref element) => {
+                if depth == 0 {
+                    if seen_root || element.name().as_ref() != b"Ship" {
+                        return Err(CoreError::InvalidDocument(
+                            "必须且只能有一个 Ship 根元素".into(),
+                        ));
+                    }
+                    seen_root = true;
+                }
+                if !empty {
+                    depth += 1;
+                }
+            }
+            Event::End(_) => {
+                depth = depth
+                    .checked_sub(1)
+                    .ok_or_else(|| CoreError::InvalidDocument("多余的结束标签".into()))?;
+            }
+            Event::Text(text)
+                if depth == 0 && !text.as_ref().iter().all(u8::is_ascii_whitespace) =>
+            {
+                return Err(CoreError::InvalidDocument("根元素外存在文本".into()));
+            }
+            Event::CData(_) | Event::GeneralRef(_) if depth == 0 => {
+                return Err(CoreError::InvalidDocument("根元素外存在内容".into()));
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    if !seen_root || depth != 0 {
+        return Err(CoreError::InvalidDocument(
+            "缺失或未闭合的 Ship 根元素".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -570,6 +668,14 @@ struct OutPart<'a> {
     deployed: Option<i8>,
     #[serde(rename = "@rope", skip_serializing_if = "Option::is_none")]
     rope: Option<i8>,
+    #[serde(rename = "@lower", skip_serializing_if = "Option::is_none")]
+    lower: Option<i8>,
+    #[serde(rename = "@raise", skip_serializing_if = "Option::is_none")]
+    raise: Option<i8>,
+    #[serde(rename = "@length", skip_serializing_if = "Option::is_none")]
+    length: Option<f64>,
+    #[serde(rename = "@legAngle", skip_serializing_if = "Option::is_none")]
+    leg_angle: Option<f64>,
     #[serde(rename = "Tank", skip_serializing_if = "Option::is_none")]
     tank: Option<OutFuel>,
     #[serde(rename = "Engine", skip_serializing_if = "Option::is_none")]
@@ -658,6 +764,11 @@ fn out_part(part: &Part) -> OutPart<'_> {
         active: part.active as i8,
         exploded: part.exploded as i8,
         extension: part.extension,
+        lower: part.lander.lower,
+        raise: part.lander.raise,
+        length: part.lander.length,
+        leg_angle: part.lander.leg_angle,
+
         chute_x: part.parachute.x,
         chute_y: part.parachute.y,
         chute_angle: part.parachute.angle,
@@ -748,16 +859,116 @@ pub fn ship_to_xml(ship: &Ship) -> Result<String, CoreError> {
 
 pub fn save_ship(path: impl AsRef<Path>, ship: &Ship) -> Result<(), CoreError> {
     let xml = ship_to_xml(ship)?;
-    fs::write(path.as_ref(), xml).map_err(|source| CoreError::Read {
-        path: path.as_ref().display().to_string(),
+    let path = path.as_ref();
+    atomic_write(path, xml.as_bytes()).map_err(|source| CoreError::Write {
+        path: path.display().to_string(),
         source,
     })?;
+    Ok(())
+}
+
+/// 先在目标目录写完整临时文件，再替换目标；写入或替换失败不截断原文件。
+fn atomic_write(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    if let Ok(metadata) = fs::metadata(path) {
+        if metadata.permissions().readonly() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "目标文件为只读",
+            ));
+        }
+        temporary
+            .as_file()
+            .set_permissions(metadata.permissions())?;
+    }
+    temporary.write_all(contents)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path).map_err(|error| error.error)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_wrong_root_trailing_document_and_unmodelled_fields() {
+        for input in [
+            "<PartTypes/>",
+            "<Ship/><Ship/>",
+            "<Ship/>garbage",
+            "<Ship>",
+            "<Ship futureField=\"1\"/>",
+            "<Ship><Unknown/></Ship>",
+            "<Ship><Parts><Part id=\"1\" futureField=\"1\"/></Parts></Ship>",
+            "<Ship><Parts><Part id=\"1\"><Tank fuel=\"2\"/><Engine fuel=\"3\"/></Part></Parts></Ship>",
+        ] {
+            assert!(ship_from_xml(input).is_err(), "错误输入被静默接受：{input}");
+        }
+        assert!(ship_from_xml("<?xml version=\"1.0\"?><!-- 注释 --><Ship/><!-- 结尾 -->").is_ok());
+    }
+
+    #[test]
+    fn preserves_all_lander_attributes() {
+        let ship = ship_from_xml(r#"<Ship><Parts><Part id="1" partType="lander-1" lower="0" raise="1" length="2.26" legAngle="-10000000"/></Parts></Ship>"#).unwrap();
+        assert_eq!(
+            ship.parts[0].lander,
+            LanderState {
+                lower: Some(0),
+                raise: Some(1),
+                length: Some(2.26),
+                leg_angle: Some(-10000000.0)
+            }
+        );
+        let xml = ship_to_xml(&ship).unwrap();
+        assert!(xml.contains("legAngle=\"-10000000\""));
+        assert_eq!(ship_from_xml(&xml).unwrap(), ship);
+    }
+
+    #[test]
+    fn atomic_save_replaces_complete_file_and_leaves_no_temporary_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("船体.xml");
+        fs::write(&path, "旧内容").unwrap();
+        let ship = Ship::default();
+        save_ship(&path, &ship).unwrap();
+        assert_eq!(load_ship(&path).unwrap(), ship);
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn failed_replacement_preserves_existing_target_and_cleans_up() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("不能替换的目录.xml");
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("原内容"), b"unchanged").unwrap();
+        assert!(matches!(
+            save_ship(&path, &Ship::default()),
+            Err(CoreError::Write { .. })
+        ));
+        assert_eq!(fs::read(path.join("原内容")).unwrap(), b"unchanged");
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn read_only_save_preserves_original_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("只读.xml");
+        fs::write(&path, "不能丢失的原文件").unwrap();
+        let original = fs::metadata(&path).unwrap().permissions();
+        let mut read_only = original.clone();
+        read_only.set_readonly(true);
+        fs::set_permissions(&path, read_only).unwrap();
+        let result = save_ship(&path, &Ship::default());
+        fs::set_permissions(&path, original).unwrap();
+        assert!(matches!(result, Err(CoreError::Write { .. })));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "不能丢失的原文件");
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
     #[test]
     fn preserves_disconnected_groups_and_parachutes() {
         let source = r#"<Ship><Parts><Part id="1" partType="pod-1"><Pod name="甲 &amp; 乙" throttle="0.5"><Staging currentStage="1"><Step/><Step><Activate Id="2" moved="1"/></Step></Staging></Pod></Part></Parts>
