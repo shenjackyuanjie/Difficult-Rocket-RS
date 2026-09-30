@@ -350,6 +350,16 @@ impl Default for Ship {
 }
 
 impl Ship {
+    /// 主船体为 0，断开组依文档顺序从 1 开始；不同组可能复用 SR1 部件 ID。
+    pub fn groups(&self) -> impl Iterator<Item = (usize, &[Part], &[Connection])> {
+        std::iter::once((0, self.parts.as_slice(), self.connections.as_slice())).chain(
+            self.disconnected
+                .iter()
+                .enumerate()
+                .map(|(i, group)| (i + 1, group.parts.as_slice(), group.connections.as_slice())),
+        )
+    }
+
     pub fn all_parts(&self) -> impl DoubleEndedIterator<Item = &Part> {
         self.parts
             .iter()

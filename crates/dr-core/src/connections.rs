@@ -373,15 +373,27 @@ pub fn positions(
     catalog: &PartCatalog,
     connection: &Connection,
 ) -> Option<(Vec2d, Vec2d)> {
+    let (parent, child) = match *connection {
+        Connection::Normal { parent, child, .. } | Connection::Dock { parent, child, .. } => {
+            (parent, child)
+        }
+    };
+    positions_between(catalog, connection, ship.part(parent)?, ship.part(child)?)
+}
+
+/// 供已建立部件索引的批量渲染调用，避免逐条连接扫描整个船体。
+pub fn positions_between(
+    catalog: &PartCatalog,
+    connection: &Connection,
+    parent: &Part,
+    child: &Part,
+) -> Option<(Vec2d, Vec2d)> {
     match *connection {
         Connection::Normal {
-            parent,
-            child,
             parent_attach,
             child_attach,
+            ..
         } => {
-            let parent = ship.part(parent)?;
-            let child = ship.part(child)?;
             let pt = catalog.get(&parent.part_type)?;
             let ct = catalog.get(&child.part_type)?;
             let pa = pt
@@ -393,20 +405,16 @@ pub fn positions(
             let (child, parent) = closest_points(segment(child, ct, ca), segment(parent, pt, pa));
             Some((parent, child))
         }
-        Connection::Dock { parent, child, .. } => {
-            let parent = ship.part(parent)?;
-            let child = ship.part(child)?;
-            Some((
-                Vec2d {
-                    x: parent.x,
-                    y: parent.y,
-                },
-                Vec2d {
-                    x: child.x,
-                    y: child.y,
-                },
-            ))
-        }
+        Connection::Dock { .. } => Some((
+            Vec2d {
+                x: parent.x,
+                y: parent.y,
+            },
+            Vec2d {
+                x: child.x,
+                y: child.y,
+            },
+        )),
     }
 }
 
