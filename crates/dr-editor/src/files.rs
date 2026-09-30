@@ -196,7 +196,19 @@ pub(crate) fn file_inputs(
     mut closes: MessageReader<WindowCloseRequested>,
     mut actions: MessageWriter<FileAction>,
     mut document: ResMut<EditorDocument>,
+    mut inspector: Option<ResMut<properties::Inspector>>,
 ) {
+    if let Some(inspector) = inspector.as_mut()
+        && inspector.is_open()
+    {
+        let attempted = !closes.is_empty() || !drops.is_empty();
+        if attempted {
+            inspector.guard_file_input();
+        }
+        closes.clear();
+        drops.clear();
+        return;
+    }
     if closes.read().next().is_some() {
         closes.clear();
         actions.write(FileAction::Exit);

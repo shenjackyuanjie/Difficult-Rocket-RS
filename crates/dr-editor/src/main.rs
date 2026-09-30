@@ -1,6 +1,7 @@
 mod files;
 mod panels;
 mod placement;
+mod properties;
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
@@ -94,6 +95,7 @@ struct SmokeTest {
     enabled: bool,
     native_dialogs: bool,
     panels: bool,
+    properties: bool,
     started: std::time::Instant,
 }
 
@@ -124,10 +126,12 @@ fn main() -> anyhow::Result<()> {
         ))
         .init_resource::<panels::Palette>()
         .init_resource::<panels::UiPointer>()
+        .init_resource::<properties::Inspector>()
         .insert_resource(SmokeTest {
             enabled: args.iter().any(|arg| arg == "--smoke-test"),
             native_dialogs: args.iter().any(|arg| arg == "--native-dialog-test"),
             panels: args.iter().any(|arg| arg == "--panel-smoke-test"),
+            properties: args.iter().any(|arg| arg == "--properties-smoke-test"),
             started: std::time::Instant::now(),
         })
         .insert_resource(EditorPaths {
@@ -159,26 +163,39 @@ fn main() -> anyhow::Result<()> {
         .add_message::<files::FileAction>()
         .add_systems(
             Startup,
-            (setup_camera, setup_hud, files::setup_file_toolbar),
+            (
+                setup_camera,
+                setup_hud,
+                files::setup_file_toolbar,
+                properties::setup,
+            ),
         )
         .add_systems(
             Update,
             (
-                panels::smoke::run,
-                panels::pointer_over_ui,
-                panels::panel_actions,
-                files::toolbar_actions,
-                files::file_inputs,
-                placement::cancel_for_file_action,
-                files::file_actions,
-                mouse_editor,
-                keyboard_commands,
-                camera_controls,
+                (
+                    panels::smoke::run,
+                    properties::smoke::run,
+                    panels::pointer_over_ui,
+                    properties::actions,
+                    properties::input,
+                    panels::panel_actions.run_if(properties::closed),
+                    files::toolbar_actions.run_if(properties::closed),
+                    files::file_inputs,
+                    properties::cancel_for_file_action,
+                    placement::cancel_for_file_action,
+                    files::file_actions,
+                    mouse_editor.run_if(properties::closed),
+                    keyboard_commands.run_if(properties::closed),
+                    camera_controls.run_if(properties::closed),
+                )
+                    .chain(),
                 panels::scroll_panels,
                 sync_ship_visuals,
                 placement::draw_preview,
                 panels::render_palette,
                 panels::render_browser,
+                properties::render,
                 draw_connections,
                 update_hud,
                 files::update_window_title,

@@ -177,17 +177,30 @@ pub(crate) fn pointer_over_ui(
 pub(crate) fn scroll_panels(
     mut wheels: MessageReader<MouseWheel>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    mut areas: Query<(&ComputedNode, &UiGlobalTransform, &mut ScrollPosition), With<ScrollArea>>,
+    mut areas: Query<
+        (
+            &ComputedNode,
+            &UiGlobalTransform,
+            &mut ScrollPosition,
+            Has<properties::InspectorScroll>,
+        ),
+        With<ScrollArea>,
+    >,
+    inspector: Option<Res<properties::Inspector>>,
 ) {
     let position = windows
         .single()
         .ok()
         .and_then(Window::physical_cursor_position);
+    let modal = !properties::closed(inspector);
     for wheel in wheels.read() {
         let Some(position) = position else {
             continue;
         };
-        for (node, transform, mut scroll) in &mut areas {
+        for (node, transform, mut scroll, is_inspector) in &mut areas {
+            if modal && !is_inspector {
+                continue;
+            }
             if node.contains_point(*transform, position) {
                 let delta = match wheel.unit {
                     MouseScrollUnit::Line => wheel.y * 40.0,
