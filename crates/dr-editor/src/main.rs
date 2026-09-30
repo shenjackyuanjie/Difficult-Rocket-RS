@@ -1,3 +1,4 @@
+mod connection_smoke;
 mod files;
 mod panels;
 mod placement;
@@ -8,8 +9,8 @@ use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 use dr_core::geometry::{Vec2d, contains_point};
 use dr_core::{
-    Connection, EditorCommand, EditorHistory, Part, PartCatalog, PartKind, Ship, find_snap,
-    load_catalog, load_ship, part_world_attach, save_ship,
+    Connection, EditorCommand, EditorHistory, Part, PartCatalog, PartKind, Ship, load_catalog,
+    load_ship, save_ship,
 };
 
 #[derive(Resource, Clone)]
@@ -48,7 +49,10 @@ impl EditorDocument {
         changed
     }
     fn execute(&mut self, command: EditorCommand) -> bool {
-        match self.history.execute(&mut self.ship, command) {
+        match self
+            .history
+            .execute_with_catalog(&mut self.ship, &self.catalog, command)
+        {
             Ok(()) => {
                 self.refresh();
                 self.status.clear();
@@ -96,6 +100,7 @@ struct SmokeTest {
     native_dialogs: bool,
     panels: bool,
     properties: bool,
+    connections: bool,
     started: std::time::Instant,
 }
 
@@ -132,6 +137,7 @@ fn main() -> anyhow::Result<()> {
             native_dialogs: args.iter().any(|arg| arg == "--native-dialog-test"),
             panels: args.iter().any(|arg| arg == "--panel-smoke-test"),
             properties: args.iter().any(|arg| arg == "--properties-smoke-test"),
+            connections: args.iter().any(|arg| arg == "--connection-smoke-test"),
             started: std::time::Instant::now(),
         })
         .insert_resource(EditorPaths {
@@ -176,6 +182,7 @@ fn main() -> anyhow::Result<()> {
                 (
                     panels::smoke::run,
                     properties::smoke::run,
+                    connection_smoke::run,
                     panels::pointer_over_ui,
                     properties::actions,
                     properties::input,
@@ -655,48 +662,17 @@ fn draw_connections(mut gizmos: Gizmos, document: Res<EditorDocument>, drag: Res
         if drag.id.is_some_and(|id| connection.touches(id)) {
             continue;
         }
-        let (parent_id, child_id, parent_attach, child_attach) = match connection {
-            Connection::Normal {
-                parent,
-                child,
-                parent_attach,
-                child_attach,
-            } => (*parent, *child, Some(*parent_attach), Some(*child_attach)),
-            Connection::Dock { parent, child, .. } => (*parent, *child, None, None),
-        };
-        let Some(parent) = document.ship.part(parent_id) else {
-            continue;
-        };
-        let Some(child) = document.ship.part(child_id) else {
-            continue;
-        };
-        let parent_position = attachment_position(parent, parent_attach, &document.catalog);
-        let child_position = attachment_position(child, child_attach, &document.catalog);
-        let (Some(parent_position), Some(child_position)) = (parent_position, child_position)
+        let Some((parent, child)) =
+            dr_core::connections::positions(&document.ship, &document.catalog, connection)
         else {
             continue;
         };
         gizmos.line_2d(
-            parent_position,
-            child_position,
+            Vec2::new(parent.x as f32 * 60.0, parent.y as f32 * 60.0),
+            Vec2::new(child.x as f32 * 60.0, child.y as f32 * 60.0),
             Color::srgb(0.25, 0.9, 0.55),
         );
     }
-}
-
-/// 获取连接点在 Bevy 世界中的像素位置。
-fn attachment_position(part: &Part, index: Option<i32>, catalog: &PartCatalog) -> Option<Vec2> {
-    let Some(index) = index else {
-        return Some(Vec2::new(part.x as f32 * 60.0, part.y as f32 * 60.0));
-    };
-    let index = index.checked_sub(1)?;
-    let part_type = catalog.get(&part.part_type)?;
-    let attach = part_type.attach_points.get(index as usize)?;
-    let position = part_world_attach(part, attach);
-    Some(Vec2::new(
-        position.x as f32 * 60.0,
-        position.y as f32 * 60.0,
-    ))
 }
 
 fn update_hud(

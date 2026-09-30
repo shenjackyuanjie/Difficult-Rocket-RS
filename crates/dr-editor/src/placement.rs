@@ -42,37 +42,52 @@ pub(crate) fn snap(ship: &Ship, catalog: &PartCatalog, source: &mut Part) -> Opt
         let Some(target_type) = catalog.get(&target.part_type) else {
             continue;
         };
-        let Some(candidate) = find_snap(source, source_type, target, target_type, 0.35) else {
-            continue;
-        };
-        if best
-            .as_ref()
-            .is_some_and(|(_, prior)| prior.distance <= candidate.distance)
+        for candidate in
+            dr_core::connections::candidates(source, source_type, target, target_type, 0.35)
         {
-            continue;
-        }
-        let connection = if candidate.dock {
-            let dock = if source_type.kind == PartKind::DockConnector {
-                source.id
-            } else if target_type.kind == PartKind::DockConnector {
-                target.id
-            } else {
+            if best
+                .as_ref()
+                .is_some_and(|(_, prior)| prior.distance <= candidate.distance)
+            {
                 continue;
+            }
+            let mut proposed = source.clone();
+            proposed.x = candidate.position.x;
+            proposed.y = candidate.position.y;
+            if !dr_core::connections::available(
+                ship,
+                catalog,
+                &proposed,
+                source_type,
+                target,
+                target_type,
+                &candidate,
+                Some(source.id),
+            ) || collides(ship, catalog, &proposed)
+            {
+                continue;
+            }
+            let connection = if candidate.dock {
+                let dock = if source_type.kind == PartKind::DockConnector {
+                    source.id
+                } else {
+                    target.id
+                };
+                Connection::Dock {
+                    dock,
+                    parent: target.id,
+                    child: source.id,
+                }
+            } else {
+                Connection::Normal {
+                    parent: target.id,
+                    child: source.id,
+                    parent_attach: candidate.target_index as i32 + 1,
+                    child_attach: candidate.source_index as i32 + 1,
+                }
             };
-            Connection::Dock {
-                dock,
-                parent: target.id,
-                child: source.id,
-            }
-        } else {
-            Connection::Normal {
-                parent: target.id,
-                child: source.id,
-                parent_attach: candidate.target_index as i32 + 1,
-                child_attach: candidate.source_index as i32 + 1,
-            }
-        };
-        best = Some((connection, candidate));
+            best = Some((connection, candidate));
+        }
     }
     best.map(|(connection, candidate)| {
         source.x = candidate.position.x;

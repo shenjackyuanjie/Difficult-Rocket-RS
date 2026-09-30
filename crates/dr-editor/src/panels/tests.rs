@@ -210,3 +210,59 @@ fn rejected_rotation_keeps_pose_and_connections_and_valid_rotation_undoes() {
     assert!(document.undo());
     assert_eq!(document.ship, before);
 }
+
+#[test]
+fn snap_skips_occupied_nearest_anchor_and_commits_the_alternative() {
+    let mut document = crate::tests::document();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("PartList.xml");
+    std::fs::write(
+        &path,
+        r#"<PartTypes>
+      <PartType id="target" width="2" height="2" ignoreEditorIntersections="true"><AttachPoints>
+        <AttachPoint x="1" y="0"/><AttachPoint x="1" y="0.4"/>
+      </AttachPoints></PartType>
+      <PartType id="source" width="2" height="2" ignoreEditorIntersections="true"><AttachPoints>
+        <AttachPoint x="-1" y="0"/>
+      </AttachPoints></PartType></PartTypes>"#,
+    )
+    .unwrap();
+    document.catalog = load_catalog(path).unwrap();
+    let source_kind = document.catalog.get("source").unwrap();
+    let source = source_kind.instantiate(3, (1.1, 0.0));
+    document.ship.parts = vec![
+        document
+            .catalog
+            .get("target")
+            .unwrap()
+            .instantiate(1, (0.0, 0.0)),
+        source_kind.instantiate(2, (1.0, 0.0)),
+    ];
+    document.ship.connections = vec![Connection::Normal {
+        parent: 1,
+        child: 2,
+        parent_attach: 1,
+        child_attach: 1,
+    }];
+    let before = document.ship.clone();
+    let mut preview = source.clone();
+    let connection = placement::snap(&document.ship, &document.catalog, &mut preview).unwrap();
+    assert_eq!(
+        connection,
+        Connection::Normal {
+            parent: 1,
+            child: 3,
+            parent_attach: 2,
+            child_attach: 1
+        }
+    );
+    assert!((preview.x - 1.0).abs() < 1e-6);
+    assert!((preview.y - 0.2).abs() < 1e-6);
+    assert!(document.execute(EditorCommand::Batch(vec![
+        EditorCommand::Place(preview.into()),
+        EditorCommand::Connect(connection)
+    ])));
+    assert_eq!(document.ship.connections.len(), 2);
+    assert!(document.undo());
+    assert_eq!(document.ship, before);
+}
