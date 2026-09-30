@@ -380,6 +380,42 @@ impl Default for Ship {
 }
 
 impl Ship {
+    /// 文档自身与所拥有堆分配的容量估算，不包含分配器元数据。
+    pub fn retained_bytes(&self) -> usize {
+        let group_bytes = |parts: &Vec<Part>, connections: &Vec<Connection>| {
+            parts.capacity() * std::mem::size_of::<Part>()
+                + connections.capacity() * std::mem::size_of::<Connection>()
+                + parts
+                    .iter()
+                    .map(|part| {
+                        part.part_type.capacity()
+                            + part.pod.as_ref().map_or(0, |pod| {
+                                pod.name.capacity()
+                                    + pod.staging.as_ref().map_or(0, |staging| {
+                                        staging.steps.capacity() * std::mem::size_of::<StageStep>()
+                                            + staging
+                                                .steps
+                                                .iter()
+                                                .map(|step| {
+                                                    step.activations.capacity()
+                                                        * std::mem::size_of::<Activation>()
+                                                })
+                                                .sum::<usize>()
+                                    })
+                            })
+                    })
+                    .sum::<usize>()
+        };
+        std::mem::size_of::<Self>()
+            + self.disconnected.capacity() * std::mem::size_of::<ShipGroup>()
+            + group_bytes(&self.parts, &self.connections)
+            + self
+                .disconnected
+                .iter()
+                .map(|group| group_bytes(&group.parts, &group.connections))
+                .sum::<usize>()
+    }
+
     pub fn group(&self, group: usize) -> Option<(&[Part], &[Connection])> {
         if group == 0 {
             Some((&self.parts, &self.connections))

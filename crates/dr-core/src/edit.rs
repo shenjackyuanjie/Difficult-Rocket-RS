@@ -85,15 +85,28 @@ pub enum LinkKind {
 
 #[derive(Debug, Clone)]
 struct Entry {
-    before: Ship,
-    after: Ship,
+    snapshot: Ship,
+    // 为两端较大的一份保留预算，撤销/重做交换时无需丢弃其他记录。
+    reserved_bytes: usize,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct EditorHistory {
     undo: Vec<Entry>,
     redo: Vec<Entry>,
     limit: usize,
+    byte_limit: usize,
+}
+
+impl Default for EditorHistory {
+    fn default() -> Self {
+        Self {
+            undo: vec![],
+            redo: vec![],
+            limit: 256,
+            byte_limit: 64 * 1024 * 1024,
+        }
+    }
 }
 
 impl EditorHistory {
@@ -102,6 +115,27 @@ impl EditorHistory {
             limit: limit.max(1),
             ..Self::default()
         }
+    }
+    /// 按步骤和快照容量限制历史；即使一份快照超过预算，也保留最近一步。
+    pub fn with_limits(steps: usize, bytes: usize) -> Self {
+        Self {
+            limit: steps.max(1),
+            byte_limit: bytes.max(1),
+            ..Self::default()
+        }
+    }
+    pub fn undo_len(&self) -> usize {
+        self.undo.len()
+    }
+    pub fn redo_len(&self) -> usize {
+        self.redo.len()
+    }
+    pub fn reserved_bytes(&self) -> usize {
+        self.undo
+            .iter()
+            .chain(&self.redo)
+            .map(|entry| entry.reserved_bytes)
+            .sum()
     }
     pub fn execute(&mut self, ship: &mut Ship, command: EditorCommand) -> Result<(), CommandError> {
         self.execute_inner(ship, None, command)
@@ -120,27 +154,27 @@ impl EditorHistory {
         catalog: Option<&PartCatalog>,
         command: EditorCommand,
     ) -> Result<(), CommandError> {
-        let before = ship.clone();
-        command.apply_checked(ship, catalog)?;
-        if *ship == before {
+        let after = command.preview_checked(ship, catalog)?;
+        if *ship == after {
             return Ok(());
         }
-        if self.limit == 0 {
-            self.limit = 256;
-        }
+        let reserved_bytes = ship.retained_bytes().max(after.retained_bytes());
+        let before = std::mem::replace(ship, after);
+        self.redo.clear();
         self.undo.push(Entry {
-            before,
-            after: ship.clone(),
+            snapshot: before,
+            reserved_bytes,
         });
-        if self.undo.len() > self.limit {
+        let mut bytes = self.reserved_bytes();
+        while self.undo.len() > 1 && (self.undo.len() > self.limit || bytes > self.byte_limit) {
+            bytes -= self.undo[0].reserved_bytes;
             self.undo.remove(0);
         }
-        self.redo.clear();
         Ok(())
     }
     pub fn undo(&mut self, ship: &mut Ship) -> bool {
-        if let Some(entry) = self.undo.pop() {
-            *ship = entry.before.clone();
+        if let Some(mut entry) = self.undo.pop() {
+            std::mem::swap(ship, &mut entry.snapshot);
             self.redo.push(entry);
             true
         } else {
@@ -148,8 +182,8 @@ impl EditorHistory {
         }
     }
     pub fn redo(&mut self, ship: &mut Ship) -> bool {
-        if let Some(entry) = self.redo.pop() {
-            *ship = entry.after.clone();
+        if let Some(mut entry) = self.redo.pop() {
+            std::mem::swap(ship, &mut entry.snapshot);
             self.undo.push(entry);
             true
         } else {
@@ -396,6 +430,103 @@ mod selection_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn history_byte_budget_evicts_oldest_and_swaps_without_cloning() {
+        let mut ship = Ship {
+            parts: vec![part(1)],
+            ..Ship::default()
+        };
+        let mut history = EditorHistory::with_limits(20, ship.retained_bytes() * 2);
+        for x in 1..=4 {
+            history
+                .execute(
+                    &mut ship,
+                    EditorCommand::Move {
+                        id: 1,
+                        from: (0.0, 0.0),
+                        to: (x as f64, 0.0),
+                    },
+                )
+                .unwrap();
+        }
+        assert_eq!(history.undo_len(), 2);
+        let bytes = history.reserved_bytes();
+        let current = ship.parts.as_ptr();
+        let previous = history.undo.last().unwrap().snapshot.parts.as_ptr();
+        assert!(history.undo(&mut ship));
+        assert_eq!(ship.parts.as_ptr(), previous);
+        assert_eq!(ship.parts[0].x, 3.0);
+        assert_eq!(history.reserved_bytes(), bytes);
+        assert!(history.undo(&mut ship));
+        assert_eq!(ship.parts[0].x, 2.0);
+        assert!(!history.undo(&mut ship));
+        assert!(history.redo(&mut ship));
+        assert!(history.redo(&mut ship));
+        assert_eq!(ship.parts.as_ptr(), current);
+        assert_eq!(ship.parts[0].x, 4.0);
+        assert_eq!(history.reserved_bytes(), bytes);
+        history.undo(&mut ship);
+        history
+            .execute(&mut ship, EditorCommand::SetActive(1, true))
+            .unwrap();
+        assert_eq!(history.redo_len(), 0);
+        assert_eq!(history.undo_len(), 2);
+    }
+
+    #[test]
+    fn history_keeps_last_oversized_edit_and_counts_nested_staging_capacity() {
+        let mut ship = Ship {
+            parts: vec![part(1)],
+            ..Ship::default()
+        };
+        let plain_bytes = ship.retained_bytes();
+        ship.parts[0].pod = Some(crate::PodState {
+            name: "长名称".repeat(100),
+            staging: Some(StagingState {
+                steps: vec![crate::StageStep {
+                    activations: vec![
+                        crate::Activation {
+                            id: 1,
+                            moved: false
+                        };
+                        500
+                    ],
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        assert!(
+            ship.retained_bytes()
+                >= plain_bytes
+                    + 100 * "长名称".len()
+                    + 500 * std::mem::size_of::<crate::Activation>()
+        );
+        let original = ship.clone();
+        let mut history = EditorHistory::with_limits(1, 1);
+        history
+            .execute(&mut ship, EditorCommand::SetActive(1, true))
+            .unwrap();
+        assert_eq!(history.undo_len(), 1);
+        assert!(history.reserved_bytes() > 1);
+        history.undo(&mut ship);
+        assert_eq!(ship, original);
+        let bytes = history.reserved_bytes();
+        assert!(
+            history
+                .execute(&mut ship, EditorCommand::Delete(999))
+                .is_err()
+        );
+        history
+            .execute(
+                &mut ship,
+                EditorCommand::SetActive(1, original.parts[0].active),
+            )
+            .unwrap();
+        assert_eq!(history.reserved_bytes(), bytes);
+        assert!(history.can_redo());
+    }
+
     pub(super) fn part(id: i64) -> Part {
         Part {
             id,
