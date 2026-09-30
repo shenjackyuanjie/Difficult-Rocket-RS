@@ -37,7 +37,7 @@
 
 验证记录：
 
-- `cargo test --workspace`：102 项通过（54 项核心、48 项编辑器）。
+- `cargo test --workspace`：104 项通过（56 项核心、48 项编辑器）。
 - `cargo clippy --workspace --all-targets -- -D warnings`：通过。
 - `cargo build -p dr-editor`：通过。
 - 真实 Vulkan 窗口加载 `Test.xml` 并截图，已人工检查贴图与中文显示。尚未覆盖所有鼠标与快捷键组合。
@@ -61,7 +61,17 @@
   报告与截图保留在 `target/editor-performance-{样本名}.json/png`。
 
   接入分组编辑后，同配置对 `Ophioglossum.xml` 回归：平均 24.560 ms、中位 24.357 ms、P95 25.722 ms、最大 38.659 ms，89 个帧间隔、零实体重建、取消后原文档不变。产物为 `target/editor-performance-scoped-Ophioglossum.json/png`。
-  接入多选 UI 后，同配置单选回归得到平均 33.045 ms、中位 32.741 ms、P95 35.838 ms、最大 45.976 ms，零实体重建、取消后文档不变，产物 `target/editor-performance-selection-Ophioglossum.json/png`。相较前次记录变慢，需继续定位并增加大量多选基准；不能据此声称大量多选流畅。
+  接入多选 UI 后，同配置单选回归得到平均 33.045 ms、中位 32.741 ms、P95 35.838 ms、最大 45.976 ms，零实体重建、取消后文档不变，产物 `target/editor-performance-selection-Ophioglossum.json/png`。后续加入连接面范围剔除后，单选测得平均 27.078 ms、P95 31.909 ms；开发构建及系统负载仍有波动。
+
+  新增可指定选择数量的性能自测；定位到整体吸附为大量不可用落点反复克隆整船。缓存连接面/碰撞范围，先做不克隆文档的实际 Shape 碰撞预筛选，再对可用候选运行完整原子命令校验；同一碰撞落点不重复校验。100 部件的平均耗时从 582.193 ms 降至 48.545 ms。连接面超出贴图边界、旋转镜像、圆形及碰撞豁免有回归覆盖，不能用贴图尺寸裁掉合法连接候选。
+
+  | Ophioglossum 多选数 | 平均 ms | 中位 ms | P95 ms | 最大 ms |
+  |---:|---:|---:|---:|---:|
+  | 100 | 48.545 | 48.423 | 53.413 | 65.579 |
+  | 1000 | 79.170 | 83.160 | 92.519 | 106.127 |
+  | 10679（全选） | 62.189 | 61.527 | 70.160 | 83.873 |
+
+  均为 89 个帧间隔、零实体重建、取消后文档未变；产物 `target/editor-performance-multi-{100-final,1000,all-final}.json/png`。此规模仍未达到 60 FPS；不同选择形状、粘贴、保存和历史操作尚需各自验收，不能将单一拖动基准等同于全路径性能。
 - Bevy 0.19 的 Parley 使用 `new_for_non_complex_scripts`，运行时仍报告 ICU4X 中文分词模型缺失；截图中的中文字形正常。关闭自动换行未消除该日志，后续需检查上游分词配置，不应把它当作字体加载失败。
 - 190 个样本中 185 个、125,856 个部件完成模型及**原始 XML 元素、属性**对照往返，包括着陆架字段；字符串原样比较，数字允许等值格式化。
 - 5 个输入被拒绝：`Alliance.xml` 标签错配；`Amect-MAIIa TEST.xml` 的 `currentStage` 为空；`AmectVII.xml` 和 `Ss.xml` 使用非标准连接节点；`X Type 2.xml` 根节点后存在非法文本。异常输入不自动修复，也不允许静默删掉内容后保存。批量校验如实返回非零状态。
