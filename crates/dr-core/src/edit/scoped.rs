@@ -94,7 +94,7 @@ pub(crate) fn delete(ship: &mut Ship, key: PartKey) -> Result<(), CommandError> 
     Ok(())
 }
 
-fn remap_connection(connection: &mut Connection, ids: &HashMap<PartId, PartId>) {
+pub(super) fn remap_connection(connection: &mut Connection, ids: &HashMap<PartId, PartId>) {
     let remap = |id: &mut PartId| {
         if let Some(new) = ids.get(id) {
             *id = *new;

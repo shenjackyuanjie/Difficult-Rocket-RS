@@ -1,4 +1,6 @@
 mod repair;
+pub mod selection;
+pub use selection::{SelectionTransform, ShipFragment};
 pub(crate) mod scoped;
 pub use repair::{ConnectionRole, DuplicateRepair, ReferenceSite};
 
@@ -23,10 +25,21 @@ pub enum CommandError {
     InvalidConnection(String),
     #[error("无法修复重复编号: {0}")]
     InvalidRepair(String),
+    #[error("无法编辑所选部件: {0}")]
+    InvalidSelection(String),
 }
 
 #[derive(Debug, Clone)]
 pub enum EditorCommand {
+    DeleteSelection(Vec<PartKey>),
+    TransformSelection {
+        parts: Vec<PartKey>,
+        transform: SelectionTransform,
+    },
+    Paste {
+        fragment: Box<ShipFragment>,
+        offset: (f64, f64),
+    },
     RepairDuplicates(Box<DuplicateRepair>),
     /// 对当前快照中一个明确实例执行属性或变换命令。
     Scoped {
@@ -174,11 +187,13 @@ impl EditorCommand {
         // 批量命令完成后再压缩被编辑清空的组，保留输入本身已有的空组。
         let mut group = 0;
         after.disconnected.retain(|current| {
-            let original = &ship.disconnected[group];
+            let original = ship.disconnected.get(group);
             group += 1;
             !current.parts.is_empty()
                 || !current.connections.is_empty()
-                || (original.parts.is_empty() && original.connections.is_empty())
+                || original.is_some_and(|original| {
+                    original.parts.is_empty() && original.connections.is_empty()
+                })
         });
         *ship = after;
         Ok(())
@@ -191,6 +206,11 @@ impl EditorCommand {
         scope: Option<PartKey>,
     ) -> Result<(), CommandError> {
         match self {
+            Self::DeleteSelection(parts) => selection::delete(ship, parts)?,
+            Self::TransformSelection { parts, transform } => {
+                selection::transform(ship, catalog, parts, *transform)?
+            }
+            Self::Paste { fragment, offset } => selection::paste(ship, catalog, fragment, *offset)?,
             Self::RepairDuplicates(repair) => repair.apply_inner(ship)?,
             Self::Scoped { part, command } => {
                 if scope.is_some() || ship.part_at(*part).is_none() {
@@ -354,6 +374,8 @@ impl EditorState {
 mod repair_tests;
 #[cfg(test)]
 mod scoped_tests;
+#[cfg(test)]
+mod selection_tests;
 
 #[cfg(test)]
 mod tests {

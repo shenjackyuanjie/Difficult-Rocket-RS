@@ -8,7 +8,7 @@ pub mod model;
 
 pub use edit::{
     CommandError, ConnectionRole, DuplicateRepair, EditorCommand, EditorHistory, EditorState,
-    LinkKind, ReferenceSite,
+    LinkKind, ReferenceSite, SelectionTransform, ShipFragment,
 };
 pub use geometry::{SnapCandidate, Vec2d, find_snap, intersects, part_world_attach};
 pub use io::{CoreError, load_catalog, load_ship, save_ship, ship_from_xml, ship_to_xml};

@@ -1,0 +1,330 @@
+use super::*;
+use crate::{Activation, PodState, ShipGroup, StageStep};
+
+fn catalog() -> PartCatalog {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("目录.xml");
+    std::fs::write(&path, r#"<PartTypes>
+        <PartType id="pod" type="pod" width="2" height="2"><AttachPoints><AttachPoint location="TopCenter"/><AttachPoint location="BottomCenter"/></AttachPoints></PartType>
+        <PartType id="tank" type="tank" width="2" height="2"><Tank fuel="100"/><AttachPoints><AttachPoint location="TopCenter"/><AttachPoint location="BottomCenter"/></AttachPoints></PartType>
+        <PartType id="fixed" width="2" height="2" disableEditorRotation="true"/>
+        <PartType id="limited" width="2" height="2" maxOccurrences="1"/>
+    </PartTypes>"#).unwrap();
+    crate::load_catalog(path).unwrap()
+}
+
+fn ship(catalog: &PartCatalog) -> Ship {
+    let mut pod = catalog.get("pod").unwrap().instantiate(1, (0.0, 0.0));
+    pod.pod = Some(PodState {
+        name: "试验 & 船体".into(),
+        throttle: 0.4,
+        staging: Some(StagingState {
+            current_stage: 1,
+            steps: vec![StageStep {
+                activations: vec![
+                    Activation { id: 2, moved: true },
+                    Activation {
+                        id: 3,
+                        moved: false,
+                    },
+                ],
+            }],
+        }),
+    });
+    Ship {
+        parts: vec![
+            pod,
+            catalog.get("tank").unwrap().instantiate(2, (0.0, 1.0)),
+            catalog.get("tank").unwrap().instantiate(3, (0.0, 2.0)),
+        ],
+        connections: vec![connection(1, 2), connection(2, 3)],
+        ..Default::default()
+    }
+}
+
+fn connection(parent: i64, child: i64) -> Connection {
+    Connection::Normal {
+        parent,
+        child,
+        parent_attach: 1,
+        child_attach: 2,
+    }
+}
+
+fn pair() -> Vec<PartKey> {
+    vec![PartKey::new(0, 1, 0), PartKey::new(0, 2, 0)]
+}
+
+#[test]
+fn whole_selection_move_keeps_internal_links_and_detaches_only_its_boundary() {
+    let catalog = catalog();
+    let mut ship = ship(&catalog);
+    let before = ship.clone();
+    let mut history = EditorHistory::default();
+    history
+        .execute_with_catalog(
+            &mut ship,
+            &catalog,
+            EditorCommand::TransformSelection {
+                parts: pair(),
+                transform: SelectionTransform::Translate { dx: 5.0, dy: -2.0 },
+            },
+        )
+        .unwrap();
+    assert_eq!(ship.connections, vec![connection(1, 2)]);
+    assert_eq!(ship.parts[0].x, 5.0);
+    assert_eq!(ship.parts[1].y, -1.0);
+    assert_eq!(ship.parts[2], before.parts[2]);
+    assert_eq!(ship.parts[0].pod, before.parts[0].pod);
+    assert!(history.undo(&mut ship));
+    assert_eq!(ship, before);
+    assert!(history.redo(&mut ship));
+    assert_eq!(ship.connections, vec![connection(1, 2)]);
+}
+
+#[test]
+fn rotation_and_world_mirrors_preserve_attachment_geometry() {
+    let catalog = catalog();
+    let kind = catalog.get("pod").unwrap();
+    let mut part = kind.instantiate(1, (2.0, 3.0));
+    part.angle = 0.37;
+    part.flip_x = true;
+    let ship = Ship {
+        parts: vec![part.clone()],
+        ..Default::default()
+    };
+    let original = crate::part_world_attach(&part, &kind.attach_points[0]);
+    for (transform, expected) in [
+        (
+            SelectionTransform::Rotate { center: (1.0, 1.0) },
+            (2.0 - original.y, original.x),
+        ),
+        (
+            SelectionTransform::FlipX { center: (1.0, 1.0) },
+            (2.0 - original.x, original.y),
+        ),
+        (
+            SelectionTransform::FlipY { center: (1.0, 1.0) },
+            (original.x, 2.0 - original.y),
+        ),
+    ] {
+        let preview =
+            selection::preview(&ship, Some(&catalog), &[PartKey::new(0, 1, 0)], transform).unwrap();
+        let actual = crate::part_world_attach(&preview[0].1, &kind.attach_points[0]);
+        assert!((actual.x - expected.0).abs() < 1e-9);
+        assert!((actual.y - expected.1).abs() < 1e-9);
+    }
+}
+
+#[test]
+fn copy_filters_external_references_but_keeps_internal_staging_flags() {
+    let catalog = catalog();
+    let ship = ship(&catalog);
+    let fragment = ShipFragment::capture(&ship, &pair()).unwrap();
+    assert_eq!(fragment.parts().count(), 2);
+    assert_eq!(fragment.groups()[0].connections, vec![connection(1, 2)]);
+    let pod = fragment.groups()[0].parts[0].pod.as_ref().unwrap();
+    assert_eq!(pod.name, "试验 & 船体");
+    assert_eq!(pod.throttle, 0.4);
+    assert_eq!(pod.staging.as_ref().unwrap().current_stage, 1);
+    assert_eq!(
+        pod.staging.as_ref().unwrap().steps[0].activations,
+        vec![Activation { id: 2, moved: true }]
+    );
+    assert_eq!(
+        ship.parts[0]
+            .pod
+            .as_ref()
+            .unwrap()
+            .staging
+            .as_ref()
+            .unwrap()
+            .steps[0]
+            .activations
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn paste_multiple_groups_reusing_ids_remaps_all_internal_references_and_undoes() {
+    let catalog = catalog();
+    let mut source = ship(&catalog);
+    let mut detached = ShipGroup {
+        parts: source.parts[..2].to_vec(),
+        connections: vec![Connection::Dock {
+            parent: 1,
+            child: 2,
+            dock: 2,
+        }],
+    };
+    for part in &mut detached.parts {
+        part.x += 10.0;
+    }
+    source.disconnected.push(detached);
+    let fragment = ShipFragment::capture(
+        &source,
+        &[pair(), vec![PartKey::new(1, 1, 0), PartKey::new(1, 2, 0)]].concat(),
+    )
+    .unwrap();
+    let mut target = Ship::default();
+    let mut history = EditorHistory::default();
+    history
+        .execute_with_catalog(
+            &mut target,
+            &catalog,
+            EditorCommand::Paste {
+                fragment: Box::new(fragment),
+                offset: (20.0, 5.0),
+            },
+        )
+        .unwrap();
+    assert_eq!(target.all_parts().count(), 4);
+    let unique: std::collections::HashSet<_> = target.all_parts().map(|part| part.id).collect();
+    assert_eq!(unique.len(), 4);
+    assert_eq!(target.disconnected.len(), 1);
+    let group = &target.disconnected[0];
+    let pod = &group.parts[0];
+    let tank = &group.parts[1];
+    assert_eq!(
+        group.connections,
+        vec![Connection::Dock {
+            parent: pod.id,
+            child: tank.id,
+            dock: tank.id
+        }]
+    );
+    assert_eq!(
+        pod.pod.as_ref().unwrap().staging.as_ref().unwrap().steps[0].activations,
+        vec![Activation {
+            id: tank.id,
+            moved: true
+        }]
+    );
+    assert_eq!(pod.x, 30.0);
+    let after = target.clone();
+    assert_eq!(
+        crate::ship_from_xml(&crate::ship_to_xml(&target).unwrap()).unwrap(),
+        target
+    );
+    assert!(history.undo(&mut target));
+    assert_eq!(target, Ship::default());
+    assert!(history.redo(&mut target));
+    assert_eq!(target, after);
+}
+
+#[test]
+fn collision_rotation_limits_and_paste_limits_fail_without_losing_redo() {
+    let catalog = catalog();
+    let mut ship = ship(&catalog);
+    let mut history = EditorHistory::default();
+    history
+        .execute(&mut ship, EditorCommand::SetActive(1, true))
+        .unwrap();
+    history.undo(&mut ship);
+    let before = ship.clone();
+    let fragment = ShipFragment::capture(&ship, &pair()).unwrap();
+    for command in [
+        EditorCommand::TransformSelection {
+            parts: pair(),
+            transform: SelectionTransform::Translate { dx: 0.0, dy: 1.0 },
+        },
+        EditorCommand::Paste {
+            fragment: Box::new(fragment),
+            offset: (0.0, 0.0),
+        },
+    ] {
+        assert!(
+            history
+                .execute_with_catalog(&mut ship, &catalog, command)
+                .is_err()
+        );
+        assert_eq!(ship, before);
+        assert!(history.can_redo());
+    }
+    ship.parts = vec![catalog.get("limited").unwrap().instantiate(1, (0.0, 0.0))];
+    ship.connections.clear();
+    let fragment = ShipFragment::capture(&ship, &[PartKey::new(0, 1, 0)]).unwrap();
+    let before = ship.clone();
+    assert!(
+        history
+            .execute_with_catalog(
+                &mut ship,
+                &catalog,
+                EditorCommand::Paste {
+                    fragment: Box::new(fragment),
+                    offset: (20.0, 0.0)
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(ship, before);
+    ship.parts[0].part_type = "fixed".into();
+    let before = ship.clone();
+    assert!(
+        history
+            .execute_with_catalog(
+                &mut ship,
+                &catalog,
+                EditorCommand::TransformSelection {
+                    parts: vec![PartKey::new(0, 1, 0)],
+                    transform: SelectionTransform::Rotate { center: (0.0, 0.0) }
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(ship, before);
+}
+
+#[test]
+fn bulk_delete_is_atomic_and_duplicate_occurrences_do_not_shift_targets() {
+    let catalog = catalog();
+    let part = catalog.get("tank").unwrap().instantiate(1, (0.0, 0.0));
+    let mut ship = Ship {
+        parts: vec![part.clone(); 3],
+        disconnected: vec![ShipGroup {
+            parts: vec![part],
+            connections: vec![],
+        }],
+        ..Default::default()
+    };
+    ship.parts[1].active = true;
+    let before = ship.clone();
+    assert!(
+        EditorCommand::DeleteSelection(vec![PartKey::new(0, 1, 0), PartKey::new(3, 1, 0)])
+            .apply(&mut ship)
+            .is_err()
+    );
+    assert_eq!(ship, before);
+    EditorCommand::DeleteSelection(vec![PartKey::new(0, 1, 0), PartKey::new(0, 1, 2)])
+        .apply(&mut ship)
+        .unwrap();
+    assert_eq!(ship.parts, vec![before.parts[1].clone()]);
+    assert_eq!(ship.disconnected, before.disconnected);
+    assert!(ShipFragment::capture(&before, &[PartKey::new(0, 1, 1)]).is_err());
+}
+
+#[test]
+fn no_op_transform_preserves_connections_and_redo() {
+    let catalog = catalog();
+    let mut ship = ship(&catalog);
+    let mut history = EditorHistory::default();
+    history
+        .execute(&mut ship, EditorCommand::SetActive(1, true))
+        .unwrap();
+    history.undo(&mut ship);
+    let before = ship.clone();
+    history
+        .execute_with_catalog(
+            &mut ship,
+            &catalog,
+            EditorCommand::TransformSelection {
+                parts: pair(),
+                transform: SelectionTransform::Translate { dx: 0.0, dy: 0.0 },
+            },
+        )
+        .unwrap();
+    assert_eq!(ship, before);
+    assert!(history.can_redo());
+    assert!(!history.can_undo());
+}
