@@ -1,0 +1,31 @@
+# Difficult-Rocket Rust 编辑器
+
+独立的 Bevy 编辑器及可复用的 SR1 数据核心。当前仍在补齐功能，完整复刻尚未完成；差异与验证记录见 [编辑器进度](docs/editor-progress.md)。
+
+从本仓库根目录运行，默认复用相邻 `Difficult-Rocket/assets` 中的部件目录、贴图和字体：
+
+```powershell
+cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
+```
+
+省略 `--ship` 创建空白文档。可用 `--catalog <PartList.xml>`、`--assets <资源目录>` 指定资源。加载失败会报错退出，不会用空白文档代替错误输入。
+
+| 操作 | 按键 |
+| --- | --- |
+| 选择、移动并吸附部件 | 左键点击、拖动 |
+| 取消拖动预览 | Esc、右键；窗口失焦时自动取消 |
+| 切换待放置部件、放置 | Tab、P |
+| 删除、旋转、镜像 | Delete、R、X / Y |
+| 撤销、重做 | Ctrl+Z、Ctrl+Y |
+| 保存 | Ctrl+S；保存至输入路径，空白文档暂存为 `editor-output.xml` |
+| 鼠标位置缩放、平移、视图复位 | 滚轮、中键拖动、Home |
+| 截图 | F12，输出到当前目录 |
+
+```powershell
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo run -p dr-core --example verify_ships -- ../Difficult-Rocket/assets/ships
+cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --smoke-test
+```
+
+最后一条启动真实窗口，在约 5 秒后截图并自动退出，图片位于 `target/editor-smoke.png`。它验证启动和渲染，不代替交互测试。船体批量校验遇到异常输入会报告并继续检查剩余文件，最后以失败状态退出；不会修改样本。
