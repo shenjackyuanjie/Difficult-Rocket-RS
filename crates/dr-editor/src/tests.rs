@@ -9,6 +9,7 @@ pub(super) fn document() -> EditorDocument {
         ship,
         catalog: PartCatalog::default(),
         selected: None,
+        selection: default(),
         dirty: false,
         history: EditorHistory::default(),
         status: String::new(),

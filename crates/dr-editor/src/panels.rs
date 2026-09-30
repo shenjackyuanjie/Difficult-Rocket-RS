@@ -232,10 +232,11 @@ pub(crate) fn panel_actions(
                 if document.catalog.visible().nth(*index).is_some() {
                     cursor.catalog_index = *index;
                     cursor.placing = true;
+                    cursor.paste = None;
                     cursor.rotation = 0;
                     cursor.flip_x = false;
                     cursor.flip_y = false;
-                    drag.id = None;
+                    drag.cancel();
                 }
             }
             PanelButton::Category(category) => {
@@ -247,6 +248,7 @@ pub(crate) fn panel_actions(
                     cursor.catalog_index = *index;
                 }
                 cursor.placing = false;
+                cursor.paste = None;
             }
             PanelButton::Open(path) => {
                 files.write(files::FileAction::Open(path.clone()));
@@ -294,6 +296,7 @@ pub(crate) fn cycle_part(
     cursor.flip_x = false;
     cursor.flip_y = false;
     cursor.placing = true;
+    cursor.paste = None;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -596,4 +599,4 @@ pub(crate) fn render_browser(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

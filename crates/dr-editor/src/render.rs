@@ -20,7 +20,7 @@ pub(crate) fn parts(ship: &Ship) -> impl Iterator<Item = (VisualKey, &Part)> {
 #[derive(Default)]
 pub(crate) struct VisualIndex {
     entities: HashMap<VisualKey, (Entity, f32)>,
-    dragged: Option<PartKey>,
+    dragged: BTreeSet<PartKey>,
 }
 
 fn appearance(
@@ -29,23 +29,28 @@ fn appearance(
     key: PartKey,
     part: &Part,
 ) -> (Color, Transform) {
-    let collision = if drag.id == Some(key) {
-        let mut preview = part.clone();
-        preview.x = drag.preview.0;
-        preview.y = drag.preview.1;
-        placement::collides(&document.ship, &document.catalog, &preview, Some(key))
+    let collision = if drag.contains(key) {
+        if drag.members.len() > 1 {
+            drag.blocked
+        } else {
+            let mut preview = part.clone();
+            preview.x = drag.preview.0;
+            preview.y = drag.preview.1;
+            placement::collides(&document.ship, &document.catalog, &preview, Some(key))
+        }
     } else {
         false
     };
     let color = if collision {
         Color::srgb(1.0, 0.2, 0.2)
-    } else if Some(key) == document.selected {
+    } else if document.is_selected(key) {
         Color::srgb(0.95, 0.72, 0.18)
     } else {
         Color::WHITE
     };
-    let (x, y) = if drag.id == Some(key) {
-        drag.preview
+    let (x, y) = if drag.contains(key) {
+        let delta = drag.delta();
+        (part.x + delta.0, part.y + delta.1)
     } else {
         (part.x, part.y)
     };
@@ -84,32 +89,28 @@ pub(crate) fn sync(
         });
         parts
     } else {
-        let mut ids: Vec<_> = [index.dragged, drag.id].into_iter().flatten().collect();
-        ids.sort_unstable();
-        ids.dedup();
+        let ids: BTreeSet<_> = index.dragged.iter().copied().chain(drag.keys()).collect();
         if ids.is_empty() {
             vec![]
-        } else {
-            index
-                .entities
-                .keys()
-                .filter(|key| ids.contains(&PartKey::new(key.0, key.1, key.2)))
-                .filter_map(|&key| {
-                    let parts = if key.0 == 0 {
-                        &document.ship.parts
-                    } else {
-                        &document.ship.disconnected.get(key.0 - 1)?.parts
-                    };
-                    parts
-                        .iter()
-                        .filter(|part| part.id == key.1)
-                        .nth(key.2)
-                        .map(|part| (key, part))
+        } else if ids.len() <= 2 {
+            ids.into_iter()
+                .filter_map(|key| {
+                    document
+                        .ship
+                        .part_at(key)
+                        .map(|part| ((key.group, key.id, key.occurrence), part))
                 })
+                .collect()
+        } else {
+            document
+                .ship
+                .keyed_parts()
+                .filter(|(key, _)| ids.contains(key))
+                .map(|(key, part)| ((key.group, key.id, key.occurrence), part))
                 .collect()
         }
     };
-    index.dragged = drag.id;
+    index.dragged = drag.keys();
     let count = parts.len().max(1) as f32;
     for (order, (key, part)) in parts.into_iter().enumerate() {
         let kind = document.catalog.get(&part.part_type);
@@ -237,11 +238,24 @@ pub(crate) fn connections(
         }
     }
     for (group, connection, a, b) in &lines.0 {
-        if !drag
-            .id
-            .is_some_and(|id| id.group == *group && connection.touches(id.id))
-        {
+        let refs = match *connection {
+            Connection::Normal { parent, child, .. } => vec![parent, child],
+            Connection::Dock {
+                parent,
+                child,
+                dock,
+            } => vec![parent, child, dock],
+        };
+        let count = refs
+            .iter()
+            .filter(|id| drag.contains(PartKey::new(*group, **id, 0)))
+            .count();
+        if count == 0 {
             gizmos.line_2d(*a, *b, Color::srgb(0.25, 0.9, 0.55));
+        } else if count == refs.len() {
+            let delta = drag.delta();
+            let offset = Vec2::new(delta.0 as f32 * 60.0, delta.1 as f32 * 60.0);
+            gizmos.line_2d(*a + offset, *b + offset, Color::srgb(0.25, 0.9, 0.55));
         }
     }
 }

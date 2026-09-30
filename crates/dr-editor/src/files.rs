@@ -186,7 +186,7 @@ fn replace_document(document: &mut EditorDocument, ship: Ship) {
     document.saved_ship = ship.clone();
     document.ship = ship;
     document.history = EditorHistory::with_limit(256);
-    document.selected = None;
+    document.clear_selection();
     document.refresh();
 }
 
@@ -263,7 +263,7 @@ pub(crate) fn file_actions(
     mut exit: MessageWriter<AppExit>,
 ) {
     for action in actions.read() {
-        drag.id = None;
+        drag.cancel();
         if apply_action(
             action.clone(),
             &mut document,

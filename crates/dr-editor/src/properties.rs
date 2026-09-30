@@ -445,8 +445,9 @@ pub(crate) fn actions(
     for (interaction, action) in &buttons {
         if *interaction == Interaction::Pressed {
             act(action, &mut inspector, &mut document);
-            drag.id = None;
+            drag.cancel();
             cursor.placing = false;
+            cursor.paste = None;
         }
     }
 }
@@ -522,8 +523,9 @@ pub(crate) fn input(
     if inspector.draft.is_none() {
         if keys.just_pressed(KeyCode::F2) {
             open(&mut inspector, &document);
-            drag.id = None;
+            drag.cancel();
             cursor.placing = false;
+            cursor.paste = None;
         }
         events.clear();
         ime.clear();

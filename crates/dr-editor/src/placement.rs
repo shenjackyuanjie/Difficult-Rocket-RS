@@ -159,7 +159,7 @@ pub(crate) fn place(document: &mut EditorDocument, cursor: &EditorCursor) -> boo
         commands.push(connection);
     }
     if document.execute(EditorCommand::Batch(commands)) {
-        document.selected = document.ship.unique_key(id);
+        document.select_only(document.ship.unique_key(id));
         true
     } else {
         false
@@ -172,6 +172,7 @@ pub(crate) fn cancel_for_file_action(
 ) {
     if actions.read().next().is_some() {
         cursor.placing = false;
+        cursor.paste = None;
         cursor.valid = false;
         actions.clear();
     }

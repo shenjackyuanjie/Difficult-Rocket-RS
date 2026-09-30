@@ -6,6 +6,8 @@ mod placement;
 mod properties;
 mod render;
 mod scoped_smoke;
+mod selection;
+mod selection_smoke;
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
@@ -15,6 +17,8 @@ use dr_core::{
     Connection, EditorCommand, EditorHistory, LinkKind, Part, PartCatalog, PartKey, PartKind, Ship,
     load_catalog, load_ship, save_ship,
 };
+use dr_core::{SelectionTransform, ShipFragment};
+use std::collections::BTreeSet;
 
 #[derive(Resource, Clone)]
 pub struct EditorPaths {
@@ -28,6 +32,7 @@ pub struct EditorDocument {
     pub ship: Ship,
     pub catalog: PartCatalog,
     pub selected: Option<PartKey>,
+    selection: BTreeSet<PartKey>,
     pub dirty: bool,
     pub history: EditorHistory,
     saved_ship: Ship,
@@ -35,6 +40,26 @@ pub struct EditorDocument {
 }
 
 impl EditorDocument {
+    fn selected_keys(&self) -> Vec<PartKey> {
+        self.selection
+            .iter()
+            .copied()
+            .chain(self.selected)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+    fn is_selected(&self, key: PartKey) -> bool {
+        self.selected == Some(key) || self.selection.contains(&key)
+    }
+    fn clear_selection(&mut self) {
+        self.selected = None;
+        self.selection.clear();
+    }
+    fn select_only(&mut self, key: Option<PartKey>) {
+        self.clear_selection();
+        self.selected = key;
+    }
     fn refresh(&mut self) {
         self.dirty = self.ship != self.saved_ship;
         if self
@@ -47,7 +72,7 @@ impl EditorDocument {
     fn undo(&mut self) -> bool {
         let changed = self.history.undo(&mut self.ship);
         if changed {
-            self.selected = None;
+            self.clear_selection();
         }
         self.refresh();
         changed
@@ -55,7 +80,7 @@ impl EditorDocument {
     fn redo(&mut self) -> bool {
         let changed = self.history.redo(&mut self.ship);
         if changed {
-            self.selected = None;
+            self.clear_selection();
         }
         self.refresh();
         changed
@@ -71,7 +96,7 @@ impl EditorDocument {
                     .into_iter()
                     .eq(self.ship.keyed_parts().map(|(key, _)| key))
                 {
-                    self.selected = None;
+                    self.clear_selection();
                 }
                 self.refresh();
                 self.status.clear();
@@ -88,14 +113,48 @@ impl EditorDocument {
 #[derive(Resource, Default)]
 struct DragState {
     id: Option<PartKey>,
+    members: BTreeSet<PartKey>,
+    blocked: bool,
+    command: Option<EditorCommand>,
+    rectangle: Option<(f64, f64)>,
+    rect_end: (f64, f64),
+    additive: bool,
     origin: (f64, f64),
     offset: (f64, f64),
     preview: (f64, f64),
 }
 
+impl DragState {
+    fn cancel(&mut self) {
+        self.id = None;
+        self.members.clear();
+        self.rectangle = None;
+        self.command = None;
+        self.blocked = false;
+    }
+    fn contains(&self, key: PartKey) -> bool {
+        self.id.is_some() && (self.id == Some(key) || self.members.contains(&key))
+    }
+    fn keys(&self) -> BTreeSet<PartKey> {
+        if self.id.is_none() {
+            BTreeSet::new()
+        } else {
+            self.members.iter().copied().chain(self.id).collect()
+        }
+    }
+    fn delta(&self) -> (f64, f64) {
+        (
+            self.preview.0 - self.origin.0,
+            self.preview.1 - self.origin.1,
+        )
+    }
+}
+
 /// 当前鼠标在编辑器世界坐标中的位置，以及目录中待放置的部件。
 #[derive(Resource, Default)]
 struct EditorCursor {
+    clipboard: Option<ShipFragment>,
+    paste: Option<ShipFragment>,
     world: (f64, f64),
     catalog_index: usize,
     placing: bool,
@@ -121,6 +180,7 @@ struct SmokeTest {
     performance: bool,
     scoped: bool,
     repair: bool,
+    selection: bool,
     started: std::time::Instant,
 }
 
@@ -161,6 +221,7 @@ fn main() -> anyhow::Result<()> {
             performance: args.iter().any(|arg| arg == "--performance-test"),
             scoped: args.iter().any(|arg| arg == "--scoped-smoke-test"),
             repair: args.iter().any(|arg| arg == "--repair-smoke-test"),
+            selection: args.iter().any(|arg| arg == "--selection-smoke-test"),
             started: std::time::Instant::now(),
         })
         .insert_resource(EditorPaths {
@@ -209,6 +270,7 @@ fn main() -> anyhow::Result<()> {
                     performance::run,
                     scoped_smoke::run,
                     properties::repair_smoke::run,
+                    selection_smoke::run,
                     panels::pointer_over_ui,
                     properties::actions,
                     properties::input,
@@ -226,6 +288,7 @@ fn main() -> anyhow::Result<()> {
                 panels::scroll_panels,
                 render::sync,
                 placement::draw_preview,
+                selection::draw_preview,
                 panels::render_palette,
                 panels::render_browser,
                 properties::render,
@@ -289,6 +352,7 @@ fn load_document(ship_path: Option<&str>, catalog_path: &str) -> anyhow::Result<
         ship,
         catalog,
         selected: None,
+        selection: default(),
         dirty: false,
         history: EditorHistory::with_limit(256),
     })
@@ -411,16 +475,24 @@ fn keyboard_commands(
     palette: Res<panels::Palette>,
     pointer: Res<panels::UiPointer>,
 ) {
-    if drag.id.is_some() {
+    if drag.id.is_some() || drag.rectangle.is_some() {
         return;
     }
     let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
     if control && keys.just_pressed(KeyCode::KeyZ) {
+        cursor.paste = None;
         document.undo();
         return;
     }
     if control && keys.just_pressed(KeyCode::KeyY) {
+        cursor.paste = None;
         document.redo();
+        return;
+    }
+    if selection::keyboard(&mut document, &mut cursor, &keys, pointer.blocked) {
+        return;
+    }
+    if control {
         return;
     }
     if keys.just_pressed(KeyCode::Tab) {
@@ -484,8 +556,9 @@ fn mouse_editor(
     pointer: Res<panels::UiPointer>,
 ) {
     if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right) {
-        drag.id = None;
+        drag.cancel();
         cursor.placing = false;
+        cursor.paste = None;
         return;
     }
     let Ok(window) = windows.single() else {
@@ -495,14 +568,14 @@ fn mouse_editor(
     if !window.focused || window.cursor_position().is_none() {
         cursor.valid = false;
         if !window.focused || !mouse.pressed(MouseButton::Left) {
-            drag.id = None;
+            drag.cancel();
         }
         return;
     }
     if pointer.blocked {
         cursor.valid = false;
         if mouse.just_released(MouseButton::Left) {
-            drag.id = None;
+            drag.cancel();
         }
         return;
     }
@@ -516,6 +589,12 @@ fn mouse_editor(
     let logical = (world.x as f64 / 60.0, world.y as f64 / 60.0);
     cursor.world = logical;
     cursor.valid = true;
+    if cursor.paste.is_some() {
+        if mouse.just_pressed(MouseButton::Left) {
+            selection::commit_paste(&mut document, &mut cursor);
+        }
+        return;
+    }
     if cursor.placing {
         if mouse.just_pressed(MouseButton::Left) {
             placement::place(&mut document, &cursor);
@@ -540,13 +619,33 @@ fn mouse_editor(
             })
             .map(|(key, _)| key)
             .last();
-        document.selected = selected;
-        if let Some(part) = document.selected.and_then(|id| document.ship.part_at(id)) {
-            drag.id = document.selected;
-            drag.origin = (part.x, part.y);
-            drag.preview = drag.origin;
-            drag.offset = (part.x - logical.0, part.y - logical.1);
+        let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+        drag.cancel();
+        if selected.is_none() {
+            drag.rectangle = Some(logical);
+            drag.rect_end = logical;
+            drag.additive = shift;
+            if !shift {
+                document.clear_selection();
+            }
+        } else {
+            selection::click(&mut document, selected, shift);
+            if !shift && let Some(part) = selected.and_then(|key| document.ship.part_at(key)) {
+                drag.id = selected;
+                drag.members = document.selected_keys().into_iter().collect();
+                drag.origin = (part.x, part.y);
+                drag.preview = drag.origin;
+                drag.offset = (part.x - logical.0, part.y - logical.1);
+            }
         }
+    }
+    if let Some(start) = drag.rectangle {
+        drag.rect_end = logical;
+        if mouse.just_released(MouseButton::Left) {
+            selection::rectangle(&mut document, start, logical, drag.additive);
+            drag.cancel();
+        }
+        return;
     }
     if drag.id.is_some()
         && (mouse.pressed(MouseButton::Left) || mouse.just_released(MouseButton::Left))
@@ -559,7 +658,13 @@ fn mouse_editor(
             drag.origin.1 + dy.round() / 2.0,
         );
     }
-    if let Some(id) = drag.id
+    if drag.id.is_some() && drag.members.len() > 1 {
+        let keys: Vec<_> = drag.keys().into_iter().collect();
+        let (delta, command, valid) = selection::movement(&document, &keys, drag.delta());
+        drag.preview = (drag.origin.0 + delta.0, drag.origin.1 + delta.1);
+        drag.command = Some(command);
+        drag.blocked = !valid;
+    } else if let Some(id) = drag.id
         && let Some(mut part) = document.ship.part_at(id).cloned()
     {
         part.x = drag.preview.0;
@@ -571,7 +676,11 @@ fn mouse_editor(
         && let Some(id) = drag.id.take()
         && drag.preview != drag.origin
     {
-        let command = move_with_snap(&document.ship, &document.catalog, id, drag.preview);
+        let command = if drag.members.len() > 1 {
+            drag.command.take()
+        } else {
+            move_with_snap(&document.ship, &document.catalog, id, drag.preview)
+        };
         if let Some(command) = command {
             document.execute(command);
         } else {
@@ -627,9 +736,10 @@ fn update_hud(
         .unwrap_or("无可用部件");
     for mut text in &mut labels {
         **text = format!(
-            "DR Editor | 部件: {} | 质量: {:.2} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存 Ctrl+Shift+S: 另存为\nCtrl+N: 新建 Ctrl+O: 打开（也可拖入 XML）\n滚轮: 缩放 中键: 平移 Home: 复位 F12: 截图\n{}",
+            "DR Editor | 部件: {} | 质量: {:.2} | 已选: {} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存 Ctrl+Shift+S: 另存为\nShift: 增减选择 空白拖动: 框选 Ctrl+A: 全选 Ctrl+C/X/V: 复制/剪切/粘贴\nCtrl+N: 新建 Ctrl+O: 打开（也可拖入 XML）\n滚轮: 缩放 中键: 平移 Home: 复位 F12: 截图\n{}",
             document.ship.all_parts().count(),
             document.ship.total_mass(&document.catalog),
+            document.selected_keys().len(),
             if document.dirty {
                 "未保存"
             } else {
