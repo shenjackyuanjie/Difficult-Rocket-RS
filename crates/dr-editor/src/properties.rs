@@ -1,8 +1,11 @@
 use super::*;
 use bevy::input::{ButtonState, keyboard::KeyboardInput};
 use bevy::window::Ime;
-use dr_core::{Activation, StageStep, StagingState};
+use dr_core::{
+    Activation, ConnectionRole, DuplicateRepair, ReferenceSite, StageStep, StagingState,
+};
 
+pub(crate) mod repair_smoke;
 pub(crate) mod smoke;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,6 +128,7 @@ fn number(value: &str, label: &str) -> Result<f64, String> {
 #[derive(Resource, Default)]
 pub(crate) struct Inspector {
     draft: Option<Draft>,
+    repair: Option<DuplicateRepair>,
     focus: Option<Field>,
     select_all: bool,
     caret: usize,
@@ -151,6 +155,9 @@ pub(crate) enum Action {
     Open,
     Cancel,
     Apply,
+    OpenRepair,
+    BackToProperties,
+    RepairTarget(usize),
     Focus(Field),
     Active,
     CycleTarget(bool),
@@ -248,7 +255,12 @@ fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument
         }
         Action::Apply => {
             if let Some(draft) = &inspector.draft {
-                match draft.command(document) {
+                let command = if let Some(repair) = &inspector.repair {
+                    Ok(EditorCommand::RepairDuplicates(Box::new(repair.clone())))
+                } else {
+                    draft.command(document)
+                };
+                match command {
                     Ok(command) => {
                         if document.execute(command) {
                             *inspector = Inspector::default();
@@ -261,7 +273,52 @@ fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument
             }
             return;
         }
+        Action::OpenRepair => {
+            if let Some(draft) = &inspector.draft {
+                let result = draft.command(document).and_then(|command| {
+                    let mut candidate = document.ship.clone();
+                    command
+                        .apply(&mut candidate)
+                        .map_err(|error| error.to_string())?;
+                    if candidate != document.ship {
+                        return Err("请先应用或取消属性修改，再修复重复编号".into());
+                    }
+                    DuplicateRepair::new(&document.ship, draft.key)
+                        .map_err(|error| error.to_string())
+                });
+                match result {
+                    Ok(repair) => {
+                        inspector.repair = Some(repair);
+                        inspector.focus = None;
+                        inspector.preedit.clear();
+                        inspector.error.clear();
+                    }
+                    Err(error) => inspector.error = error,
+                }
+            }
+            return;
+        }
+        Action::BackToProperties => {
+            inspector.repair = None;
+            inspector.error.clear();
+            return;
+        }
+        Action::RepairTarget(index) => {
+            if let Some(repair) = &mut inspector.repair
+                && let Some((_, target)) = repair.references().get(*index)
+            {
+                let next = target.map_or(Some(0), |value| {
+                    (value + 1 < repair.new_ids().len()).then_some(value + 1)
+                });
+                let _ = repair.assign(*index, next);
+                inspector.error.clear();
+            }
+            return;
+        }
         _ => {}
+    }
+    if inspector.repair.is_some() {
+        return;
     }
     let Some(draft) = &mut inspector.draft else {
         return;
@@ -588,7 +645,11 @@ pub(crate) fn render(
                         22.0,
                     ));
                     root.spawn(label(
-                        "修改暂存为草稿；应用后可一次撤销。点击字段后输入替换，Esc 取消。",
+                        if inspector.repair.is_some() {
+                            "修复重复编号：逐条指定引用归属，应用后可一次撤销。"
+                        } else {
+                            "修改暂存为草稿；应用后可一次撤销。点击字段后输入替换，Esc 取消。"
+                        },
                         &font,
                         14.0,
                     ));
@@ -606,6 +667,139 @@ pub(crate) fn render(
                         ScrollPosition(Vec2::new(0.0, offset)),
                     ))
                     .with_children(|body| {
+                        if let Some(repair) = &inspector.repair {
+                            body.spawn(label(
+                                format!(
+                                    "待分配引用：{} / {}（点击引用按钮切换实例）",
+                                    repair.unassigned(),
+                                    repair.references().len()
+                                ),
+                                &font,
+                                16.0,
+                            ));
+                            for (occurrence, part) in repair
+                                .original()
+                                .parts
+                                .iter()
+                                .filter(|part| part.id == repair.old_id())
+                                .enumerate()
+                            {
+                                body.spawn(label(
+                                    format!(
+                                        "实例 {}：{}  坐标 ({:.3}, {:.3})",
+                                        occurrence + 1,
+                                        part.part_type,
+                                        part.x,
+                                        part.y
+                                    ),
+                                    &font,
+                                    16.0,
+                                ));
+                                body.spawn(label(
+                                    format!(
+                                        "编号 #{} → #{}",
+                                        part.id,
+                                        repair.new_ids()[occurrence]
+                                    ),
+                                    &font,
+                                    14.0,
+                                ));
+                            }
+                            for (index, (site, target)) in repair.references().iter().enumerate() {
+                                let description = match *site {
+                                    ReferenceSite::Connection { index, role } => {
+                                        let (parent, child) =
+                                            match repair.original().connections[index] {
+                                                Connection::Normal { parent, child, .. }
+                                                | Connection::Dock { parent, child, .. } => {
+                                                    (parent, child)
+                                                }
+                                            };
+                                        let role = match role {
+                                            ConnectionRole::Parent => "母端",
+                                            ConnectionRole::Child => "子端",
+                                            ConnectionRole::Dock => "对接插头",
+                                        };
+                                        format!("连接 {}：#{parent} → #{child} · {role}", index + 1)
+                                    }
+                                    ReferenceSite::Activation {
+                                        owner,
+                                        stage,
+                                        index,
+                                    } => format!(
+                                        "驾驶舱 #{} 实例 {} · 第 {stage} 级 · 动作 {}",
+                                        owner.id,
+                                        owner.occurrence + 1,
+                                        index + 1
+                                    ),
+                                };
+                                body.spawn(label(description, &font, 14.0));
+                                if let ReferenceSite::Connection { index, role } = *site {
+                                    let peer_id = match repair.original().connections[index] {
+                                        Connection::Normal { parent, child, .. }
+                                        | Connection::Dock { parent, child, .. } => {
+                                            if role == ConnectionRole::Child {
+                                                parent
+                                            } else {
+                                                child
+                                            }
+                                        }
+                                    };
+                                    for peer in repair
+                                        .original()
+                                        .parts
+                                        .iter()
+                                        .filter(|part| part.id == peer_id)
+                                    {
+                                        body.spawn(label(
+                                            format!(
+                                                "相邻 #{} · {} ({:.2}, {:.2})",
+                                                peer.id, peer.part_type, peer.x, peer.y
+                                            ),
+                                            &font,
+                                            14.0,
+                                        ));
+                                    }
+                                }
+                                let text = target
+                                    .map(|target| {
+                                        format!(
+                                            "归属：实例 {}（#{}）",
+                                            target + 1,
+                                            repair.new_ids()[target]
+                                        )
+                                    })
+                                    .unwrap_or_else(|| "归属：未指定".into());
+                                body.spawn(button(Action::RepairTarget(index), target.is_some()))
+                                    .with_children(|button| {
+                                        button.spawn(label(text, &font, 16.0));
+                                    });
+                            }
+                            if repair.references().is_empty() {
+                                body.spawn(label(
+                                    "没有连接或分级引用；应用后各实例使用独立编号。",
+                                    &font,
+                                    14.0,
+                                ));
+                            }
+                            body.spawn(button(Action::BackToProperties, false))
+                                .with_children(|button| {
+                                    button.spawn(label("返回属性", &font, 16.0));
+                                });
+                            return;
+                        }
+                        if document
+                            .ship
+                            .group(draft.key.group)
+                            .is_some_and(|(parts, _)| {
+                                parts.iter().filter(|part| part.id == draft.key.id).count() > 1
+                            })
+                        {
+                            body.spawn(button(Action::OpenRepair, false))
+                                .with_children(|button| {
+                                    button.spawn(label("本组编号重复 · 修复引用归属", &font, 16.0));
+                                });
+                        }
                         body.spawn(button(Action::Active, draft.active))
                             .with_children(|button| {
                                 button.spawn(label(

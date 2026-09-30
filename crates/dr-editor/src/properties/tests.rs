@@ -11,6 +11,66 @@ fn document() -> EditorDocument {
 }
 
 #[test]
+fn duplicate_repair_ui_requires_all_assignments_and_applies_as_one_undo() {
+    let mut document = document();
+    let duplicate = document.ship.parts[1].clone();
+    document.ship.parts.push(duplicate);
+    document.ship.connections.push(Connection::Normal {
+        parent: 1,
+        child: 2,
+        parent_attach: 1,
+        child_attach: 1,
+    });
+    document.selected = Some(PartKey::new(0, 2, 1));
+    let before = document.ship.clone();
+    let mut inspector = Inspector::default();
+    act(&Action::Open, &mut inspector, &mut document);
+    act(&Action::OpenRepair, &mut inspector, &mut document);
+    assert_eq!(inspector.repair.as_ref().unwrap().unassigned(), 1);
+    act(&Action::Apply, &mut inspector, &mut document);
+    assert!(inspector.is_open());
+    assert!(!inspector.error.is_empty());
+    assert_eq!(document.ship, before);
+    act(&Action::RepairTarget(0), &mut inspector, &mut document);
+    act(&Action::RepairTarget(0), &mut inspector, &mut document);
+    let new_id = inspector.repair.as_ref().unwrap().new_ids()[1];
+    act(&Action::Apply, &mut inspector, &mut document);
+    assert!(!inspector.is_open(), "{}", inspector.error);
+    assert_eq!(document.ship.parts[2].id, new_id);
+    assert!(
+        matches!(document.ship.connections[0], Connection::Normal { child, .. } if child == new_id)
+    );
+    assert!(document.undo());
+    assert_eq!(document.ship, before);
+    assert!(!document.history.can_undo());
+}
+
+#[test]
+fn repair_does_not_discard_property_drafts_and_cancel_does_not_renumber() {
+    let mut document = document();
+    document.ship.parts.push(document.ship.parts[1].clone());
+    document.selected = Some(PartKey::new(0, 2, 1));
+    let before = document.ship.clone();
+    let mut inspector = Inspector::default();
+    act(&Action::Open, &mut inspector, &mut document);
+    act(&Action::Active, &mut inspector, &mut document);
+    act(&Action::OpenRepair, &mut inspector, &mut document);
+    assert!(inspector.repair.is_none());
+    assert!(!inspector.error.is_empty());
+    assert!(inspector.draft.as_ref().unwrap().active);
+    act(&Action::Active, &mut inspector, &mut document);
+    act(&Action::OpenRepair, &mut inspector, &mut document);
+    assert!(inspector.repair.is_some());
+    act(&Action::BackToProperties, &mut inspector, &mut document);
+    assert!(inspector.is_open());
+    assert!(inspector.repair.is_none());
+    act(&Action::OpenRepair, &mut inspector, &mut document);
+    act(&Action::Cancel, &mut inspector, &mut document);
+    assert_eq!(document.ship, before);
+    assert!(!document.history.can_undo());
+}
+
+#[test]
 fn duplicate_pod_draft_targets_its_group_and_limits_staging_choices() {
     let mut document = document();
     document.ship.disconnected.push(dr_core::ShipGroup {

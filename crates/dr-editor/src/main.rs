@@ -120,6 +120,7 @@ struct SmokeTest {
     connections: bool,
     performance: bool,
     scoped: bool,
+    repair: bool,
     started: std::time::Instant,
 }
 
@@ -159,6 +160,7 @@ fn main() -> anyhow::Result<()> {
             connections: args.iter().any(|arg| arg == "--connection-smoke-test"),
             performance: args.iter().any(|arg| arg == "--performance-test"),
             scoped: args.iter().any(|arg| arg == "--scoped-smoke-test"),
+            repair: args.iter().any(|arg| arg == "--repair-smoke-test"),
             started: std::time::Instant::now(),
         })
         .insert_resource(EditorPaths {
@@ -206,6 +208,7 @@ fn main() -> anyhow::Result<()> {
                     connection_smoke::run,
                     performance::run,
                     scoped_smoke::run,
+                    properties::repair_smoke::run,
                     panels::pointer_over_ui,
                     properties::actions,
                     properties::input,
