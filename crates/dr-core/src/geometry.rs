@@ -1,4 +1,4 @@
-use crate::model::{AttachPoint, Part, PartType};
+use crate::model::{AttachPoint, Part, PartKind, PartType};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Vec2d {
@@ -32,9 +32,14 @@ impl Vec2d {
 pub const SR1_TO_PIXELS: f64 = 60.0;
 
 pub fn part_world_attach(part: &Part, attach: &AttachPoint) -> Vec2d {
+    local_to_world(part, (attach.x, attach.y))
+}
+
+/// PartList 局部坐标到 Ship 坐标，与贴图使用同一组镜像和旋转。
+fn local_to_world(part: &Part, point: (f64, f64)) -> Vec2d {
     let mut local = Vec2d {
-        x: attach.x / 2.0,
-        y: attach.y / 2.0,
+        x: point.0 / 2.0,
+        y: point.1 / 2.0,
     };
     if part.flip_x {
         local.x = -local.x;
@@ -100,26 +105,196 @@ pub fn intersects(a: &Part, at: &PartType, b: &Part, bt: &PartType) -> bool {
     if at.ignore_editor_intersections || bt.ignore_editor_intersections {
         return false;
     }
-    let (aw, ah) = at.half_extents();
-    let (bw, bh) = bt.half_extents();
-    let (asin, acos) = a.angle.sin_cos();
-    let (bsin, bcos) = b.angle.sin_cos();
-    let axes = [(acos, asin), (-asin, acos), (bcos, bsin), (-bsin, bcos)];
-    axes.iter().all(|&(x, y)| {
-        let distance = ((a.x - b.x) * x + (a.y - b.y) * y).abs();
-        let ar = aw * (acos * x + asin * y).abs() + ah * (-asin * x + acos * y).abs();
-        let br = bw * (bcos * x + bsin * y).abs() + bh * (-bsin * x + bcos * y).abs();
-        distance < ar + br - 1e-9
-    })
+    if (a.x - b.x).hypot(a.y - b.y) > bounding_radius(at) + bounding_radius(bt) {
+        return false;
+    }
+    let a_shapes = world_shapes(a, at);
+    let b_shapes = world_shapes(b, bt);
+    a_shapes
+        .iter()
+        .any(|a| b_shapes.iter().any(|b| shapes_intersect(a, b)))
 }
 
-/// 逆旋转鼠标坐标，确保命中区域与部件渲染尺寸一致。
+const EPSILON: f64 = 1e-9;
+
+fn bounding_radius(kind: &PartType) -> f64 {
+    if kind.shapes.is_empty() {
+        let (w, h) = kind.half_extents();
+        w.hypot(h)
+    } else {
+        kind.shapes
+            .iter()
+            .filter(|shape| !shape.sensor)
+            .flat_map(|shape| &shape.vertices)
+            .map(|(x, y)| x.hypot(*y) / 2.0)
+            .fold(0.0, f64::max)
+    }
+}
+
+fn cross(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
+    (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+}
+
+/// 每条边的其余顶点必须位于同侧；拒绝退化、自交和凹多边形。
+pub(crate) fn valid_polygon(vertices: &[(f64, f64)]) -> bool {
+    if vertices.len() < 3
+        || vertices
+            .iter()
+            .any(|(x, y)| !x.is_finite() || !y.is_finite())
+    {
+        return false;
+    }
+    let mut orientation = 0.0_f64;
+    for (i, &a) in vertices.iter().enumerate() {
+        let b = vertices[(i + 1) % vertices.len()];
+        if (a.0 - b.0).hypot(a.1 - b.1) <= EPSILON {
+            return false;
+        }
+        for &c in vertices {
+            let side = cross(a, b, c);
+            if side.abs() <= EPSILON {
+                continue;
+            }
+            if orientation == 0.0 {
+                orientation = side.signum();
+            }
+            if side * orientation < 0.0 {
+                return false;
+            }
+        }
+    }
+    orientation != 0.0
+}
+
+#[derive(Debug)]
+enum WorldShape {
+    Polygon(Vec<Vec2d>),
+    Circle(Vec2d, f64),
+}
+
+fn world_shapes(part: &Part, kind: &PartType) -> Vec<WorldShape> {
+    if !kind.shapes.is_empty() {
+        return kind
+            .shapes
+            .iter()
+            .filter(|shape| !shape.sensor)
+            .map(|shape| {
+                WorldShape::Polygon(
+                    shape
+                        .vertices
+                        .iter()
+                        .map(|&point| local_to_world(part, point))
+                        .collect(),
+                )
+            })
+            .collect();
+    }
+    if kind.kind == PartKind::Wheel {
+        return vec![WorldShape::Circle(
+            Vec2d {
+                x: part.x,
+                y: part.y,
+            },
+            kind.width.min(kind.height) as f64 / 4.0,
+        )];
+    }
+    let w = kind.width as f64 / 2.0;
+    let h = kind.height as f64 / 2.0;
+    vec![WorldShape::Polygon(
+        [(-w, -h), (w, -h), (w, h), (-w, h)]
+            .into_iter()
+            .map(|point| local_to_world(part, point))
+            .collect(),
+    )]
+}
+
+fn project(shape: &WorldShape, axis: Vec2d) -> (f64, f64) {
+    match shape {
+        WorldShape::Polygon(vertices) => vertices
+            .iter()
+            .map(|p| p.x * axis.x + p.y * axis.y)
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
+                (min.min(value), max.max(value))
+            }),
+        WorldShape::Circle(center, radius) => {
+            let middle = center.x * axis.x + center.y * axis.y;
+            (middle - radius, middle + radius)
+        }
+    }
+}
+
+fn shapes_intersect(a: &WorldShape, b: &WorldShape) -> bool {
+    if let (WorldShape::Circle(a, ar), WorldShape::Circle(b, br)) = (a, b) {
+        return a.distance(*b) < ar + br - EPSILON;
+    }
+    let mut axes = vec![];
+    for (shape, other) in [(a, b), (b, a)] {
+        if let WorldShape::Polygon(vertices) = shape {
+            if vertices.len() < 3 {
+                return false;
+            }
+            for (i, point) in vertices.iter().enumerate() {
+                let next = vertices[(i + 1) % vertices.len()];
+                axes.push(Vec2d {
+                    x: point.y - next.y,
+                    y: next.x - point.x,
+                });
+            }
+            if let WorldShape::Circle(center, _) = other {
+                let nearest = vertices
+                    .iter()
+                    .min_by(|a, b| a.distance(*center).total_cmp(&b.distance(*center)))
+                    .unwrap();
+                axes.push(Vec2d {
+                    x: nearest.x - center.x,
+                    y: nearest.y - center.y,
+                });
+            }
+        }
+    }
+    let axes: Vec<_> = axes
+        .into_iter()
+        .filter_map(|axis| {
+            let length = axis.x.hypot(axis.y);
+            (length > EPSILON).then(|| Vec2d {
+                x: axis.x / length,
+                y: axis.y / length,
+            })
+        })
+        .collect();
+    !axes.is_empty()
+        && axes.into_iter().all(|axis| {
+            let (amin, amax) = project(a, axis);
+            let (bmin, bmax) = project(b, axis);
+            amax > bmin + EPSILON && bmax > amin + EPSILON
+        })
+}
+
+/// 组合形状按并集命中，传感器不属于可选的实体轮廓。
 pub fn contains_point(part: &Part, kind: &PartType, point: Vec2d) -> bool {
-    let dx = point.x - part.x;
-    let dy = point.y - part.y;
-    let (sin, cos) = part.angle.sin_cos();
-    let (width, height) = kind.half_extents();
-    (dx * cos + dy * sin).abs() <= width && (-dx * sin + dy * cos).abs() <= height
+    if (point.x - part.x).hypot(point.y - part.y) > bounding_radius(kind) + EPSILON {
+        return false;
+    }
+    world_shapes(part, kind).iter().any(|shape| match shape {
+        WorldShape::Circle(center, radius) => center.distance(point) <= radius + EPSILON,
+        WorldShape::Polygon(vertices) => {
+            if vertices.len() < 3 {
+                return false;
+            }
+            let mut positive = false;
+            let mut negative = false;
+            for (i, a) in vertices.iter().enumerate() {
+                let b = vertices[(i + 1) % vertices.len()];
+                let side = cross((a.x, a.y), (b.x, b.y), (point.x, point.y));
+                positive |= side > EPSILON;
+                negative |= side < -EPSILON;
+                if positive && negative {
+                    return false;
+                }
+            }
+            positive || negative
+        }
+    })
 }
 
 #[cfg(test)]
@@ -165,6 +340,7 @@ mod tests {
             tank: None,
             engine: None,
             attach_points: points,
+            shapes: vec![],
         }
     }
     #[test]
@@ -245,5 +421,75 @@ mod tests {
         let result = part_world_attach(&part, &attach);
         assert!((result.x - 2.5).abs() < 1e-10);
         assert!((result.y - 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn triangle_hit_follows_rotation_and_both_mirrors() {
+        let mut kind = t(vec![]);
+        kind.shapes.push(crate::PolygonShape {
+            vertices: vec![(-2.0, -2.0), (2.0, -2.0), (-2.0, 2.0)],
+            sensor: false,
+        });
+        let mut part = p(1, 3.0);
+        part.y = 4.0;
+        assert!(!contains_point(&part, &kind, Vec2d { x: 3.8, y: 4.8 }));
+        assert!(contains_point(&part, &kind, Vec2d { x: 2.2, y: 3.2 }));
+        part.flip_x = true;
+        assert!(contains_point(&part, &kind, Vec2d { x: 3.8, y: 3.2 }));
+        part.flip_y = true;
+        part.angle = std::f64::consts::FRAC_PI_2;
+        assert!(contains_point(&part, &kind, Vec2d { x: 2.2, y: 4.8 }));
+        assert!(!contains_point(&part, &kind, Vec2d { x: 3.8, y: 3.2 }));
+    }
+
+    #[test]
+    fn compound_shape_keeps_holes_and_excludes_sensors() {
+        let mut kind = t(vec![]);
+        for (min, max, sensor) in [(-4.0, -2.0, false), (2.0, 4.0, false), (-2.0, 2.0, true)] {
+            kind.shapes.push(crate::PolygonShape {
+                vertices: vec![(min, -2.0), (max, -2.0), (max, 2.0), (min, 2.0)],
+                sensor,
+            });
+        }
+        assert!(!contains_point(&p(1, 0.0), &kind, Vec2d { x: 0.0, y: 0.0 }));
+        assert!(contains_point(&p(1, 0.0), &kind, Vec2d { x: 1.5, y: 0.0 }));
+        assert!(!intersects(&p(1, 0.0), &kind, &p(2, 0.0), &t(vec![])));
+        assert!(intersects(&p(1, 0.0), &kind, &p(2, 1.5), &t(vec![])));
+    }
+
+    #[test]
+    fn circle_and_polygon_use_actual_outline_and_allow_touching() {
+        let mut wheel = t(vec![]);
+        wheel.kind = PartKind::Wheel;
+        wheel.width = 4;
+        wheel.height = 4;
+        let circle = p(1, 0.0);
+        assert!(contains_point(&circle, &wheel, Vec2d { x: 1.0, y: 0.0 }));
+        assert!(!contains_point(&circle, &wheel, Vec2d { x: 0.9, y: 0.9 }));
+        let mut square = p(2, 1.0);
+        square.y = 1.0;
+        assert!(!intersects(&circle, &wheel, &square, &t(vec![])));
+        square.x = 0.9;
+        square.y = 0.9;
+        assert!(intersects(&circle, &wheel, &square, &t(vec![])));
+        assert!(!intersects(&circle, &wheel, &p(2, 2.0), &wheel));
+        assert!(!intersects(&p(1, 0.0), &t(vec![]), &p(2, 0.5), &t(vec![])));
+    }
+
+    #[test]
+    fn invalid_polygons_and_zero_size_do_not_form_solid_regions() {
+        for vertices in [
+            vec![(0.0, 0.0); 3],
+            vec![(0.0, 0.0), (1.0, 0.0), (f64::NAN, 1.0)],
+            vec![(0.0, 0.0), (2.0, 0.0), (0.5, 0.5), (2.0, 2.0), (0.0, 2.0)],
+            vec![(0.0, 0.0), (2.0, 2.0), (0.0, 2.0), (2.0, 0.0)],
+        ] {
+            assert!(!valid_polygon(&vertices));
+        }
+        let mut kind = t(vec![]);
+        kind.width = 0;
+        kind.height = 0;
+        assert!(!intersects(&p(1, 0.0), &kind, &p(2, 0.0), &kind));
+        assert!(!contains_point(&p(1, 0.0), &kind, Vec2d::default()));
     }
 }

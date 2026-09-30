@@ -102,6 +102,14 @@ pub struct PartType {
     pub tank: Option<TankSpec>,
     pub engine: Option<EngineSpec>,
     pub attach_points: Vec<AttachPoint>,
+    /// PartList 局部坐标中的凸多边形；多个 Shape 共同组成部件。
+    pub shapes: Vec<PolygonShape>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PolygonShape {
+    pub vertices: Vec<(f64, f64)>,
+    pub sensor: bool,
 }
 
 impl PartType {

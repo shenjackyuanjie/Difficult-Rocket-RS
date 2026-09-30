@@ -80,6 +80,7 @@ fn loading_errors_are_reported_instead_of_opening_an_empty_document() {
 fn snapped_connections_use_one_based_sr1_indices() {
     let mut document = document();
     let mut kind = dr_core::PartType {
+        shapes: vec![],
         id: "pod".into(),
         name: "测试部件".into(),
         description: String::new(),

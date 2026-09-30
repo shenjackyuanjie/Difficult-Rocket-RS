@@ -10,5 +10,5 @@ pub use geometry::{SnapCandidate, Vec2d, find_snap, intersects, part_world_attac
 pub use io::{CoreError, load_catalog, load_ship, save_ship, ship_from_xml, ship_to_xml};
 pub use model::{
     Activation, AttachPoint, Connection, EngineSpec, FuelKind, Part, PartCatalog, PartKind,
-    PartType, PodState, Ship, ShipGroup, StageStep, StagingState, TankSpec,
+    PartType, PodState, PolygonShape, Ship, ShipGroup, StageStep, StagingState, TankSpec,
 };

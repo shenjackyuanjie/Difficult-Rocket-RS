@@ -67,6 +67,24 @@ struct RawPartType {
     engine: Option<RawEngineSpec>,
     #[serde(rename = "AttachPoints")]
     attach_points: Option<RawAttachPoints>,
+    #[serde(rename = "Shape", default)]
+    shapes: Vec<RawShape>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawShape {
+    #[serde(rename = "Vertex", default)]
+    vertices: Vec<RawVertex>,
+    #[serde(rename = "@sensor", default)]
+    sensor: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawVertex {
+    #[serde(rename = "@x", default)]
+    x: f64,
+    #[serde(rename = "@y", default)]
+    y: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,7 +172,28 @@ pub fn load_catalog(path: impl AsRef<Path>) -> Result<PartCatalog, CoreError> {
         .map(|p| {
             let width = p.width;
             let height = p.height;
-            PartType {
+            let shapes = p
+                .shapes
+                .into_iter()
+                .map(|shape| {
+                    let mut vertices: Vec<_> =
+                        shape.vertices.into_iter().map(|v| (v.x, v.y)).collect();
+                    if vertices.len() > 3 && vertices.first() == vertices.last() {
+                        vertices.pop();
+                    }
+                    if !crate::geometry::valid_polygon(&vertices) {
+                        return Err(CoreError::InvalidDocument(format!(
+                            "部件 {} 的 Shape 不是有效凸多边形",
+                            p.id
+                        )));
+                    }
+                    Ok(PolygonShape {
+                        vertices,
+                        sensor: shape.sensor,
+                    })
+                })
+                .collect::<Result<Vec<_>, CoreError>>()?;
+            Ok(PartType {
                 id: p.id,
                 name: p.name,
                 description: p.description,
@@ -208,9 +247,10 @@ pub fn load_catalog(path: impl AsRef<Path>) -> Result<PartCatalog, CoreError> {
                             .collect()
                     })
                     .unwrap_or_default(),
-            }
+                shapes,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, CoreError>>()?;
     Ok(PartCatalog::new(
         path_ref
             .file_stem()
@@ -1026,6 +1066,36 @@ mod tests {
         assert_eq!(part.attach_points[1].x, 1.0);
         assert_eq!(part.attach_points[1].break_force, Some(5.0));
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn catalog_preserves_compound_shapes_and_sensor_attribute() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shapes.xml");
+        fs::write(
+            &path,
+            r#"<PartTypes><PartType id="compound" width="4" height="4">
+            <Shape><Vertex x="-2" y="-2"/><Vertex x="2" y="-2"/><Vertex y="2"/></Shape>
+            <Shape sensor="true"><Vertex/><Vertex x="1"/><Vertex y="1"/></Shape>
+        </PartType></PartTypes>"#,
+        )
+        .unwrap();
+        let catalog = load_catalog(&path).unwrap();
+        let kind = catalog.get("compound").unwrap();
+        assert_eq!(kind.shapes.len(), 2);
+        assert_eq!(
+            kind.shapes[0].vertices,
+            vec![(-2.0, -2.0), (2.0, -2.0), (0.0, 2.0)]
+        );
+        assert!(!kind.shapes[0].sensor);
+        assert!(kind.shapes[1].sensor);
+        fs::write(&path, r#"<PartTypes><PartType id="broken"><Shape><Vertex/><Vertex x="1"/></Shape></PartType></PartTypes>"#).unwrap();
+        assert!(
+            load_catalog(&path)
+                .unwrap_err()
+                .to_string()
+                .contains("Shape")
+        );
     }
 
     #[test]
