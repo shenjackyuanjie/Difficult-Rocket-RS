@@ -13,6 +13,60 @@ pub(crate) fn catalog() -> PartCatalog {
 }
 
 #[test]
+fn collisions_include_other_instances_with_the_same_id() {
+    let mut document = crate::tests::document();
+    document.catalog = catalog();
+    let kind = document.catalog.get("pod").unwrap();
+    document.ship.parts = vec![kind.instantiate(1, (0.0, 0.0))];
+    document.ship.disconnected.push(dr_core::ShipGroup {
+        parts: vec![kind.instantiate(1, (5.0, 0.0))],
+        connections: vec![],
+    });
+    let key = PartKey::new(1, 1, 0);
+    let mut moving = document.ship.part_at(key).unwrap().clone();
+    moving.x = 0.0;
+    assert!(placement::collides(
+        &document.ship,
+        &document.catalog,
+        &moving,
+        Some(key)
+    ));
+    assert!(move_with_snap(&document.ship, &document.catalog, key, (0.0, 0.0)).is_none());
+    moving.x = 5.0;
+    assert!(!placement::collides(
+        &document.ship,
+        &document.catalog,
+        &moving,
+        Some(key)
+    ));
+}
+
+#[test]
+fn same_id_parts_in_different_groups_snap_and_merge_atomically() {
+    let mut document = crate::tests::document();
+    document.catalog = catalog();
+    let kind = document.catalog.get("pod").unwrap();
+    document.ship.parts = vec![kind.instantiate(1, (0.0, 0.0))];
+    document.ship.disconnected.push(dr_core::ShipGroup {
+        parts: vec![kind.instantiate(1, (5.0, 0.0))],
+        connections: vec![],
+    });
+    let before = document.ship.clone();
+    let key = PartKey::new(1, 1, 0);
+    document.selected = Some(key);
+    let command = move_with_snap(&document.ship, &document.catalog, key, (1.2, 0.0)).unwrap();
+    assert!(document.execute(command), "{}", document.status);
+    assert_eq!(document.ship.parts.len(), 2);
+    assert!(document.ship.disconnected.is_empty());
+    assert_eq!(document.ship.connections.len(), 1);
+    assert_eq!(document.ship.parts[1].x, 1.0);
+    assert_ne!(document.ship.parts[1].id, 1);
+    assert!(document.selected.is_none());
+    assert!(document.undo());
+    assert_eq!(document.ship, before);
+}
+
+#[test]
 fn category_and_keyboard_navigation_exclude_hidden_parts() {
     let mut document = crate::tests::document();
     document.catalog = catalog();
@@ -94,7 +148,9 @@ fn preview_and_placement_share_snap_and_undo_restores_whole_operation() {
     assert_eq!(document.ship, before);
     assert!(placement::place(&mut document, &cursor));
     assert_eq!(document.ship.part(preview.id), Some(&preview));
-    assert_eq!(document.ship.connections, vec![connection.unwrap()]);
+    assert_eq!(document.ship.connections.len(), 1);
+    assert!(document.ship.connections[0].touches(preview.id));
+    assert!(document.ship.connections[0].touches(1));
     assert!(document.undo());
     assert_eq!(document.ship, before);
     assert!(!document.history.can_undo());
@@ -175,10 +231,26 @@ fn collision_preview_rejects_placement_and_move_without_losing_redo() {
         .unwrap()
         .instantiate(2, (5.0, 0.0));
     document.ship.parts.push(source);
-    assert!(move_with_snap(&document.ship, &document.catalog, 2, (0.0, 0.0)).is_none());
+    assert!(
+        move_with_snap(
+            &document.ship,
+            &document.catalog,
+            PartKey::new(0, 2, 0),
+            (0.0, 0.0)
+        )
+        .is_none()
+    );
     assert_eq!(document.ship.part(2).unwrap().x, 5.0);
     document.catalog.types[0].ignore_editor_intersections = true;
-    assert!(move_with_snap(&document.ship, &document.catalog, 2, (0.0, 0.0)).is_some());
+    assert!(
+        move_with_snap(
+            &document.ship,
+            &document.catalog,
+            PartKey::new(0, 2, 0),
+            (0.0, 0.0)
+        )
+        .is_some()
+    );
 }
 
 #[test]
@@ -199,12 +271,20 @@ fn rejected_rotation_keeps_pose_and_connections_and_valid_rotation_undoes() {
         child_attach: 2,
     });
     let before = document.ship.clone();
-    placement::transform(&mut document, 1, EditorCommand::Rotate(1));
+    placement::transform(
+        &mut document,
+        PartKey::new(0, 1, 0),
+        EditorCommand::Rotate(1),
+    );
     assert_eq!(document.ship, before);
     assert!(!document.history.can_undo());
     document.ship.part_mut(2).unwrap().y = 5.0;
     let before = document.ship.clone();
-    placement::transform(&mut document, 1, EditorCommand::Rotate(1));
+    placement::transform(
+        &mut document,
+        PartKey::new(0, 1, 0),
+        EditorCommand::Rotate(1),
+    );
     assert_eq!(document.ship.part(1).unwrap().editor_angle, 1);
     assert!(document.ship.connections.is_empty());
     assert!(document.undo());
@@ -246,21 +326,32 @@ fn snap_skips_occupied_nearest_anchor_and_commits_the_alternative() {
     }];
     let before = document.ship.clone();
     let mut preview = source.clone();
-    let connection = placement::snap(&document.ship, &document.catalog, &mut preview).unwrap();
-    assert_eq!(
+    let connection =
+        placement::snap(&document.ship, &document.catalog, &mut preview, None).unwrap();
+    assert!(matches!(
         connection,
-        Connection::Normal {
-            parent: 1,
-            child: 3,
-            parent_attach: 2,
-            child_attach: 1
+        EditorCommand::ConnectParts {
+            parent: PartKey {
+                group: 0,
+                id: 1,
+                occurrence: 0
+            },
+            child: PartKey {
+                group: 0,
+                id: 3,
+                occurrence: 0
+            },
+            kind: LinkKind::Normal {
+                parent_attach: 2,
+                child_attach: 1
+            }
         }
-    );
+    ));
     assert!((preview.x - 1.0).abs() < 1e-6);
     assert!((preview.y - 0.2).abs() < 1e-6);
     assert!(document.execute(EditorCommand::Batch(vec![
         EditorCommand::Place(preview.into()),
-        EditorCommand::Connect(connection)
+        connection
     ])));
     assert_eq!(document.ship.connections.len(), 2);
     assert!(document.undo());

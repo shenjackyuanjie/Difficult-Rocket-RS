@@ -16,6 +16,7 @@ pub(crate) enum Field {
 
 #[derive(Clone)]
 struct Draft {
+    key: PartKey,
     original: Part,
     name: String,
     fuel: String,
@@ -27,10 +28,11 @@ struct Draft {
 }
 
 impl Draft {
-    fn new(part: &Part) -> Self {
+    fn new(key: PartKey, part: &Part) -> Self {
         let pod = part.pod.as_ref();
         let staging = pod.and_then(|pod| pod.staging.clone());
         Self {
+            key,
             original: part.clone(),
             name: pod.map(|pod| pod.name.clone()).unwrap_or_default(),
             fuel: part.fuel.map(|fuel| fuel.to_string()).unwrap_or_default(),
@@ -57,7 +59,7 @@ impl Draft {
     }
 
     fn command(&self, document: &EditorDocument) -> Result<EditorCommand, String> {
-        if document.ship.part(self.original.id) != Some(&self.original) {
+        if document.ship.part_at(self.key) != Some(&self.original) {
             return Err("部件已变更，请取消后重新打开属性".into());
         }
         let id = self.original.id;
@@ -107,7 +109,7 @@ impl Draft {
                 commands.push(EditorCommand::SetStaging(id, staging));
             }
         }
-        Ok(EditorCommand::Batch(commands))
+        Ok(EditorCommand::Batch(commands).at(self.key))
     }
 }
 
@@ -221,11 +223,16 @@ pub(crate) fn setup(mut commands: Commands, assets: Res<AssetServer>) {
 fn open(inspector: &mut Inspector, document: &EditorDocument) {
     let part = document
         .selected
-        .and_then(|id| document.ship.part(id))
-        .or_else(|| document.ship.all_parts().find(|part| part.pod.is_some()));
+        .and_then(|key| document.ship.part_at(key).map(|part| (key, part)))
+        .or_else(|| {
+            document
+                .ship
+                .keyed_parts()
+                .find(|(_, part)| part.pod.is_some())
+        });
     *inspector = Inspector::default();
-    if let Some(part) = part {
-        inspector.draft = Some(Draft::new(part));
+    if let Some((key, part)) = part {
+        inspector.draft = Some(Draft::new(key, part));
     }
 }
 
@@ -269,7 +276,20 @@ fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument
         }
         Action::Active => draft.active = !draft.active,
         Action::CycleTarget(forward) => {
-            let parts: Vec<_> = document.ship.all_parts().map(|part| part.id).collect();
+            let group = document
+                .ship
+                .group(draft.key.group)
+                .map(|(parts, _)| parts)
+                .unwrap_or_default();
+            let mut counts = std::collections::HashMap::<i64, usize>::new();
+            for part in group {
+                *counts.entry(part.id).or_default() += 1;
+            }
+            let parts: Vec<_> = group
+                .iter()
+                .filter(|part| counts[&part.id] == 1)
+                .map(|part| part.id)
+                .collect();
             if !parts.is_empty() {
                 let current = draft
                     .target
@@ -320,7 +340,9 @@ fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument
         }
         Action::AddActivation(index) => {
             let target = draft.target.trim().parse::<i64>().ok();
-            if let Some(target) = target.filter(|id| document.ship.part(*id).is_some()) {
+            if let Some(target) =
+                target.filter(|id| document.ship.group_part(draft.key.group, *id).is_some())
+            {
                 if let Some(step) = draft.staging.as_mut().and_then(|s| s.steps.get_mut(index)) {
                     if step.activations.iter().any(|a| a.id == target) {
                         inspector.error = "该级已有这个部件的激活动作".into();
@@ -332,7 +354,7 @@ fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument
                     }
                 }
             } else {
-                inspector.error = "请输入船体中存在的目标部件 ID".into();
+                inspector.error = "请输入本组中唯一存在的目标部件 ID".into();
             }
         }
         Action::RemoveActivation(stage, index) => {
@@ -557,8 +579,8 @@ pub(crate) fn render(
                     let kind = document.catalog.get(&draft.original.part_type);
                     root.spawn(label(
                         format!(
-                            "部件 #{} · {}",
-                            draft.original.id,
+                            "{} · {}",
+                            draft.key,
                             kind.map(|kind| kind.name.as_str())
                                 .unwrap_or(&draft.original.part_type)
                         ),
@@ -665,11 +687,9 @@ pub(crate) fn render(
                                             button.spawn(label(text, &font, 14.0));
                                         });
                                     }
-                                    let target = draft
-                                        .target
-                                        .parse::<i64>()
-                                        .ok()
-                                        .and_then(|id| document.ship.part(id));
+                                    let target = draft.target.parse::<i64>().ok().and_then(|id| {
+                                        document.ship.group_part(draft.key.group, id)
+                                    });
                                     let target_name = target
                                         .and_then(|part| document.catalog.get(&part.part_type))
                                         .map(|kind| kind.name.as_str())
@@ -718,7 +738,7 @@ pub(crate) fn render(
                                         .with_children(|row| {
                                             let name = document
                                                 .ship
-                                                .part(activation.id)
+                                                .group_part(draft.key.group, activation.id)
                                                 .and_then(|part| {
                                                     document.catalog.get(&part.part_type)
                                                 })

@@ -13,40 +13,38 @@ pub(crate) type VisualKey = (usize, i64, usize);
 
 /// 少量历史样本同组也有重复 ID；渲染保留每个实例，不修正原始 XML。
 pub(crate) fn parts(ship: &Ship) -> impl Iterator<Item = (VisualKey, &Part)> {
-    ship.groups().flat_map(|(group, parts, _)| {
-        let mut occurrences = HashMap::<i64, usize>::new();
-        parts.iter().map(move |part| {
-            let occurrence = occurrences.entry(part.id).or_default();
-            let key = (group, part.id, *occurrence);
-            *occurrence += 1;
-            (key, part)
-        })
-    })
+    ship.keyed_parts()
+        .map(|(key, part)| ((key.group, key.id, key.occurrence), part))
 }
 
 #[derive(Default)]
 pub(crate) struct VisualIndex {
     entities: HashMap<VisualKey, (Entity, f32)>,
-    dragged: Option<i64>,
+    dragged: Option<PartKey>,
 }
 
-fn appearance(document: &EditorDocument, drag: &DragState, part: &Part) -> (Color, Transform) {
-    let collision = if drag.id == Some(part.id) {
+fn appearance(
+    document: &EditorDocument,
+    drag: &DragState,
+    key: PartKey,
+    part: &Part,
+) -> (Color, Transform) {
+    let collision = if drag.id == Some(key) {
         let mut preview = part.clone();
         preview.x = drag.preview.0;
         preview.y = drag.preview.1;
-        placement::collides(&document.ship, &document.catalog, &preview)
+        placement::collides(&document.ship, &document.catalog, &preview, Some(key))
     } else {
         false
     };
     let color = if collision {
         Color::srgb(1.0, 0.2, 0.2)
-    } else if Some(part.id) == document.selected {
+    } else if Some(key) == document.selected {
         Color::srgb(0.95, 0.72, 0.18)
     } else {
         Color::WHITE
     };
-    let (x, y) = if drag.id == Some(part.id) {
+    let (x, y) = if drag.id == Some(key) {
         drag.preview
     } else {
         (part.x, part.y)
@@ -95,7 +93,7 @@ pub(crate) fn sync(
             index
                 .entities
                 .keys()
-                .filter(|key| ids.contains(&key.1))
+                .filter(|key| ids.contains(&PartKey::new(key.0, key.1, key.2)))
                 .filter_map(|&key| {
                     let parts = if key.0 == 0 {
                         &document.ship.parts
@@ -119,7 +117,8 @@ pub(crate) fn sync(
         let size = kind
             .map(|kind| Vec2::new(kind.width as f32 * 30.0, kind.height as f32 * 30.0))
             .unwrap_or(Vec2::splat(30.0));
-        let (color, mut target) = appearance(&document, &drag, part);
+        let (color, mut target) =
+            appearance(&document, &drag, PartKey::new(key.0, key.1, key.2), part);
         let layer = if document.is_changed() {
             order as f32 / count * 2.0
         } else {
@@ -188,7 +187,7 @@ pub(crate) fn sync(
 }
 
 #[derive(Default)]
-pub(crate) struct ConnectionLines(Vec<(Connection, Vec2, Vec2)>);
+pub(crate) struct ConnectionLines(Vec<(usize, Connection, Vec2, Vec2)>);
 
 pub(crate) fn connections(
     mut gizmos: Gizmos,
@@ -198,14 +197,22 @@ pub(crate) fn connections(
 ) {
     if document.is_changed() {
         lines.0.clear();
-        for (_, group_parts, group_connections) in document.ship.groups() {
-            let parts: HashMap<_, _> = group_parts.iter().map(|part| (part.id, part)).collect();
+        for (group, group_parts, group_connections) in document.ship.groups() {
+            let mut parts = HashMap::new();
+            for part in group_parts {
+                parts
+                    .entry(part.id)
+                    .and_modify(|value| *value = None)
+                    .or_insert(Some(part));
+            }
             for connection in group_connections {
                 let (parent, child) = match *connection {
                     Connection::Normal { parent, child, .. }
                     | Connection::Dock { parent, child, .. } => (parent, child),
                 };
-                let (Some(parent), Some(child)) = (parts.get(&parent), parts.get(&child)) else {
+                let (Some(Some(parent)), Some(Some(child))) =
+                    (parts.get(&parent), parts.get(&child))
+                else {
                     continue;
                 };
                 let Some((a, b)) = dr_core::connections::positions_between(
@@ -221,6 +228,7 @@ pub(crate) fn connections(
                     continue;
                 }
                 lines.0.push((
+                    group,
                     connection.clone(),
                     Vec2::new(a.x as f32 * 60.0, a.y as f32 * 60.0),
                     Vec2::new(b.x as f32 * 60.0, b.y as f32 * 60.0),
@@ -228,8 +236,11 @@ pub(crate) fn connections(
             }
         }
     }
-    for (connection, a, b) in &lines.0 {
-        if !drag.id.is_some_and(|id| connection.touches(id)) {
+    for (group, connection, a, b) in &lines.0 {
+        if !drag
+            .id
+            .is_some_and(|id| id.group == *group && connection.touches(id.id))
+        {
             gizmos.line_2d(*a, *b, Color::srgb(0.25, 0.9, 0.55));
         }
     }
@@ -262,13 +273,13 @@ mod tests {
         let mut app = app();
         app.update();
         let initial = visual(&mut app, 1);
-        app.world_mut().resource_mut::<EditorDocument>().selected = Some(1);
+        app.world_mut().resource_mut::<EditorDocument>().selected = Some(PartKey::new(0, 1, 0));
         app.update();
         assert_eq!(visual(&mut app, 1).0, initial.0);
         assert_ne!(visual(&mut app, 1).2, initial.2);
         {
             let mut drag = app.world_mut().resource_mut::<DragState>();
-            drag.id = Some(1);
+            drag.id = Some(PartKey::new(0, 1, 0));
             drag.preview = (5.0, 3.0);
         }
         app.update();
@@ -416,5 +427,48 @@ mod tests {
             .collect();
         assert!(positions.contains(&(0, 0.0)));
         assert!(positions.contains(&(1, 300.0)));
+    }
+
+    #[test]
+    fn selection_and_drag_only_affect_the_exact_duplicate_instance() {
+        let mut app = app();
+        let part = app.world().resource::<EditorDocument>().ship.parts[0].clone();
+        {
+            let mut document = app.world_mut().resource_mut::<EditorDocument>();
+            document.ship.parts.push(part.clone());
+            document.ship.disconnected.push(dr_core::ShipGroup {
+                parts: vec![part],
+                connections: vec![],
+            });
+            document.selected = Some(PartKey::new(0, 1, 1));
+        }
+        app.update();
+        {
+            let mut drag = app.world_mut().resource_mut::<DragState>();
+            drag.id = Some(PartKey::new(0, 1, 1));
+            drag.preview = (5.0, 3.0);
+        }
+        app.update();
+        for (visual, transform, sprite) in app
+            .world_mut()
+            .query::<(&PartVisual, &Transform, &Sprite)>()
+            .iter(app.world())
+        {
+            if visual.group == 0 && visual.occurrence == 1 {
+                assert_eq!(transform.translation.x, 300.0);
+                assert_ne!(sprite.color, Color::WHITE);
+            } else {
+                assert_eq!(transform.translation.x, 0.0);
+                assert_eq!(sprite.color, Color::WHITE);
+            }
+        }
+        app.world_mut().resource_mut::<DragState>().id = None;
+        app.update();
+        assert!(
+            app.world_mut()
+                .query::<&Transform>()
+                .iter(app.world())
+                .all(|transform| transform.translation.x == 0.0)
+        );
     }
 }

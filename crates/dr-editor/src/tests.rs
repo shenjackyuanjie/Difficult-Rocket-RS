@@ -21,7 +21,7 @@ fn undo_to_saved_state_clears_dirty_and_stale_selection() {
     let mut part = document.ship.parts[0].clone();
     part.id = 2;
     assert!(document.execute(EditorCommand::Place(part.into())));
-    document.selected = Some(2);
+    document.selected = Some(PartKey::new(0, 2, 0));
     assert!(document.dirty);
     assert!(document.undo());
     assert!(!document.dirty);
@@ -63,7 +63,13 @@ fn moving_disconnects_old_links_in_the_same_undo_step() {
         child_attach: 1,
     });
     let before = document.ship.clone();
-    let command = move_with_snap(&document.ship, &document.catalog, 2, (5.0, 5.0)).unwrap();
+    let command = move_with_snap(
+        &document.ship,
+        &document.catalog,
+        PartKey::new(0, 2, 0),
+        (5.0, 5.0),
+    )
+    .unwrap();
     assert!(document.execute(command));
     assert!(document.ship.connections.is_empty());
     assert_eq!(document.ship.part(2).unwrap().x, 5.0);
@@ -119,7 +125,13 @@ fn snapped_connections_use_one_based_sr1_indices() {
     part.x = 5.0;
     document.ship.parts.push(part);
     let before = document.ship.clone();
-    let command = move_with_snap(&document.ship, &document.catalog, 2, (1.2, 0.0)).unwrap();
+    let command = move_with_snap(
+        &document.ship,
+        &document.catalog,
+        PartKey::new(0, 2, 0),
+        (1.2, 0.0),
+    )
+    .unwrap();
     assert!(document.execute(command));
     assert_eq!(document.ship.part(2).unwrap().x, 1.0);
     assert_eq!(

@@ -1,11 +1,17 @@
 use super::*;
 
-pub(crate) fn collides(ship: &Ship, catalog: &PartCatalog, part: &Part) -> bool {
+pub(crate) fn collides(
+    ship: &Ship,
+    catalog: &PartCatalog,
+    part: &Part,
+    source: Option<PartKey>,
+) -> bool {
     let Some(kind) = catalog.get(&part.part_type) else {
         return false;
     };
+    let original = source.and_then(|key| ship.part_at(key));
     ship.all_parts()
-        .filter(|other| other.id != part.id)
+        .filter(|other| !original.is_some_and(|part| std::ptr::eq(part, *other)))
         .any(|other| {
             catalog
                 .get(&other.part_type)
@@ -13,8 +19,8 @@ pub(crate) fn collides(ship: &Ship, catalog: &PartCatalog, part: &Part) -> bool 
         })
 }
 
-pub(crate) fn transform(document: &mut EditorDocument, id: i64, command: EditorCommand) {
-    let Some(part) = document.ship.part(id).cloned() else {
+pub(crate) fn transform(document: &mut EditorDocument, id: PartKey, command: EditorCommand) {
+    let Some(part) = document.ship.part_at(id).cloned() else {
         return;
     };
     let mut candidate = Ship {
@@ -24,21 +30,34 @@ pub(crate) fn transform(document: &mut EditorDocument, id: i64, command: EditorC
     if command.apply(&mut candidate).is_err() {
         return;
     }
-    if collides(&document.ship, &document.catalog, &candidate.parts[0]) {
+    if collides(
+        &document.ship,
+        &document.catalog,
+        &candidate.parts[0],
+        Some(id),
+    ) {
         document.status = "变换后的部件与其他部件重叠".into();
         return;
     }
     document.execute(EditorCommand::Batch(vec![
-        EditorCommand::Disconnect(id),
-        command,
+        EditorCommand::Disconnect(id.id).at(id),
+        command.at(id),
     ]));
 }
 
 /// 预览和落点提交共用的吸附计算，不改变文档。
-pub(crate) fn snap(ship: &Ship, catalog: &PartCatalog, source: &mut Part) -> Option<Connection> {
+pub(crate) fn snap(
+    ship: &Ship,
+    catalog: &PartCatalog,
+    source: &mut Part,
+    source_key: Option<PartKey>,
+) -> Option<EditorCommand> {
     let source_type = catalog.get(&source.part_type)?;
-    let mut best: Option<(Connection, dr_core::SnapCandidate)> = None;
-    for target in ship.all_parts().filter(|target| target.id != source.id) {
+    let mut best: Option<(EditorCommand, dr_core::SnapCandidate)> = None;
+    for (target_key, target) in ship
+        .keyed_parts()
+        .filter(|(key, _)| Some(*key) != source_key)
+    {
         let Some(target_type) = catalog.get(&target.part_type) else {
             continue;
         };
@@ -54,37 +73,39 @@ pub(crate) fn snap(ship: &Ship, catalog: &PartCatalog, source: &mut Part) -> Opt
             let mut proposed = source.clone();
             proposed.x = candidate.position.x;
             proposed.y = candidate.position.y;
-            if !dr_core::connections::available(
+            if !dr_core::connections::available_scoped(
                 ship,
                 catalog,
                 &proposed,
                 source_type,
+                source_key,
                 target,
                 target_type,
+                target_key,
                 &candidate,
-                Some(source.id),
-            ) || collides(ship, catalog, &proposed)
+            ) || collides(ship, catalog, &proposed, source_key)
             {
                 continue;
             }
-            let connection = if candidate.dock {
-                let dock = if source_type.kind == PartKind::DockConnector {
-                    source.id
-                } else {
-                    target.id
-                };
-                Connection::Dock {
-                    dock,
-                    parent: target.id,
-                    child: source.id,
+            let child = source_key.unwrap_or_else(|| PartKey::new(0, source.id, 0));
+            let kind = if candidate.dock {
+                LinkKind::Dock {
+                    connector: if source_type.kind == PartKind::DockConnector {
+                        child
+                    } else {
+                        target_key
+                    },
                 }
             } else {
-                Connection::Normal {
-                    parent: target.id,
-                    child: source.id,
+                LinkKind::Normal {
                     parent_attach: candidate.target_index as i32 + 1,
                     child_attach: candidate.source_index as i32 + 1,
                 }
+            };
+            let connection = EditorCommand::ConnectParts {
+                parent: target_key,
+                child,
+                kind,
             };
             best = Some((connection, candidate));
         }
@@ -99,7 +120,7 @@ pub(crate) fn snap(ship: &Ship, catalog: &PartCatalog, source: &mut Part) -> Opt
 pub(crate) fn preview(
     document: &EditorDocument,
     cursor: &EditorCursor,
-) -> Option<(Part, Option<Connection>, bool)> {
+) -> Option<(Part, Option<EditorCommand>, bool)> {
     let kind = document.catalog.visible().nth(cursor.catalog_index)?;
     let mut part = kind.instantiate(
         document.ship.next_part_id(),
@@ -119,8 +140,8 @@ pub(crate) fn preview(
     let allowed = kind
         .max_occurrences
         .is_none_or(|limit| document.ship.count_type(&kind.id) < limit as usize);
-    let connection = snap(&document.ship, &document.catalog, &mut part);
-    let allowed = allowed && !collides(&document.ship, &document.catalog, &part);
+    let connection = snap(&document.ship, &document.catalog, &mut part, None);
+    let allowed = allowed && !collides(&document.ship, &document.catalog, &part, None);
     Some((part, connection, allowed))
 }
 
@@ -135,10 +156,10 @@ pub(crate) fn place(document: &mut EditorDocument, cursor: &EditorCursor) -> boo
     let id = part.id;
     let mut commands = vec![EditorCommand::Place(part.into())];
     if let Some(connection) = connection {
-        commands.push(EditorCommand::Connect(connection));
+        commands.push(connection);
     }
     if document.execute(EditorCommand::Batch(commands)) {
-        document.selected = Some(id);
+        document.selected = document.ship.unique_key(id);
         true
     } else {
         false

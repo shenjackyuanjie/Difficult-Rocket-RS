@@ -11,6 +11,52 @@ fn document() -> EditorDocument {
 }
 
 #[test]
+fn duplicate_pod_draft_targets_its_group_and_limits_staging_choices() {
+    let mut document = document();
+    document.ship.disconnected.push(dr_core::ShipGroup {
+        parts: document.ship.parts.clone(),
+        connections: vec![],
+    });
+    let mut outside = document.ship.parts[1].clone();
+    outside.id = 99;
+    document.ship.parts.push(outside);
+    let before = document.ship.clone();
+    document.selected = Some(PartKey::new(1, 1, 0));
+    let mut inspector = Inspector::default();
+    act(&Action::Open, &mut inspector, &mut document);
+    assert_eq!(inspector.draft.as_ref().unwrap().key, PartKey::new(1, 1, 0));
+    act(&Action::AddStep, &mut inspector, &mut document);
+    inspector.draft.as_mut().unwrap().target = "99".into();
+    act(&Action::AddActivation(0), &mut inspector, &mut document);
+    assert!(!inspector.error.is_empty());
+    act(&Action::CycleTarget(true), &mut inspector, &mut document);
+    assert_eq!(inspector.draft.as_ref().unwrap().target, "1");
+    act(&Action::CycleTarget(true), &mut inspector, &mut document);
+    assert_eq!(inspector.draft.as_ref().unwrap().target, "2");
+    act(&Action::AddActivation(0), &mut inspector, &mut document);
+    act(&Action::Active, &mut inspector, &mut document);
+    act(&Action::Apply, &mut inspector, &mut document);
+    assert!(!inspector.is_open(), "{}", inspector.error);
+    assert_eq!(document.ship.parts, before.parts);
+    assert!(document.ship.disconnected[0].parts[0].active);
+    assert_eq!(
+        document.ship.disconnected[0].parts[0]
+            .pod
+            .as_ref()
+            .unwrap()
+            .staging
+            .as_ref()
+            .unwrap()
+            .steps[0]
+            .activations[0]
+            .id,
+        2
+    );
+    assert!(document.undo());
+    assert_eq!(document.ship, before);
+}
+
+#[test]
 fn staged_changes_cancel_or_apply_and_undo_together() {
     let mut document = document();
     let before = document.ship.clone();
@@ -103,7 +149,7 @@ fn stages_reorder_and_remove_without_losing_activation_flags() {
 #[test]
 fn bad_fuel_and_stale_drafts_preserve_document() {
     let mut document = document();
-    document.selected = Some(2);
+    document.selected = Some(PartKey::new(0, 2, 0));
     let before = document.ship.clone();
     let mut inspector = Inspector::default();
     act(&Action::Open, &mut inspector, &mut document);
@@ -246,7 +292,7 @@ fn fuel_capacity_is_checked_and_valid_change_undoes() {
         .find(|kind| kind.tank.is_some())
         .unwrap();
     let max = kind.tank.as_ref().unwrap().fuel;
-    document.selected = Some(2);
+    document.selected = Some(PartKey::new(0, 2, 0));
     document.saved_ship = document.ship.clone();
     let mut inspector = Inspector::default();
     act(&Action::Open, &mut inspector, &mut document);

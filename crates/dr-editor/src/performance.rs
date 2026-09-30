@@ -95,8 +95,9 @@ pub(crate) fn run(
             }
             state.last_frame = Some(Instant::now());
             if state.phase == 3 {
-                document.selected = Some(state.moving.1);
-                drag.id = Some(state.moving.1);
+                document.selected =
+                    Some(PartKey::new(state.moving.0, state.moving.1, state.moving.2));
+                drag.id = Some(PartKey::new(state.moving.0, state.moving.1, state.moving.2));
                 drag.origin = state.origin;
                 drag.preview = state.origin;
                 drag.offset = (0.0, 0.0);

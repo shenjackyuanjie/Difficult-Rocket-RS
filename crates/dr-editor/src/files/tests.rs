@@ -45,7 +45,7 @@ fn new_cancel_preserves_document_path_selection_and_history() {
     let (mut document, mut paths, mut dialogs) = context();
     paths.ship = Some("原文件.xml".into());
     modify(&mut document);
-    document.selected = Some(1);
+    document.selected = Some(PartKey::new(0, 1, 0));
     let before = document.ship.clone();
     dialogs.choices.push_back(UnsavedChoice::Cancel);
     assert!(!apply_action(
@@ -56,7 +56,7 @@ fn new_cancel_preserves_document_path_selection_and_history() {
     ));
     assert_eq!(document.ship, before);
     assert_eq!(paths.ship.as_deref(), Some("原文件.xml"));
-    assert_eq!(document.selected, Some(1));
+    assert_eq!(document.selected, Some(PartKey::new(0, 1, 0)));
     assert!(document.dirty && document.history.can_undo());
 }
 
@@ -255,7 +255,7 @@ fn dropped_file_reaches_the_document_through_bevy_messages() {
     let next = Ship::default();
     save_ship(&path, &next).unwrap();
     let (mut app, window) = file_app();
-    app.world_mut().resource_mut::<DragState>().id = Some(1);
+    app.world_mut().resource_mut::<DragState>().id = Some(PartKey::new(0, 1, 0));
     app.world_mut().write_message(FileDragAndDrop::DroppedFile {
         window,
         path_buf: path.clone(),

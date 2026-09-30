@@ -5,14 +5,15 @@ mod performance;
 mod placement;
 mod properties;
 mod render;
+mod scoped_smoke;
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 use dr_core::geometry::{Vec2d, contains_point};
 use dr_core::{
-    Connection, EditorCommand, EditorHistory, Part, PartCatalog, PartKind, Ship, load_catalog,
-    load_ship, save_ship,
+    Connection, EditorCommand, EditorHistory, LinkKind, Part, PartCatalog, PartKey, PartKind, Ship,
+    load_catalog, load_ship, save_ship,
 };
 
 #[derive(Resource, Clone)]
@@ -26,7 +27,7 @@ pub struct EditorPaths {
 pub struct EditorDocument {
     pub ship: Ship,
     pub catalog: PartCatalog,
-    pub selected: Option<i64>,
+    pub selected: Option<PartKey>,
     pub dirty: bool,
     pub history: EditorHistory,
     saved_ship: Ship,
@@ -36,26 +37,42 @@ pub struct EditorDocument {
 impl EditorDocument {
     fn refresh(&mut self) {
         self.dirty = self.ship != self.saved_ship;
-        if self.selected.is_some_and(|id| self.ship.part(id).is_none()) {
+        if self
+            .selected
+            .is_some_and(|id| self.ship.part_at(id).is_none())
+        {
             self.selected = None;
         }
     }
     fn undo(&mut self) -> bool {
         let changed = self.history.undo(&mut self.ship);
+        if changed {
+            self.selected = None;
+        }
         self.refresh();
         changed
     }
     fn redo(&mut self) -> bool {
         let changed = self.history.redo(&mut self.ship);
+        if changed {
+            self.selected = None;
+        }
         self.refresh();
         changed
     }
     fn execute(&mut self, command: EditorCommand) -> bool {
+        let before: Vec<_> = self.ship.keyed_parts().map(|(key, _)| key).collect();
         match self
             .history
             .execute_with_catalog(&mut self.ship, &self.catalog, command)
         {
             Ok(()) => {
+                if !before
+                    .into_iter()
+                    .eq(self.ship.keyed_parts().map(|(key, _)| key))
+                {
+                    self.selected = None;
+                }
                 self.refresh();
                 self.status.clear();
                 true
@@ -70,7 +87,7 @@ impl EditorDocument {
 
 #[derive(Resource, Default)]
 struct DragState {
-    id: Option<i64>,
+    id: Option<PartKey>,
     origin: (f64, f64),
     offset: (f64, f64),
     preview: (f64, f64),
@@ -102,6 +119,7 @@ struct SmokeTest {
     properties: bool,
     connections: bool,
     performance: bool,
+    scoped: bool,
     started: std::time::Instant,
 }
 
@@ -140,6 +158,7 @@ fn main() -> anyhow::Result<()> {
             properties: args.iter().any(|arg| arg == "--properties-smoke-test"),
             connections: args.iter().any(|arg| arg == "--connection-smoke-test"),
             performance: args.iter().any(|arg| arg == "--performance-test"),
+            scoped: args.iter().any(|arg| arg == "--scoped-smoke-test"),
             started: std::time::Instant::now(),
         })
         .insert_resource(EditorPaths {
@@ -186,6 +205,7 @@ fn main() -> anyhow::Result<()> {
                     properties::smoke::run,
                     connection_smoke::run,
                     performance::run,
+                    scoped_smoke::run,
                     panels::pointer_over_ui,
                     properties::actions,
                     properties::input,
@@ -424,27 +444,27 @@ fn keyboard_commands(
         return;
     }
     if keys.just_pressed(KeyCode::Delete)
-        && let Some(id) = document.selected.take()
+        && let Some(id) = document.selected
     {
-        let _ = document.execute(EditorCommand::Delete(id));
+        let _ = document.execute(EditorCommand::Delete(id.id).at(id));
     }
     if let Some(id) = document.selected {
         if keys.just_pressed(KeyCode::KeyR) {
             let can_rotate = document
                 .ship
-                .part(id)
+                .part_at(id)
                 .and_then(|part| document.catalog.get(&part.part_type))
                 .map(|part_type| !part_type.disable_editor_rotation)
                 .unwrap_or(false);
             if can_rotate {
-                placement::transform(&mut document, id, EditorCommand::Rotate(id));
+                placement::transform(&mut document, id, EditorCommand::Rotate(id.id));
             }
         }
         if keys.just_pressed(KeyCode::KeyX) {
-            placement::transform(&mut document, id, EditorCommand::FlipX(id));
+            placement::transform(&mut document, id, EditorCommand::FlipX(id.id));
         }
         if keys.just_pressed(KeyCode::KeyY) {
-            placement::transform(&mut document, id, EditorCommand::FlipY(id));
+            placement::transform(&mut document, id, EditorCommand::FlipY(id.id));
         }
     }
 }
@@ -502,9 +522,8 @@ fn mouse_editor(
     if mouse.just_pressed(MouseButton::Left) {
         let selected = document
             .ship
-            .all_parts()
-            .rev()
-            .find(|part| {
+            .keyed_parts()
+            .filter(|(_, part)| {
                 document.catalog.get(&part.part_type).is_some_and(|ty| {
                     contains_point(
                         part,
@@ -516,10 +535,11 @@ fn mouse_editor(
                     )
                 })
             })
-            .map(|part| part.id);
+            .map(|(key, _)| key)
+            .last();
         document.selected = selected;
-        if let Some(part) = document.selected.and_then(|id| document.ship.part(id)) {
-            drag.id = Some(part.id);
+        if let Some(part) = document.selected.and_then(|id| document.ship.part_at(id)) {
+            drag.id = document.selected;
             drag.origin = (part.x, part.y);
             drag.preview = drag.origin;
             drag.offset = (part.x - logical.0, part.y - logical.1);
@@ -537,11 +557,11 @@ fn mouse_editor(
         );
     }
     if let Some(id) = drag.id
-        && let Some(mut part) = document.ship.part(id).cloned()
+        && let Some(mut part) = document.ship.part_at(id).cloned()
     {
         part.x = drag.preview.0;
         part.y = drag.preview.1;
-        placement::snap(&document.ship, &document.catalog, &mut part);
+        placement::snap(&document.ship, &document.catalog, &mut part, Some(id));
         drag.preview = (part.x, part.y);
     }
     if mouse.just_released(MouseButton::Left)
@@ -561,28 +581,29 @@ fn mouse_editor(
 fn move_with_snap(
     ship: &Ship,
     catalog: &PartCatalog,
-    id: i64,
+    id: PartKey,
     position: (f64, f64),
 ) -> Option<EditorCommand> {
-    let mut source = ship.part(id)?.clone();
+    let mut source = ship.part_at(id)?.clone();
     let origin = (source.x, source.y);
     source.x = position.0;
     source.y = position.1;
-    let connection = placement::snap(ship, catalog, &mut source);
-    if placement::collides(ship, catalog, &source) {
+    let connection = placement::snap(ship, catalog, &mut source, Some(id));
+    if placement::collides(ship, catalog, &source, Some(id)) {
         return None;
     }
     let to = (source.x, source.y);
     let mut commands = vec![
-        EditorCommand::Disconnect(id),
+        EditorCommand::Disconnect(id.id).at(id),
         EditorCommand::Move {
-            id,
+            id: id.id,
             from: origin,
             to,
-        },
+        }
+        .at(id),
     ];
     if let Some(connection) = connection {
-        commands.push(EditorCommand::Connect(connection));
+        commands.push(connection);
     }
     Some(EditorCommand::Batch(commands))
 }
