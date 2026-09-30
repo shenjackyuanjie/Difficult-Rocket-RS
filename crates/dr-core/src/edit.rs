@@ -1,4 +1,6 @@
+mod repair;
 pub(crate) mod scoped;
+pub use repair::{ConnectionRole, DuplicateRepair, ReferenceSite};
 
 use crate::model::{Connection, Part, PartCatalog, PartId, PartKey, Ship, StagingState};
 use thiserror::Error;
@@ -19,10 +21,13 @@ pub enum CommandError {
     Invalid,
     #[error("无法连接: {0}")]
     InvalidConnection(String),
+    #[error("无法修复重复编号: {0}")]
+    InvalidRepair(String),
 }
 
 #[derive(Debug, Clone)]
 pub enum EditorCommand {
+    RepairDuplicates(Box<DuplicateRepair>),
     /// 对当前快照中一个明确实例执行属性或变换命令。
     Scoped {
         part: PartKey,
@@ -186,6 +191,7 @@ impl EditorCommand {
         scope: Option<PartKey>,
     ) -> Result<(), CommandError> {
         match self {
+            Self::RepairDuplicates(repair) => repair.apply_inner(ship)?,
             Self::Scoped { part, command } => {
                 if scope.is_some() || ship.part_at(*part).is_none() {
                     return Err(CommandError::MissingInstance(*part));
@@ -344,6 +350,8 @@ impl EditorState {
     }
 }
 
+#[cfg(test)]
+mod repair_tests;
 #[cfg(test)]
 mod scoped_tests;
 

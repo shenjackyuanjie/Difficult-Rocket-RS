@@ -117,7 +117,7 @@ fn remap_connection(connection: &mut Connection, ids: &HashMap<PartId, PartId>) 
     }
 }
 
-fn namespace(parts: &[Part], connections: &[Connection]) -> BTreeSet<PartId> {
+pub(super) fn namespace(parts: &[Part], connections: &[Connection]) -> BTreeSet<PartId> {
     let mut ids: BTreeSet<_> = parts.iter().map(|part| part.id).collect();
     for connection in connections {
         match *connection {
