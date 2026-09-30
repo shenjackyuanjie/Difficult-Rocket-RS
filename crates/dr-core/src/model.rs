@@ -220,12 +220,50 @@ pub enum Connection {
 }
 
 impl Connection {
+    pub fn equivalent(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Normal {
+                    parent: p,
+                    child: c,
+                    parent_attach: pa,
+                    child_attach: ca,
+                },
+                Self::Normal {
+                    parent: q,
+                    child: d,
+                    parent_attach: qa,
+                    child_attach: da,
+                },
+            ) => {
+                (p == q && c == d && pa == qa && ca == da)
+                    || (p == d && c == q && pa == da && ca == qa)
+            }
+            (
+                Self::Dock {
+                    dock: a,
+                    parent: p,
+                    child: c,
+                },
+                Self::Dock {
+                    dock: b,
+                    parent: q,
+                    child: d,
+                },
+            ) => a == b && ((p == q && c == d) || (p == d && c == q)),
+            _ => false,
+        }
+    }
+
     /// 判断连接是否引用给定部件。
     pub fn touches(&self, id: PartId) -> bool {
         match self {
-            Self::Normal { parent, child, .. } | Self::Dock { parent, child, .. } => {
-                *parent == id || *child == id
-            }
+            Self::Normal { parent, child, .. } => *parent == id || *child == id,
+            Self::Dock {
+                dock,
+                parent,
+                child,
+            } => *dock == id || *parent == id || *child == id,
         }
     }
 }
@@ -262,6 +300,52 @@ impl Default for Ship {
 }
 
 impl Ship {
+    pub fn all_parts(&self) -> impl DoubleEndedIterator<Item = &Part> {
+        self.parts
+            .iter()
+            .chain(self.disconnected.iter().flat_map(|g| g.parts.iter()))
+    }
+    pub fn all_connections(&self) -> impl Iterator<Item = &Connection> {
+        self.connections
+            .iter()
+            .chain(self.disconnected.iter().flat_map(|g| g.connections.iter()))
+    }
+    pub fn disconnect_part(&mut self, id: PartId) {
+        self.connections.retain(|c| !c.touches(id));
+        for group in &mut self.disconnected {
+            group.connections.retain(|c| !c.touches(id));
+        }
+    }
+    /// 跨组连接时合并被连接的组，保留同组连接所在的 XML 容器。
+    pub(crate) fn add_connection(&mut self, connection: Connection) {
+        let joins_main = self.parts.iter().any(|p| connection.touches(p.id));
+        let mut indices: Vec<_> = self
+            .disconnected
+            .iter()
+            .enumerate()
+            .filter(|(_, g)| g.parts.iter().any(|p| connection.touches(p.id)))
+            .map(|(i, _)| i)
+            .collect();
+        if joins_main || indices.is_empty() {
+            for index in indices.into_iter().rev() {
+                let group = self.disconnected.remove(index);
+                self.parts.extend(group.parts);
+                self.connections.extend(group.connections);
+            }
+            self.connections.push(connection);
+        } else {
+            let target = indices.remove(0);
+            for index in indices.into_iter().rev() {
+                let group = self.disconnected.remove(index);
+                self.disconnected[target].parts.extend(group.parts);
+                self.disconnected[target]
+                    .connections
+                    .extend(group.connections);
+            }
+            self.disconnected[target].connections.push(connection);
+        }
+    }
+
     /// 返回所有部件中可用的下一个正整数 ID。
     pub fn next_part_id(&self) -> PartId {
         self.parts
@@ -304,9 +388,17 @@ impl Ship {
             })
         });
         if removed.is_some() {
-            self.connections.retain(|c| !c.touches(id));
-            for g in &mut self.disconnected {
-                g.connections.retain(|c| !c.touches(id));
+            self.disconnect_part(id);
+            for part in self.parts.iter_mut().chain(
+                self.disconnected
+                    .iter_mut()
+                    .flat_map(|g| g.parts.iter_mut()),
+            ) {
+                if let Some(staging) = part.pod.as_mut().and_then(|pod| pod.staging.as_mut()) {
+                    for step in &mut staging.steps {
+                        step.activations.retain(|a| a.id != id);
+                    }
+                }
             }
             self.disconnected.retain(|g| !g.parts.is_empty());
         }
