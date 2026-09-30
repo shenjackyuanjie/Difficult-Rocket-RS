@@ -17,6 +17,7 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 | 切换待放置部件、放置 | 当前分类中 Tab / Shift+Tab 切换；左键点击画布或 P 放置 |
 | 删除、旋转、镜像 | Delete、R、X / Y |
 | 撤销、重做 | Ctrl+Z、Ctrl+Y |
+| 属性与分级编辑 | F2 或顶部“属性 / 分级”；未选部件时打开驾驶舱 |
 | 新建、打开 | Ctrl+N、Ctrl+O；支持单个 XML 文件拖入 |
 | 保存、另存为 | Ctrl+S、Ctrl+Shift+S；首次保存选择目标文件 |
 | 鼠标位置缩放、平移、视图复位 | 滚轮、中键拖动、Home |
@@ -26,17 +27,22 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 
 左侧船体列表支持滚动、刷新和切换目录，只列出可解析的 XML。右侧部件目录支持分类、贴图、名称、说明及数量上限；选择部件后进入连续放置预览，R/X/Y 调整预览方向，Esc/右键或“取消放置”返回选择模式。预览吸附时为绿色，达到数量上限时为红色；放置与连接共用一次撤销。侧栏的点击和滚轮不会编辑或缩放画布。
 
+属性面板支持激活状态、燃料，以及驾驶舱中的船体名称、油门和分级。可增删、排序分级步骤，按 ID 或上一/下一部件选择激活目标，增删动作并编辑移动标记。点击字段后输入会替换原值；支持中文输入法、Ctrl+A、方向键、Home/End、Backspace/Delete。点击“应用”提交整份草稿并支持一次撤销；“取消”或 Esc 放弃草稿。草稿打开时不处理画布快捷键，关闭窗口或拖入文件也不会丢弃草稿；需先应用或取消再继续文件操作。燃料不能为负或超过目录容量，油门范围为 0～1，分级目标必须存在且不能在同一级重复。
+
 ```powershell
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p dr-core --example verify_ships -- ../Difficult-Rocket/assets/ships
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --panel-smoke-test
+cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --properties-smoke-test
 python -X utf8 scripts/check_native_dialogs.py
 ```
 
 `--smoke-test` 启动真实窗口，在约 5 秒后截图并自动退出，图片位于 `target/editor-smoke.png`。它验证启动和渲染，不代替交互测试。最后一条是 Windows 原生对话框测试：使用构建好的程序，自动验证取消和退出保护，不保存样本，也不要求抢占桌面焦点。
 
 `--panel-smoke-test` 在真实窗口中通过 Bevy 输入与 UI 状态验证预览旋转/镜像、放置、撤销重做、取消及侧栏输入隔离；不依赖系统桌面焦点、不写回样本，输出 `target/editor-placement-preview.png` 和 `target/editor-panels-smoke.png` 后退出。
+
+`--properties-smoke-test` 验证中文输入消息、草稿输入隔离、分级激活动作、应用、一次撤销/重做、取消及 XML 文件往返。输出 `target/editor-properties-draft.png`、`target/editor-properties-smoke.png` 和 `target/properties-smoke.xml`，不改写源样本。输入法测试注入 Bevy 的 IME 消息，尚未覆盖各系统输入法的候选窗口。
 
 船体批量校验同时对照模型和输入 XML 的原始元素、属性；遇到异常输入会报告并继续检查剩余文件，最后以失败状态退出，不修改样本。当前原版库有 185 个正常船体和 5 个被拒绝的异常输入，详见进度文档。
