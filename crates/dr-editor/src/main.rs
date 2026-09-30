@@ -1,3 +1,5 @@
+mod files;
+
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
@@ -83,6 +85,7 @@ struct CameraDrag(Option<Vec2>);
 #[derive(Resource)]
 struct SmokeTest {
     enabled: bool,
+    native_dialogs: bool,
     started: std::time::Instant,
 }
 
@@ -110,6 +113,7 @@ fn main() -> anyhow::Result<()> {
     App::new()
         .insert_resource(SmokeTest {
             enabled: args.iter().any(|arg| arg == "--smoke-test"),
+            native_dialogs: args.iter().any(|arg| arg == "--native-dialog-test"),
             started: std::time::Instant::now(),
         })
         .insert_resource(EditorPaths {
@@ -128,6 +132,7 @@ fn main() -> anyhow::Result<()> {
                     ..default()
                 })
                 .set(WindowPlugin {
+                    close_when_requested: false,
                     primary_window: Some(Window {
                         title: "Difficult Rocket Editor".into(),
                         resolution: WindowResolution::new(1440, 900),
@@ -137,17 +142,26 @@ fn main() -> anyhow::Result<()> {
                     ..default()
                 }),
         )
-        .add_systems(Startup, (setup_camera, setup_hud))
+        .add_message::<files::FileAction>()
+        .add_systems(
+            Startup,
+            (setup_camera, setup_hud, files::setup_file_toolbar),
+        )
         .add_systems(
             Update,
             (
+                files::toolbar_actions,
+                files::file_inputs,
+                files::file_actions,
                 mouse_editor,
                 keyboard_commands,
                 camera_controls,
                 sync_ship_visuals,
                 draw_connections,
                 update_hud,
+                files::update_window_title,
                 capture_screenshot,
+                files::native_dialog_test,
             )
                 .chain(),
         )
@@ -269,7 +283,7 @@ fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
             Node {
                 position_type: PositionType::Absolute,
                 left: px(16),
-                top: px(14),
+                top: px(60),
                 padding: UiRect::all(px(8)),
                 ..default()
             },
@@ -280,7 +294,7 @@ fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
             root.spawn((
                 EditorHud,
                 TextLayout::default().with_no_wrap(),
-                Text::new("DR Editor | O:打开示例  Delete:删除  R:旋转  X/Y:镜像  Ctrl+S:保存"),
+                Text::new("DR Editor"),
                 TextFont {
                     font: bevy::text::FontSource::Handle(assets.load(
                         "fonts/HarmonyOS_Sans/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ttf",
@@ -297,7 +311,6 @@ fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
 fn keyboard_commands(
     keys: Res<ButtonInput<KeyCode>>,
     mut document: ResMut<EditorDocument>,
-    paths: Res<EditorPaths>,
     mut cursor: ResMut<EditorCursor>,
     drag: Res<DragState>,
 ) {
@@ -305,21 +318,6 @@ fn keyboard_commands(
         return;
     }
     let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-    if control && keys.just_pressed(KeyCode::KeyS) {
-        let path = paths
-            .ship
-            .clone()
-            .unwrap_or_else(|| "editor-output.xml".into());
-        match save_ship(&path, &document.ship) {
-            Ok(()) => {
-                document.saved_ship = document.ship.clone();
-                document.refresh();
-                document.status = format!("已保存：{path}");
-            }
-            Err(error) => document.status = format!("保存船体失败（{path}）：{error}"),
-        }
-        return;
-    }
     if control && keys.just_pressed(KeyCode::KeyZ) {
         document.undo();
         return;
@@ -693,7 +691,7 @@ fn update_hud(
         .unwrap_or("无可用部件");
     for mut text in &mut labels {
         **text = format!(
-            "DR Editor | 部件: {} | 质量: {:.2} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存\n滚轮: 缩放 中键: 平移 Home: 复位 F12: 截图\n{}",
+            "DR Editor | 部件: {} | 质量: {:.2} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存 Ctrl+Shift+S: 另存为\nCtrl+N: 新建 Ctrl+O: 打开（也可拖入 XML）\n滚轮: 缩放 中键: 平移 Home: 复位 F12: 截图\n{}",
             document.ship.all_parts().count(),
             document.ship.total_mass(&document.catalog),
             if document.dirty {

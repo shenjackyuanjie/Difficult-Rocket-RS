@@ -1,6 +1,6 @@
 use super::*;
 
-fn document() -> EditorDocument {
+pub(super) fn document() -> EditorDocument {
     let ship =
         dr_core::ship_from_xml(r#"<Ship><Parts><Part id="1" partType="pod"/></Parts></Ship>"#)
             .unwrap();
