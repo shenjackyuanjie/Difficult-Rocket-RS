@@ -61,6 +61,8 @@ cargo run -p dr-editor -- --connection-smoke-test
 cargo run -p dr-editor -- --scoped-smoke-test
 cargo run -p dr-editor -- --selection-smoke-test
 cargo run -p dr-editor -- --view-smoke-test
+cargo run -p dr-editor -- --browser-smoke-test
+cargo run -p dr-editor -- --staging-smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Heronb.xml --repair-smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Ophioglossum.xml --performance-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Ophioglossum.xml --performance-test --performance-selection-count 100
@@ -82,6 +84,8 @@ python -X utf8 scripts/check_native_dialogs.py
 `--selection-smoke-test` 验证 Shift 多选及取消选择、真实轮廓框选、整体拖动与内部连接、复制粘贴的红色碰撞/绿色吸附预览、预览旋转取消、全选删除、一次撤销重做、侧栏释放与失焦取消，以及 XML 往返。输出 `target/editor-selection-preview.png`、`target/editor-selection-smoke.png` 和 `target/selection-smoke.xml`，截图捕获完成后才提交预览。
 
 `--view-smoke-test` 验证整船与选区适配、窗口缩小到 960×640 后重新适配、F3 调试标签和 F4 船体显隐，以及文档和历史不变；输出 `target/editor-view-smoke.png`。
+
+`--browser-smoke-test` 在 `target` 内生成 1,000 个小船体文件及 1 个异常 XML，验收排序、过滤、滚动到底、打开末项和保留滚动位置，输出 `target/editor-browser-smoke.png/json`。`--staging-smoke-test` 验收 64 级共 1,024 个动作的末项草稿编辑、原子应用、撤销重做和 XML 往返，输出 `target/editor-staging-draft.png`、`target/editor-staging-smoke.png` 与 `target/staging-smoke.xml`。
 
 `--performance-test` 在真实窗口中适配船体视图并持续拖动 90 帧，确认部件实体保持不变、取消后船体数据未改动，输出 `target/editor-performance.json` 和 `target/editor-performance.png`。可加 `--performance-selection-count N` 测试从拖动锚点向外选择最近的 N 个部件，超过总数时全选；报告包含实际选择数。帧耗时包含实际吸附、碰撞和渲染流程，不是纯绘制基准；结果受硬件、驱动和构建配置影响。
 
