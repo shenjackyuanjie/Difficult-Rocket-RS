@@ -13,6 +13,8 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 | 操作 | 按键 |
 | --- | --- |
 | 选择、移动并吸附部件 | 左键点击、拖动 |
+| 增减选择、框选、全选 | Shift+左键；空白处拖动，Shift 框选追加；Ctrl+A |
+| 复制、剪切、粘贴 | Ctrl+C/X/V；预览中 R/X/Y 变换、左键/P 提交、Esc/右键取消 |
 | 取消拖动预览 | Esc、右键；窗口失焦时自动取消 |
 | 切换待放置部件、放置 | 当前分类中 Tab / Shift+Tab 切换；左键点击画布或 P 放置 |
 | 删除、旋转、镜像 | Delete、R、X / Y |
@@ -26,6 +28,8 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 文件操作也可使用顶部工具栏。新建、打开和退出前会提示保存、放弃或取消；保存或打开失败时保留当前文档。保存先写入同目录临时文件再替换目标，不直接截断原文件。无法解释的 XML 根节点、扩展字段和异常内容会报错，避免静默丢失数据后覆盖保存。
 
 左侧船体列表支持滚动、刷新和切换目录，只列出可解析的 XML。右侧部件目录支持分类、贴图、名称、说明及数量上限；选择部件后进入连续放置预览，R/X/Y 调整预览方向，Esc/右键或“取消放置”返回选择模式。预览吸附时为绿色，发生碰撞或达到数量上限时为红色；放置与连接共用一次撤销。侧栏的点击和滚轮不会编辑或缩放画布。
+
+多选后拖动任一已选部件可整体移动，R/X/Y 围绕所选部件中心整体旋转或镜像，Delete 一次删除。内部连接保持，移动或变换时断开与未选部件的连接；吸附和碰撞按完整选择验证。复制保留内部连接、分组和内部的分级引用，粘贴分配新编号，并检查数量限制。剪贴板在切换文件时保留；预览和取消不改变文档，每次提交可一次撤销。
 
 命中与碰撞支持目录中的凸多边形及多个 Shape 的组合、圆形车轮和默认矩形，随部件旋转与镜像。传感器不作为实体轮廓；相邻边界接触允许，实体内部重叠会阻止放置、移动、旋转和镜像，拖动时显示红色。目录的 `ignoreEditorIntersections` 仍允许着陆架等指定部件重叠。自定义 Shape 的非有限坐标、退化、自交或凹多边形会明确报错；凹轮廓需拆分成多个凸 Shape。
 
@@ -47,6 +51,7 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --pan
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --properties-smoke-test
 cargo run -p dr-editor -- --connection-smoke-test
 cargo run -p dr-editor -- --scoped-smoke-test
+cargo run -p dr-editor -- --selection-smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Heronb.xml --repair-smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Ophioglossum.xml --performance-test
 python -X utf8 scripts/check_native_dialogs.py
@@ -63,6 +68,8 @@ python -X utf8 scripts/check_native_dialogs.py
 `--scoped-smoke-test` 使用原版分离器构造三个复用 ID 的组，通过真实窗口的鼠标及快捷键输入验证选择、拖动预览、删除、跨组吸附、撤销重做及 XML 保存往返，输出 `target/editor-scoped-smoke.png` 和 `target/scoped-smoke.xml`。`verify_scoped_edits` 在真实重复 ID 样本中每组抽取一个实例，并额外覆盖同组重复实例，检查属性编辑、撤销重做和往返；原版库目前覆盖 34 个样本、282 个实例，另 5 个异常输入使程序如实返回非零状态，不修改样本。
 
 `--repair-smoke-test` 使用真实 `Heronb.xml` 的发动机/油箱重复编号，通过实际 UI 按钮分配三条连接及一条分级引用，验证未分配拒绝、草稿隔离、一次撤销重做、修复后的独立删除和 XML 往返，输出 `target/editor-repair-draft.png`、`target/editor-repair-smoke.png` 及 `target/repair-smoke.xml`，不写回源样本。
+
+`--selection-smoke-test` 验证 Shift 多选及取消选择、真实轮廓框选、整体拖动与内部连接、复制粘贴的红色碰撞/绿色吸附预览、预览旋转取消、全选删除、一次撤销重做、侧栏释放与失焦取消，以及 XML 往返。输出 `target/editor-selection-preview.png`、`target/editor-selection-smoke.png` 和 `target/selection-smoke.xml`，截图捕获完成后才提交预览。
 
 `--performance-test` 在真实窗口中适配船体视图并持续拖动 90 帧，确认部件实体保持不变、取消后船体数据未改动，输出 `target/editor-performance.json` 和 `target/editor-performance.png`。帧耗时包含实际吸附、碰撞和渲染流程，不是纯绘制基准；结果受硬件、驱动和构建配置影响。
 
