@@ -33,14 +33,18 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 
 属性面板支持激活状态、燃料，以及驾驶舱中的船体名称、油门和分级。可增删、排序分级步骤，按 ID 或上一/下一部件选择激活目标，增删动作并编辑移动标记。点击字段后输入会替换原值；支持中文输入法、Ctrl+A、方向键、Home/End、Backspace/Delete。点击“应用”提交整份草稿并支持一次撤销；“取消”或 Esc 放弃草稿。草稿打开时不处理画布快捷键，关闭窗口或拖入文件也不会丢弃草稿；需先应用或取消再继续文件操作。燃料不能为负或超过目录容量，油门范围为 0～1，分级目标必须存在且不能在同一级重复。
 
+编辑按所属组和具体实例定位，断开组复用同一个 ID 时可分别选择、拖动、删除和编辑属性。删除及分级目标只作用于本组；跨组吸附会合并相关组，并同步重编号冲突的部件、连接与分级引用，支持一次撤销恢复原数据。打开和保存本身不重编号。同组重复 ID 的实例仍分别显示和选择；已有连接或分级若无法判定归属，相关拓扑操作会报错，不自动猜测。明确分配这些歧义引用的修复入口尚待补齐。
+
 ```powershell
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p dr-core --example verify_ships -- ../Difficult-Rocket/assets/ships
+cargo run -p dr-core --example verify_scoped_edits -- ../Difficult-Rocket/assets/ships
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --panel-smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --properties-smoke-test
 cargo run -p dr-editor -- --connection-smoke-test
+cargo run -p dr-editor -- --scoped-smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Ophioglossum.xml --performance-test
 python -X utf8 scripts/check_native_dialogs.py
 ```
@@ -52,6 +56,8 @@ python -X utf8 scripts/check_native_dialogs.py
 `--properties-smoke-test` 验证中文输入消息、草稿输入隔离、分级激活动作、应用、一次撤销/重做、取消及 XML 文件往返。输出 `target/editor-properties-draft.png`、`target/editor-properties-smoke.png` 和 `target/properties-smoke.xml`，不改写源样本。输入法测试注入 Bevy 的 IME 消息，尚未覆盖各系统输入法的候选窗口。
 
 `--connection-smoke-test` 从默认新建船体开始，用原版长梁和两个分离器验证沿边吸附、同边多点连接、原子撤销/重做及保存往返，输出 `target/editor-connections-smoke.png` 和 `target/connections-smoke.xml`；运行时不要传 `--ship`。
+
+`--scoped-smoke-test` 使用原版分离器构造三个复用 ID 的组，通过真实窗口的鼠标及快捷键输入验证选择、拖动预览、删除、跨组吸附、撤销重做及 XML 保存往返，输出 `target/editor-scoped-smoke.png` 和 `target/scoped-smoke.xml`。`verify_scoped_edits` 在真实重复 ID 样本中每组抽取一个实例，并额外覆盖同组重复实例，检查属性编辑、撤销重做和往返；原版库目前覆盖 34 个样本、282 个实例，另 5 个异常输入使程序如实返回非零状态，不修改样本。
 
 `--performance-test` 在真实窗口中适配船体视图并持续拖动 90 帧，确认部件实体保持不变、取消后船体数据未改动，输出 `target/editor-performance.json` 和 `target/editor-performance.png`。帧耗时包含实际吸附、碰撞和渲染流程，不是纯绘制基准；结果受硬件、驱动和构建配置影响。
 
