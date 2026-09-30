@@ -33,6 +33,8 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 
 左侧船体列表支持滚动、刷新和切换目录，只列出可解析的 XML。右侧部件目录支持分类、贴图、名称、说明及数量上限；选择部件后进入连续放置预览，R/X/Y 调整预览方向，Esc/右键或“取消放置”返回选择模式。预览吸附时为绿色，发生碰撞或达到数量上限时为红色；放置与连接共用一次撤销。侧栏的点击和滚轮不会编辑或缩放画布。
 
+编辑历史默认最多 256 步、快照容量预算 64 MiB，超出时移除最旧记录；若单步本身超过预算，仍保留最近一步。每步只保存一份快照，撤销/重做交换快照；预算不包含当前文档、保存点、渲染及分配器开销。
+
 多选后拖动任一已选部件可整体移动，R/X/Y 围绕所选部件中心整体旋转或镜像，Delete 一次删除。内部连接保持，移动或变换时断开与未选部件的连接；吸附和碰撞按完整选择验证。复制保留内部连接、分组和内部的分级引用，粘贴分配新编号，并检查数量限制。剪贴板在切换文件时保留；预览和取消不改变文档，每次提交可一次撤销。
 
 命中与碰撞支持目录中的凸多边形及多个 Shape 的组合、圆形车轮和默认矩形，随部件旋转与镜像。传感器不作为实体轮廓；相邻边界接触允许，实体内部重叠会阻止放置、移动、旋转和镜像，拖动时显示红色。目录的 `ignoreEditorIntersections` 仍允许着陆架等指定部件重叠。自定义 Shape 的非有限坐标、退化、自交或凹多边形会明确报错；凹轮廓需拆分成多个凸 Shape。
@@ -50,6 +52,8 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p dr-core --example verify_ships -- ../Difficult-Rocket/assets/ships
 cargo run -p dr-core --example verify_scoped_edits -- ../Difficult-Rocket/assets/ships
+cargo run -p dr-core --example verify_catalog_edits -- ../Difficult-Rocket/assets/builtin/PartList.xml
+cargo run -p dr-core --example verify_history -- ../Difficult-Rocket/assets/ships/Ophioglossum.xml
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --panel-smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --properties-smoke-test
