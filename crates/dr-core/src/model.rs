@@ -111,7 +111,8 @@ pub struct PartType {
 
 impl PartType {
     pub fn half_extents(&self) -> (f64, f64) {
-        (self.width as f64 / 2.0, self.height as f64 / 2.0)
+        // PartList 尺寸每单位 30 像素，Ship 位置每单位 60 像素。
+        (self.width as f64 / 4.0, self.height as f64 / 4.0)
     }
 }
 

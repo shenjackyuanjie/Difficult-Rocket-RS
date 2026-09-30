@@ -33,8 +33,8 @@ pub const SR1_TO_PIXELS: f64 = 60.0;
 
 pub fn part_world_attach(part: &Part, attach: &AttachPoint) -> Vec2d {
     let mut local = Vec2d {
-        x: attach.x,
-        y: attach.y,
+        x: attach.x / 2.0,
+        y: attach.y / 2.0,
     };
     if part.flip_x {
         local.x = -local.x;
@@ -42,7 +42,11 @@ pub fn part_world_attach(part: &Part, attach: &AttachPoint) -> Vec2d {
     if part.flip_y {
         local.y = -local.y;
     }
-    let local = local.rotate(part.editor_angle);
+    let (sin, cos) = part.angle.sin_cos();
+    let local = Vec2d {
+        x: local.x * cos - local.y * sin,
+        y: local.x * sin + local.y * cos,
+    };
     Vec2d {
         x: part.x + local.x,
         y: part.y + local.y,
@@ -98,7 +102,24 @@ pub fn intersects(a: &Part, at: &PartType, b: &Part, bt: &PartType) -> bool {
     }
     let (aw, ah) = at.half_extents();
     let (bw, bh) = bt.half_extents();
-    (a.x - b.x).abs() < aw + bw && (a.y - b.y).abs() < ah + bh
+    let (asin, acos) = a.angle.sin_cos();
+    let (bsin, bcos) = b.angle.sin_cos();
+    let axes = [(acos, asin), (-asin, acos), (bcos, bsin), (-bsin, bcos)];
+    axes.iter().all(|&(x, y)| {
+        let distance = ((a.x - b.x) * x + (a.y - b.y) * y).abs();
+        let ar = aw * (acos * x + asin * y).abs() + ah * (-asin * x + acos * y).abs();
+        let br = bw * (bcos * x + bsin * y).abs() + bh * (-bsin * x + bcos * y).abs();
+        distance < ar + br - 1e-9
+    })
+}
+
+/// 逆旋转鼠标坐标，确保命中区域与部件渲染尺寸一致。
+pub fn contains_point(part: &Part, kind: &PartType, point: Vec2d) -> bool {
+    let dx = point.x - part.x;
+    let dy = point.y - part.y;
+    let (sin, cos) = part.angle.sin_cos();
+    let (width, height) = kind.half_extents();
+    (dx * cos + dy * sin).abs() <= width && (-dx * sin + dy * cos).abs() <= height
 }
 
 #[cfg(test)]
@@ -176,7 +197,7 @@ mod tests {
             break_angle: None,
             break_force: None,
         }]);
-        assert!(find_snap(&p(1, 0.0), &a, &p(2, 2.01), &b, 0.1).is_some());
+        assert!(find_snap(&p(1, 0.0), &a, &p(2, 1.01), &b, 0.1).is_some());
     }
     #[test]
     fn overlap_respects_flag() {
@@ -185,5 +206,43 @@ mod tests {
         assert!(intersects(&p(1, 0.0), &a, &p(2, 0.1), &b));
         a.ignore_editor_intersections = true;
         assert!(!intersects(&p(1, 0.0), &a, &p(2, 0.1), &b));
+    }
+
+    #[test]
+    fn rotated_hit_and_collision_match_rendered_size() {
+        let mut kind = t(vec![]);
+        kind.width = 8;
+        kind.height = 2;
+        let mut part = p(1, 0.0);
+        part.angle = std::f64::consts::FRAC_PI_2;
+        assert!(contains_point(&part, &kind, Vec2d { x: 0.4, y: 1.9 }));
+        assert!(!contains_point(&part, &kind, Vec2d { x: 1.0, y: 0.0 }));
+        assert!(!intersects(&part, &kind, &p(2, 1.0), &t(vec![])));
+        assert!(intersects(&part, &kind, &p(2, 0.6), &t(vec![])));
+        part.angle = std::f64::consts::FRAC_PI_4;
+        assert!(contains_point(&part, &kind, Vec2d { x: 1.0, y: 1.0 }));
+        assert!(!contains_point(&part, &kind, Vec2d { x: 1.0, y: -1.0 }));
+    }
+
+    #[test]
+    fn attachment_uses_ship_units_rotation_and_mirroring() {
+        let attach = AttachPoint {
+            x: 2.0,
+            y: 1.0,
+            dock: false,
+            fuel_line: false,
+            flip_x: false,
+            group: None,
+            order: None,
+            break_angle: None,
+            break_force: None,
+        };
+        let mut part = p(1, 3.0);
+        part.y = 4.0;
+        part.flip_x = true;
+        part.angle = std::f64::consts::FRAC_PI_2;
+        let result = part_world_attach(&part, &attach);
+        assert!((result.x - 2.5).abs() < 1e-10);
+        assert!((result.y - 3.0).abs() < 1e-10);
     }
 }
