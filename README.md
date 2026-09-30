@@ -29,6 +29,8 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 
 命中与碰撞支持目录中的凸多边形及多个 Shape 的组合、圆形车轮和默认矩形，随部件旋转与镜像。传感器不作为实体轮廓；相邻边界接触允许，实体内部重叠会阻止放置、移动、旋转和镜像，拖动时显示红色。目录的 `ignoreEditorIntersections` 仍允许着陆架等指定部件重叠。自定义 Shape 的非有限坐标、退化、自交或凹多边形会明确报错；凹轮廓需拆分成多个凸 Shape。
 
+吸附区分固定中心点与 `Top/Bottom/Left/Right`、`*Side` 连接面；连接面允许沿边滑动，同边不同位置可以分别连接。固定点和共享 `group` 独占，吸附会跳过已占用、方向不兼容或产生碰撞的候选，拖动时忽略即将断开的旧连接。新建连接在原子提交时再次检查编号、实际接触及占用；机械连接不因燃料类型不同而禁止。显式标记 `dock="true"` 的自定义连接点只允许插头与端口配对，原版 XML 中的历史对接记录仍原样保留。
+
 属性面板支持激活状态、燃料，以及驾驶舱中的船体名称、油门和分级。可增删、排序分级步骤，按 ID 或上一/下一部件选择激活目标，增删动作并编辑移动标记。点击字段后输入会替换原值；支持中文输入法、Ctrl+A、方向键、Home/End、Backspace/Delete。点击“应用”提交整份草稿并支持一次撤销；“取消”或 Esc 放弃草稿。草稿打开时不处理画布快捷键，关闭窗口或拖入文件也不会丢弃草稿；需先应用或取消再继续文件操作。燃料不能为负或超过目录容量，油门范围为 0～1，分级目标必须存在且不能在同一级重复。
 
 ```powershell
@@ -38,6 +40,7 @@ cargo run -p dr-core --example verify_ships -- ../Difficult-Rocket/assets/ships
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --panel-smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --properties-smoke-test
+cargo run -p dr-editor -- --connection-smoke-test
 python -X utf8 scripts/check_native_dialogs.py
 ```
 
@@ -46,5 +49,7 @@ python -X utf8 scripts/check_native_dialogs.py
 `--panel-smoke-test` 在真实窗口中通过 Bevy 输入与 UI 状态验证预览旋转/镜像、碰撞拒绝及红色预览、放置、撤销重做、取消及侧栏输入隔离；不依赖系统桌面焦点、不写回样本，输出 `target/editor-placement-preview.png`、`target/editor-collision-preview.png` 和 `target/editor-panels-smoke.png` 后退出。
 
 `--properties-smoke-test` 验证中文输入消息、草稿输入隔离、分级激活动作、应用、一次撤销/重做、取消及 XML 文件往返。输出 `target/editor-properties-draft.png`、`target/editor-properties-smoke.png` 和 `target/properties-smoke.xml`，不改写源样本。输入法测试注入 Bevy 的 IME 消息，尚未覆盖各系统输入法的候选窗口。
+
+`--connection-smoke-test` 从默认新建船体开始，用原版长梁和两个分离器验证沿边吸附、同边多点连接、原子撤销/重做及保存往返，输出 `target/editor-connections-smoke.png` 和 `target/connections-smoke.xml`；运行时不要传 `--ship`。
 
 船体批量校验同时对照模型和输入 XML 的原始元素、属性；遇到异常输入会报告并继续检查剩余文件，最后以失败状态退出，不修改样本。当前原版库有 185 个正常船体和 5 个被拒绝的异常输入，详见进度文档。
