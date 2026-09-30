@@ -3,6 +3,36 @@ use std::collections::HashMap;
 
 pub type PartId = i64;
 
+/// 当前文档快照内的实例位置；结构编辑后应重新解析，不能作为跨撤销的永久 ID。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PartKey {
+    pub group: usize,
+    pub id: PartId,
+    pub occurrence: usize,
+}
+
+impl PartKey {
+    pub const fn new(group: usize, id: PartId, occurrence: usize) -> Self {
+        Self {
+            group,
+            id,
+            occurrence,
+        }
+    }
+}
+
+impl std::fmt::Display for PartKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "组 {} / #{} / 实例 {}",
+            self.group,
+            self.id,
+            self.occurrence + 1
+        )
+    }
+}
+
 /// SR1 部件在物理和编辑器中的功能分类。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PartKind {
@@ -350,6 +380,76 @@ impl Default for Ship {
 }
 
 impl Ship {
+    pub fn group(&self, group: usize) -> Option<(&[Part], &[Connection])> {
+        if group == 0 {
+            Some((&self.parts, &self.connections))
+        } else {
+            self.disconnected
+                .get(group - 1)
+                .map(|g| (g.parts.as_slice(), g.connections.as_slice()))
+        }
+    }
+
+    pub(crate) fn group_mut(
+        &mut self,
+        group: usize,
+    ) -> Option<(&mut Vec<Part>, &mut Vec<Connection>)> {
+        if group == 0 {
+            Some((&mut self.parts, &mut self.connections))
+        } else {
+            self.disconnected
+                .get_mut(group - 1)
+                .map(|g| (&mut g.parts, &mut g.connections))
+        }
+    }
+
+    pub fn keyed_parts(&self) -> impl Iterator<Item = (PartKey, &Part)> {
+        self.groups().flat_map(|(group, parts, _)| {
+            let mut occurrences = HashMap::<PartId, usize>::new();
+            parts.iter().map(move |part| {
+                let occurrence = occurrences.entry(part.id).or_default();
+                let key = PartKey::new(group, part.id, *occurrence);
+                *occurrence += 1;
+                (key, part)
+            })
+        })
+    }
+
+    pub fn part_at(&self, key: PartKey) -> Option<&Part> {
+        self.group(key.group)?
+            .0
+            .iter()
+            .filter(|p| p.id == key.id)
+            .nth(key.occurrence)
+    }
+
+    pub fn part_at_mut(&mut self, key: PartKey) -> Option<&mut Part> {
+        self.group_mut(key.group)?
+            .0
+            .iter_mut()
+            .filter(|p| p.id == key.id)
+            .nth(key.occurrence)
+    }
+
+    /// XML 连接和分级的组内引用；歧义引用不能随意选中某一个实例。
+    pub fn group_part(&self, group: usize, id: PartId) -> Option<&Part> {
+        let mut parts = self.group(group)?.0.iter().filter(|part| part.id == id);
+        let part = parts.next()?;
+        parts.next().is_none().then_some(part)
+    }
+
+    /// 无作用域的旧 API 只接受全局唯一的 ID，避免悄悄选中第一个重复实例。
+    pub fn unique_key(&self, id: PartId) -> Option<PartKey> {
+        let mut matches = self.groups().flat_map(|(group, parts, _)| {
+            parts
+                .iter()
+                .filter(move |part| part.id == id)
+                .map(move |_| PartKey::new(group, id, 0))
+        });
+        let key = matches.next()?;
+        matches.next().is_none().then_some(key)
+    }
+
     /// 主船体为 0，断开组依文档顺序从 1 开始；不同组可能复用 SR1 部件 ID。
     pub fn groups(&self) -> impl Iterator<Item = (usize, &[Part], &[Connection])> {
         std::iter::once((0, self.parts.as_slice(), self.connections.as_slice())).chain(
@@ -371,38 +471,8 @@ impl Ship {
             .chain(self.disconnected.iter().flat_map(|g| g.connections.iter()))
     }
     pub fn disconnect_part(&mut self, id: PartId) {
-        self.connections.retain(|c| !c.touches(id));
-        for group in &mut self.disconnected {
-            group.connections.retain(|c| !c.touches(id));
-        }
-    }
-    /// 跨组连接时合并被连接的组，保留同组连接所在的 XML 容器。
-    pub(crate) fn add_connection(&mut self, connection: Connection) {
-        let joins_main = self.parts.iter().any(|p| connection.touches(p.id));
-        let mut indices: Vec<_> = self
-            .disconnected
-            .iter()
-            .enumerate()
-            .filter(|(_, g)| g.parts.iter().any(|p| connection.touches(p.id)))
-            .map(|(i, _)| i)
-            .collect();
-        if joins_main || indices.is_empty() {
-            for index in indices.into_iter().rev() {
-                let group = self.disconnected.remove(index);
-                self.parts.extend(group.parts);
-                self.connections.extend(group.connections);
-            }
-            self.connections.push(connection);
-        } else {
-            let target = indices.remove(0);
-            for index in indices.into_iter().rev() {
-                let group = self.disconnected.remove(index);
-                self.disconnected[target].parts.extend(group.parts);
-                self.disconnected[target]
-                    .connections
-                    .extend(group.connections);
-            }
-            self.disconnected[target].connections.push(connection);
+        if let Some(key) = self.unique_key(id) {
+            let _ = crate::edit::scoped::disconnect(self, key);
         }
     }
 
@@ -417,52 +487,17 @@ impl Ship {
             + 1
     }
     pub fn part(&self, id: PartId) -> Option<&Part> {
-        self.parts.iter().find(|p| p.id == id).or_else(|| {
-            self.disconnected
-                .iter()
-                .flat_map(|g| g.parts.iter())
-                .find(|p| p.id == id)
-        })
+        self.part_at(self.unique_key(id)?)
     }
     pub fn part_mut(&mut self, id: PartId) -> Option<&mut Part> {
-        if let Some(p) = self.parts.iter_mut().find(|p| p.id == id) {
-            return Some(p);
-        }
-        self.disconnected
-            .iter_mut()
-            .flat_map(|g| g.parts.iter_mut())
-            .find(|p| p.id == id)
+        let key = self.unique_key(id)?;
+        self.part_at_mut(key)
     }
     pub fn remove_part(&mut self, id: PartId) -> Option<Part> {
-        let removed = self
-            .parts
-            .iter()
-            .position(|p| p.id == id)
-            .map(|i| self.parts.remove(i));
-        let removed = removed.or_else(|| {
-            self.disconnected.iter_mut().find_map(|g| {
-                g.parts
-                    .iter()
-                    .position(|p| p.id == id)
-                    .map(|i| g.parts.remove(i))
-            })
-        });
-        if removed.is_some() {
-            self.disconnect_part(id);
-            for part in self.parts.iter_mut().chain(
-                self.disconnected
-                    .iter_mut()
-                    .flat_map(|g| g.parts.iter_mut()),
-            ) {
-                if let Some(staging) = part.pod.as_mut().and_then(|pod| pod.staging.as_mut()) {
-                    for step in &mut staging.steps {
-                        step.activations.retain(|a| a.id != id);
-                    }
-                }
-            }
-            self.disconnected.retain(|g| !g.parts.is_empty());
-        }
-        removed
+        let key = self.unique_key(id)?;
+        let part = self.part_at(key)?.clone();
+        crate::edit::scoped::delete(self, key).ok()?;
+        Some(part)
     }
     pub fn count_type(&self, type_id: &str) -> usize {
         self.parts

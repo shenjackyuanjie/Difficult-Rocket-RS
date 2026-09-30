@@ -140,7 +140,7 @@ pub fn candidates(
     tt: &PartType,
     threshold: f64,
 ) -> Vec<SnapCandidate> {
-    if source.id == target.id || !threshold.is_finite() || threshold < 0.0 {
+    if !threshold.is_finite() || threshold < 0.0 {
         return vec![];
     }
     let mut result = vec![];
@@ -186,8 +186,10 @@ pub fn candidates(
 }
 
 /// 同一接触面可有多个接触位置；固定点和共享 group 独占。
-fn occupied(
-    ship: &Ship,
+#[allow(clippy::too_many_arguments)]
+fn occupied_in_group(
+    parts: &[Part],
+    connections: &[Connection],
     catalog: &PartCatalog,
     part: &Part,
     kind: &PartType,
@@ -198,7 +200,8 @@ fn occupied(
     let attach = &kind.attach_points[index];
     let surface = segment(part, kind, attach);
     let is_point = surface.0.distance(surface.1) < EPSILON;
-    ship.all_connections()
+    connections
+        .iter()
         .filter(|connection| !ignored.is_some_and(|id| connection.touches(id)))
         .any(|connection| match connection {
             Connection::Dock { .. } => attach.dock && connection.touches(part.id),
@@ -230,9 +233,13 @@ fn occupied(
                 if is_point {
                     return true;
                 }
-                let Some(peer) = ship.part(peer) else {
+                let mut peers = parts.iter().filter(|p| p.id == peer);
+                let Some(peer) = peers.next() else {
                     return true;
                 };
+                if peers.next().is_some() {
+                    return true;
+                }
                 let Some(peer_kind) = catalog.get(&peer.part_type) else {
                     return true;
                 };
@@ -247,6 +254,82 @@ fn occupied(
                 existing_contact.distance(contact) < EPSILON
             }
         })
+}
+
+fn occupied(
+    ship: &Ship,
+    catalog: &PartCatalog,
+    part: &Part,
+    kind: &PartType,
+    index: usize,
+    contact: Vec2d,
+    ignored: Option<i64>,
+) -> bool {
+    if let Some(key) = ship.unique_key(part.id) {
+        let (parts, connections) = ship.group(key.group).unwrap();
+        occupied_in_group(
+            parts,
+            connections,
+            catalog,
+            part,
+            kind,
+            index,
+            contact,
+            ignored,
+        )
+    } else {
+        ship.all_parts().any(|p| p.id == part.id)
+    }
+}
+
+/// 预览实例和目标实例各自只检查本组引用；移动源部件的旧连接将在提交时断开。
+#[allow(clippy::too_many_arguments)]
+pub fn available_scoped(
+    ship: &Ship,
+    catalog: &PartCatalog,
+    source: &Part,
+    st: &PartType,
+    source_key: Option<crate::PartKey>,
+    target: &Part,
+    tt: &PartType,
+    target_key: crate::PartKey,
+    candidate: &SnapCandidate,
+) -> bool {
+    let Some(sa) = st.attach_points.get(candidate.source_index) else {
+        return false;
+    };
+    let Some(ta) = tt.attach_points.get(candidate.target_index) else {
+        return false;
+    };
+    if source_key == Some(target_key) {
+        return false;
+    }
+    // 新连接的 XML 引用必须可以唯一解析。历史歧义不在吸附时自动修复。
+    for key in [source_key, Some(target_key)].into_iter().flatten() {
+        let Some((parts, _)) = ship.group(key.group) else {
+            return false;
+        };
+        if parts.iter().filter(|p| p.id == key.id).count() != 1 {
+            return false;
+        }
+    }
+    let (_, b) = closest_points(segment(source, st, sa), segment(target, tt, ta));
+    let Some((parts, connections)) = ship.group(target_key.group) else {
+        return false;
+    };
+    let ignored = source_key
+        .filter(|key| key.group == target_key.group)
+        .map(|key| key.id);
+    !occupied_in_group(
+        parts,
+        connections,
+        catalog,
+        target,
+        tt,
+        candidate.target_index,
+        b,
+        ignored,
+    )
 }
 
 /// 检查吸附候选；拖动时忽略即将断开的旧连接。

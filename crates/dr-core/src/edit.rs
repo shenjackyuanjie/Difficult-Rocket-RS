@@ -1,10 +1,18 @@
-use crate::model::{Connection, Part, PartCatalog, PartId, Ship, StagingState};
+pub(crate) mod scoped;
+
+use crate::model::{Connection, Part, PartCatalog, PartId, PartKey, Ship, StagingState};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum CommandError {
     #[error("部件不存在: {0}")]
     MissingPart(PartId),
+    #[error("部件 ID 有多个实例，请指定所属组与实例: {0}")]
+    AmbiguousPart(PartId),
+    #[error("部件位置已失效: {0}")]
+    MissingInstance(PartKey),
+    #[error("同组重复 ID 的连接或分级引用无法判定归属: {0}")]
+    AmbiguousReference(PartKey),
     #[error("部件已存在: {0}")]
     DuplicatePart(PartId),
     #[error("操作不适用")]
@@ -15,6 +23,17 @@ pub enum CommandError {
 
 #[derive(Debug, Clone)]
 pub enum EditorCommand {
+    /// 对当前快照中一个明确实例执行属性或变换命令。
+    Scoped {
+        part: PartKey,
+        command: Box<EditorCommand>,
+    },
+    /// XML 中的 ID 是组内引用；连接两组时只重编号被合并组的冲突 ID。
+    ConnectParts {
+        parent: PartKey,
+        child: PartKey,
+        kind: LinkKind,
+    },
     Place(Box<Part>),
     Delete(PartId),
     Move {
@@ -33,6 +52,17 @@ pub enum EditorCommand {
     SetThrottle(PartId, f64),
     SetStaging(PartId, Option<StagingState>),
     Batch(Vec<EditorCommand>),
+}
+
+#[derive(Debug, Clone)]
+pub enum LinkKind {
+    Normal {
+        parent_attach: i32,
+        child_attach: i32,
+    },
+    Dock {
+        connector: PartKey,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +147,13 @@ impl EditorHistory {
 }
 
 impl EditorCommand {
+    pub fn at(self, part: PartKey) -> Self {
+        Self::Scoped {
+            part,
+            command: Box::new(self),
+        }
+    }
+
     /// 原子执行：任何子命令失败时保留原始船体。
     pub fn apply(&self, ship: &mut Ship) -> Result<(), CommandError> {
         self.apply_checked(ship, None)
@@ -128,7 +165,16 @@ impl EditorCommand {
         catalog: Option<&PartCatalog>,
     ) -> Result<(), CommandError> {
         let mut after = ship.clone();
-        self.apply_inner(&mut after, catalog)?;
+        self.apply_inner(&mut after, catalog, None)?;
+        // 批量命令完成后再压缩被编辑清空的组，保留输入本身已有的空组。
+        let mut group = 0;
+        after.disconnected.retain(|current| {
+            let original = &ship.disconnected[group];
+            group += 1;
+            !current.parts.is_empty()
+                || !current.connections.is_empty()
+                || (original.parts.is_empty() && original.connections.is_empty())
+        });
         *ship = after;
         Ok(())
     }
@@ -137,37 +183,54 @@ impl EditorCommand {
         &self,
         ship: &mut Ship,
         catalog: Option<&PartCatalog>,
+        scope: Option<PartKey>,
     ) -> Result<(), CommandError> {
         match self {
+            Self::Scoped { part, command } => {
+                if scope.is_some() || ship.part_at(*part).is_none() {
+                    return Err(CommandError::MissingInstance(*part));
+                }
+                command.apply_inner(ship, catalog, Some(*part))?;
+            }
+            Self::ConnectParts {
+                parent,
+                child,
+                kind,
+            } => {
+                scoped::connect(ship, catalog, *parent, *child, kind)?;
+            }
             Self::Batch(commands) => {
                 for command in commands {
-                    command.apply_inner(ship, catalog)?;
+                    command.apply_inner(ship, catalog, scope)?;
                 }
             }
             Self::SetActive(id, active) => {
-                ship.part_mut(*id)
-                    .ok_or(CommandError::MissingPart(*id))?
-                    .active = *active;
+                let key = scoped::resolve(ship, *id, scope)?;
+                ship.part_at_mut(key).unwrap().active = *active;
             }
             Self::SetFuel(id, fuel) => {
-                let part = ship.part_mut(*id).ok_or(CommandError::MissingPart(*id))?;
+                let key = scoped::resolve(ship, *id, scope)?;
+                let part = ship.part_at_mut(key).unwrap();
                 if !fuel.is_finite() || *fuel < 0.0 || part.fuel_kind.is_none() {
                     return Err(CommandError::Invalid);
                 }
                 part.fuel = Some(*fuel);
             }
             Self::RenamePod(id, name) => {
-                let part = ship.part_mut(*id).ok_or(CommandError::MissingPart(*id))?;
+                let key = scoped::resolve(ship, *id, scope)?;
+                let part = ship.part_at_mut(key).unwrap();
                 part.pod.as_mut().ok_or(CommandError::Invalid)?.name = name.clone();
             }
             Self::SetThrottle(id, throttle) => {
                 if !throttle.is_finite() || !(0.0..=1.0).contains(throttle) {
                     return Err(CommandError::Invalid);
                 }
-                let part = ship.part_mut(*id).ok_or(CommandError::MissingPart(*id))?;
+                let key = scoped::resolve(ship, *id, scope)?;
+                let part = ship.part_at_mut(key).unwrap();
                 part.pod.as_mut().ok_or(CommandError::Invalid)?.throttle = *throttle;
             }
             Self::SetStaging(id, staging) => {
+                let key = scoped::resolve(ship, *id, scope)?;
                 if let Some(staging) = staging {
                     if staging.current_stage < 0 {
                         return Err(CommandError::Invalid);
@@ -175,99 +238,89 @@ impl EditorCommand {
                     for step in &staging.steps {
                         let mut ids = std::collections::HashSet::new();
                         for activation in &step.activations {
-                            if ship.part(activation.id).is_none() {
-                                return Err(CommandError::MissingPart(activation.id));
-                            }
+                            scoped::resolve_in_group(ship, key.group, activation.id)?;
                             if !ids.insert(activation.id) {
                                 return Err(CommandError::Invalid);
                             }
                         }
                     }
                 }
-                let part = ship.part_mut(*id).ok_or(CommandError::MissingPart(*id))?;
+                let key = scoped::resolve(ship, *id, scope)?;
+                let part = ship.part_at_mut(key).unwrap();
                 part.pod.as_mut().ok_or(CommandError::Invalid)?.staging = staging.clone();
             }
             Self::Disconnect(id) => {
-                if ship.part(*id).is_none() {
-                    return Err(CommandError::MissingPart(*id));
-                }
-                ship.disconnect_part(*id);
+                let key = scoped::resolve(ship, *id, scope)?;
+                scoped::disconnect(ship, key)?;
             }
             Self::Place(part) => {
                 if part.id <= 0 || !part.x.is_finite() || !part.y.is_finite() {
                     return Err(CommandError::Invalid);
                 }
-                if ship.part(part.id).is_some() {
+                if ship.all_parts().any(|p| p.id == part.id) {
                     return Err(CommandError::DuplicatePart(part.id));
                 }
                 ship.parts.push((**part).clone());
             }
             Self::Delete(id) => {
-                ship.remove_part(*id)
-                    .ok_or(CommandError::MissingPart(*id))?;
+                let key = scoped::resolve(ship, *id, scope)?;
+                scoped::delete(ship, key)?;
             }
             Self::Move { id, to, .. } => {
                 if !to.0.is_finite() || !to.1.is_finite() {
                     return Err(CommandError::Invalid);
                 }
-                let part = ship.part_mut(*id).ok_or(CommandError::MissingPart(*id))?;
+                let key = scoped::resolve(ship, *id, scope)?;
+                let part = ship.part_at_mut(key).unwrap();
                 part.x = to.0;
                 part.y = to.1;
             }
             Self::Rotate(id) => {
-                let part = ship.part_mut(*id).ok_or(CommandError::MissingPart(*id))?;
+                let key = scoped::resolve(ship, *id, scope)?;
+                let part = ship.part_at_mut(key).unwrap();
                 part.editor_angle = (part.editor_angle + 1).rem_euclid(4);
                 part.angle = (part.editor_angle as f64) * std::f64::consts::FRAC_PI_2;
             }
             Self::FlipX(id) => {
-                let part = ship.part_mut(*id).ok_or(CommandError::MissingPart(*id))?;
+                let key = scoped::resolve(ship, *id, scope)?;
+                let part = ship.part_at_mut(key).unwrap();
                 part.flip_x = !part.flip_x;
             }
             Self::FlipY(id) => {
-                let part = ship.part_mut(*id).ok_or(CommandError::MissingPart(*id))?;
+                let key = scoped::resolve(ship, *id, scope)?;
+                let part = ship.part_at_mut(key).unwrap();
                 part.flip_y = !part.flip_y;
             }
             Self::Connect(connection) => {
-                let (parent, child, parent_attach, child_attach) = match connection {
+                let (parent, child, kind) = match *connection {
                     Connection::Normal {
                         parent,
                         child,
                         parent_attach,
                         child_attach,
-                    } => (*parent, *child, Some(*parent_attach), Some(*child_attach)),
-                    Connection::Dock { parent, child, .. } => (*parent, *child, None, None),
+                    } => (
+                        parent,
+                        child,
+                        LinkKind::Normal {
+                            parent_attach,
+                            child_attach,
+                        },
+                    ),
+                    Connection::Dock {
+                        parent,
+                        child,
+                        dock,
+                    } => (
+                        parent,
+                        child,
+                        LinkKind::Dock {
+                            connector: scoped::resolve(ship, dock, None)?,
+                        },
+                    ),
                 };
-                if parent == child || parent <= 0 || child <= 0 {
-                    return Err(CommandError::Invalid);
-                }
-                if ship.part(parent).is_none() || ship.part(child).is_none() {
-                    return Err(CommandError::MissingPart(if ship.part(parent).is_none() {
-                        parent
-                    } else {
-                        child
-                    }));
-                }
-                if parent_attach.is_some_and(|index| index <= 0)
-                    || child_attach.is_some_and(|index| index <= 0)
-                {
-                    return Err(CommandError::Invalid);
-                }
-                if let Connection::Dock { dock, .. } = connection
-                    && ship.part(*dock).is_none()
-                {
-                    return Err(CommandError::MissingPart(*dock));
-                }
-                if ship
-                    .all_connections()
-                    .any(|existing| existing.equivalent(connection))
-                {
-                    return Err(CommandError::Invalid);
-                }
-                if let Some(catalog) = catalog {
-                    crate::connections::validate(ship, catalog, connection)
-                        .map_err(CommandError::InvalidConnection)?;
-                }
-                ship.add_connection(connection.clone());
+                let parent = scoped::resolve(ship, parent, None)?;
+                let child = scoped::resolve(ship, child, None)?;
+                scoped::connect(ship, catalog, parent, child, &kind)?;
             }
         }
         Ok(())
@@ -277,7 +330,7 @@ impl EditorCommand {
 #[derive(Debug, Clone)]
 pub struct EditorState {
     pub ship: Ship,
-    pub selected: Option<PartId>,
+    pub selected: Option<PartKey>,
     pub dirty: bool,
 }
 
@@ -292,9 +345,12 @@ impl EditorState {
 }
 
 #[cfg(test)]
+mod scoped_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    fn part(id: i64) -> Part {
+    pub(super) fn part(id: i64) -> Part {
         Part {
             id,
             part_type: "pod-1".into(),

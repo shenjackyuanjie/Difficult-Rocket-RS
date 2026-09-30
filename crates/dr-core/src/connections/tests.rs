@@ -32,6 +32,106 @@ fn connection(parent: i64, child: i64, pa: i32, ca: i32) -> Connection {
 }
 
 #[test]
+fn occupancy_only_uses_the_target_group_and_does_not_ignore_a_foreign_duplicate() {
+    use crate::{PartKey, ShipGroup};
+    let catalog = catalog();
+    let kind = catalog.get("small").unwrap();
+    let source = kind.instantiate(2, (0.0, 1.0));
+    let target = kind.instantiate(1, (0.0, 0.0));
+    let mut ship = Ship {
+        parts: vec![target.clone()],
+        disconnected: vec![ShipGroup {
+            parts: vec![kind.instantiate(1, (5.0, 0.0)), source.clone()],
+            connections: vec![connection(1, 2, 1, 2)],
+        }],
+        ..Default::default()
+    };
+    let candidate = candidates(&source, kind, &target, kind, 0.01)[0];
+    assert!(available_scoped(
+        &ship,
+        &catalog,
+        &source,
+        kind,
+        Some(PartKey::new(1, 2, 0)),
+        &target,
+        kind,
+        PartKey::new(0, 1, 0),
+        &candidate
+    ));
+    ship.parts.push(kind.instantiate(2, (0.0, 1.0)));
+    ship.connections.push(connection(1, 2, 1, 2));
+    assert!(!available_scoped(
+        &ship,
+        &catalog,
+        &source,
+        kind,
+        Some(PartKey::new(1, 2, 0)),
+        &target,
+        kind,
+        PartKey::new(0, 1, 0),
+        &candidate
+    ));
+}
+
+#[test]
+fn scoped_docking_remaps_equal_endpoint_ids_and_rejects_bad_merges_atomically() {
+    use crate::{LinkKind, PartKey, ShipGroup};
+    let catalog = catalog();
+    let port = PartKey::new(0, 1, 0);
+    let plug = PartKey::new(1, 1, 0);
+    let mut ship = Ship {
+        parts: vec![catalog.get("port").unwrap().instantiate(1, (0.0, 1.0))],
+        disconnected: vec![ShipGroup {
+            parts: vec![catalog.get("plug").unwrap().instantiate(1, (0.0, 0.0))],
+            connections: vec![],
+        }],
+        ..Default::default()
+    };
+    let original = ship.clone();
+    let mut history = EditorHistory::default();
+    history
+        .execute_with_catalog(
+            &mut ship,
+            &catalog,
+            EditorCommand::ConnectParts {
+                parent: port,
+                child: plug,
+                kind: LinkKind::Dock { connector: plug },
+            },
+        )
+        .unwrap();
+    assert!(ship.disconnected.is_empty());
+    assert_eq!(
+        ship.connections,
+        vec![Connection::Dock {
+            parent: 1,
+            child: ship.parts[1].id,
+            dock: ship.parts[1].id
+        }]
+    );
+    assert!(history.undo(&mut ship));
+    assert_eq!(ship, original);
+    assert!(
+        history
+            .execute_with_catalog(
+                &mut ship,
+                &catalog,
+                EditorCommand::ConnectParts {
+                    parent: port,
+                    child: plug,
+                    kind: LinkKind::Normal {
+                        parent_attach: 99,
+                        child_attach: 1
+                    },
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(ship, original);
+    assert!(history.can_redo());
+}
+
+#[test]
 fn surface_snap_retains_tangent_and_allows_separate_contacts() {
     let catalog = catalog();
     let beam = catalog.get("beam").unwrap();
