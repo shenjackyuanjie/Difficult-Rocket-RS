@@ -105,6 +105,39 @@ pub struct PartType {
 }
 
 impl PartType {
+    /// 按目录规格初始化编辑器新部件，燃料种类和驾驶舱状态保持 SR1 语义。
+    pub fn instantiate(&self, id: PartId, position: (f64, f64)) -> Part {
+        let (fuel, fuel_kind) = if let Some(tank) = &self.tank {
+            (Some(tank.fuel), Some(FuelKind::Tank))
+        } else if self.engine.is_some() {
+            (Some(0.0), Some(FuelKind::Engine))
+        } else {
+            (None, None)
+        };
+        Part {
+            id,
+            part_type: self.id.clone(),
+            x: position.0,
+            y: position.1,
+            angle: 0.0,
+            editor_angle: 0,
+            angle_v: 0.0,
+            flip_x: false,
+            flip_y: false,
+            active: false,
+            exploded: false,
+            fuel,
+            fuel_kind,
+            extension: None,
+            parachute: Default::default(),
+            lander: Default::default(),
+            pod: (self.kind == PartKind::Pod).then(|| PodState {
+                staging: Some(StagingState::default()),
+                ..Default::default()
+            }),
+        }
+    }
+
     pub fn half_extents(&self) -> (f64, f64) {
         // PartList 尺寸每单位 30 像素，Ship 位置每单位 60 像素。
         (self.width as f64 / 4.0, self.height as f64 / 4.0)
