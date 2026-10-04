@@ -178,10 +178,64 @@ pub(super) fn transform(
 }
 
 pub(super) fn delete(ship: &mut Ship, parts: &[PartKey]) -> Result<(), CommandError> {
-    // 同组同 ID 按出现次数倒序删除，避免前面的删除改变后面实例的位置。
-    for key in keys(ship, parts)?.into_iter().rev() {
-        scoped::delete(ship, key)?;
+    let keys = keys(ship, parts)?;
+    let mut selected = HashMap::<usize, HashSet<PartId>>::new();
+    for key in &keys {
+        selected.entry(key.group).or_default().insert(key.id);
     }
+    // 在删除任何引用拥有者之前检查原始快照，不能用删除次序猜测重号引用的归属。
+    for (group, parts, connections) in ship.groups() {
+        let Some(ids) = selected.get(&group) else {
+            continue;
+        };
+        let mut counts = HashMap::<PartId, usize>::new();
+        for part in parts {
+            *counts.entry(part.id).or_default() += 1;
+        }
+        let referenced: HashSet<_> = connections
+            .iter()
+            .flat_map(references)
+            .chain(parts.iter().flat_map(|part| {
+                part.pod
+                    .as_ref()
+                    .and_then(|pod| pod.staging.as_ref())
+                    .into_iter()
+                    .flat_map(|staging| &staging.steps)
+                    .flat_map(|step| step.activations.iter().map(|activation| activation.id))
+            }))
+            .filter(|id| ids.contains(id) && counts.get(id).is_some_and(|count| *count > 1))
+            .collect();
+        if !referenced.is_empty() {
+            let key = keys
+                .iter()
+                .rev()
+                .find(|key| key.group == group && referenced.contains(&key.id))
+                .unwrap();
+            return Err(CommandError::AmbiguousReference(*key));
+        }
+    }
+    let keys: HashSet<_> = keys.into_iter().collect();
+    for (group, ids) in selected {
+        let (parts, connections) = ship.group_mut(group).unwrap();
+        let mut occurrences = HashMap::<PartId, usize>::new();
+        parts.retain_mut(|part| {
+            let occurrence = occurrences.entry(part.id).or_default();
+            let key = PartKey::new(group, part.id, *occurrence);
+            *occurrence += 1;
+            if keys.contains(&key) {
+                return false;
+            }
+            if let Some(staging) = part.pod.as_mut().and_then(|pod| pod.staging.as_mut()) {
+                for step in &mut staging.steps {
+                    step.activations
+                        .retain(|activation| !ids.contains(&activation.id));
+                }
+            }
+            true
+        });
+        connections.retain(|connection| !references(connection).iter().any(|id| ids.contains(id)));
+    }
+    // 空组由外层原子命令结束后统一压缩，后续 Batch 子命令仍使用原组号。
     Ok(())
 }
 

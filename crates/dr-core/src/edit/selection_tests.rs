@@ -328,3 +328,279 @@ fn no_op_transform_preserves_connections_and_redo() {
     assert!(history.can_redo());
     assert!(!history.can_undo());
 }
+
+#[test]
+fn bulk_delete_cleans_every_reference_field_only_in_its_selected_group() {
+    let catalog = catalog();
+    let mut ship = ship(&catalog);
+    ship.connections.extend([
+        connection(1, 3),
+        Connection::Dock {
+            parent: 2,
+            child: 1,
+            dock: 3,
+        },
+        Connection::Dock {
+            parent: 1,
+            child: 2,
+            dock: 3,
+        },
+        Connection::Dock {
+            parent: 1,
+            child: 3,
+            dock: 2,
+        },
+    ]);
+    let staging = ship.parts[0]
+        .pod
+        .as_mut()
+        .unwrap()
+        .staging
+        .as_mut()
+        .unwrap();
+    staging.steps.push(StageStep {
+        activations: vec![
+            Activation {
+                id: 999,
+                moved: true,
+            },
+            Activation {
+                id: 2,
+                moved: false,
+            },
+        ],
+    });
+    let detached = ShipGroup {
+        parts: ship.parts.clone(),
+        connections: ship.connections.clone(),
+    };
+    ship.disconnected = vec![detached.clone(), detached.clone()];
+    let before = ship.clone();
+    let mut history = EditorHistory::default();
+    history
+        .execute(
+            &mut ship,
+            EditorCommand::DeleteSelection(vec![PartKey::new(0, 2, 0), PartKey::new(1, 3, 0)]),
+        )
+        .unwrap();
+    assert_eq!(
+        ship.parts.iter().map(|part| part.id).collect::<Vec<_>>(),
+        vec![1, 3]
+    );
+    assert_eq!(ship.connections, vec![connection(1, 3)]);
+    let staging = ship.parts[0]
+        .pod
+        .as_ref()
+        .unwrap()
+        .staging
+        .as_ref()
+        .unwrap();
+    assert_eq!(staging.current_stage, 1);
+    assert_eq!(
+        staging.steps[0].activations,
+        vec![Activation {
+            id: 3,
+            moved: false
+        }]
+    );
+    assert_eq!(
+        staging.steps[1].activations,
+        vec![Activation {
+            id: 999,
+            moved: true
+        }]
+    );
+    let edited = &ship.disconnected[0];
+    assert_eq!(
+        edited.parts.iter().map(|part| part.id).collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    assert_eq!(edited.connections, vec![connection(1, 2)]);
+    let staging = edited.parts[0]
+        .pod
+        .as_ref()
+        .unwrap()
+        .staging
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        staging.steps[0].activations,
+        vec![Activation { id: 2, moved: true }]
+    );
+    assert_eq!(
+        staging.steps[1],
+        before.disconnected[0].parts[0]
+            .pod
+            .as_ref()
+            .unwrap()
+            .staging
+            .as_ref()
+            .unwrap()
+            .steps[1]
+    );
+    assert_eq!(ship.disconnected[1], detached);
+    let after = ship.clone();
+    assert!(history.undo(&mut ship));
+    assert_eq!(ship, before);
+    assert!(!history.can_undo());
+    assert!(history.redo(&mut ship));
+    assert_eq!(ship, after);
+}
+
+#[test]
+fn bulk_delete_interleaved_occurrences_use_original_keys_and_deduplicate_input() {
+    let catalog = catalog();
+    let kind = catalog.get("tank").unwrap();
+    let mut ship = Ship {
+        parts: [1, 2, 1, 2, 1]
+            .into_iter()
+            .enumerate()
+            .map(|(index, id)| kind.instantiate(id, (index as f64, 0.0)))
+            .collect(),
+        ..Default::default()
+    };
+    let before = ship.clone();
+    EditorCommand::DeleteSelection(vec![
+        PartKey::new(0, 1, 0),
+        PartKey::new(0, 1, 2),
+        PartKey::new(0, 2, 1),
+        PartKey::new(0, 1, 0),
+    ])
+    .apply(&mut ship)
+    .unwrap();
+    assert_eq!(
+        ship.parts,
+        vec![before.parts[1].clone(), before.parts[2].clone()]
+    );
+}
+
+#[test]
+fn bulk_delete_rejects_ambiguous_original_references_even_when_owners_are_selected() {
+    let catalog = catalog();
+    for connection in [
+        Some(connection(2, 99)),
+        Some(connection(99, 2)),
+        Some(Connection::Dock {
+            parent: 2,
+            child: 3,
+            dock: 99,
+        }),
+        Some(Connection::Dock {
+            parent: 3,
+            child: 2,
+            dock: 99,
+        }),
+        Some(Connection::Dock {
+            parent: 3,
+            child: 99,
+            dock: 2,
+        }),
+        None,
+    ] {
+        let mut ship = ship(&catalog);
+        ship.parts[0].id = 99;
+        ship.parts.push(ship.parts[1].clone());
+        ship.connections = connection.into_iter().collect();
+        if !ship.connections.is_empty() {
+            ship.parts[0].pod.as_mut().unwrap().staging = None;
+        }
+        let mut history = EditorHistory::default();
+        history
+            .execute(&mut ship, EditorCommand::SetActive(3, true))
+            .unwrap();
+        assert!(history.undo(&mut ship));
+        let before = ship.clone();
+        for selection in [
+            vec![PartKey::new(0, 99, 0), PartKey::new(0, 2, 1)],
+            vec![
+                PartKey::new(0, 99, 0),
+                PartKey::new(0, 2, 0),
+                PartKey::new(0, 2, 1),
+            ],
+        ] {
+            assert!(matches!(
+                history.execute(&mut ship, EditorCommand::DeleteSelection(selection)),
+                Err(CommandError::AmbiguousReference(key)) if key.group == 0 && key.id == 2
+            ));
+            assert_eq!(ship, before);
+            assert!(!history.can_undo());
+            assert!(history.can_redo());
+        }
+    }
+}
+
+#[test]
+fn bulk_delete_defers_empty_group_compaction_until_the_batch_finishes() {
+    let catalog = catalog();
+    let part = catalog.get("tank").unwrap().instantiate(1, (0.0, 0.0));
+    let mut ship = Ship {
+        disconnected: vec![
+            ShipGroup {
+                parts: vec![part.clone()],
+                connections: vec![],
+            },
+            ShipGroup {
+                parts: vec![part],
+                connections: vec![],
+            },
+            ShipGroup::default(),
+        ],
+        ..Default::default()
+    };
+    let before = ship.clone();
+    let mut history = EditorHistory::default();
+    history
+        .execute(
+            &mut ship,
+            EditorCommand::Batch(vec![
+                EditorCommand::DeleteSelection(vec![PartKey::new(1, 1, 0)]),
+                EditorCommand::Scoped {
+                    part: PartKey::new(2, 1, 0),
+                    command: Box::new(EditorCommand::SetActive(1, true)),
+                },
+            ]),
+        )
+        .unwrap();
+    assert_eq!(ship.disconnected.len(), 2);
+    assert!(ship.disconnected[0].parts[0].active);
+    assert_eq!(ship.disconnected[1], ShipGroup::default());
+    assert!(history.undo(&mut ship));
+    assert_eq!(ship, before);
+    assert!(!history.can_undo());
+}
+
+#[test]
+fn bulk_delete_large_selection_preserves_remaining_order_and_one_undo() {
+    let catalog = catalog();
+    let kind = catalog.get("tank").unwrap();
+    let mut ship = Ship {
+        parts: (1..=12_000)
+            .map(|id| kind.instantiate(id, (id as f64, 0.0)))
+            .collect(),
+        connections: (1..12_000).map(|id| connection(id, id + 1)).collect(),
+        ..Default::default()
+    };
+    let before = ship.clone();
+    let selection = ship
+        .keyed_parts()
+        .filter(|(key, _)| key.id % 4 != 0)
+        .map(|(key, _)| key)
+        .collect();
+    let mut history = EditorHistory::default();
+    history
+        .execute(&mut ship, EditorCommand::DeleteSelection(selection))
+        .unwrap();
+    assert_eq!(
+        ship.parts,
+        before
+            .parts
+            .iter()
+            .filter(|part| part.id % 4 == 0)
+            .cloned()
+            .collect::<Vec<_>>()
+    );
+    assert!(ship.connections.is_empty());
+    assert!(history.undo(&mut ship));
+    assert_eq!(ship, before);
+    assert!(!history.can_undo());
+}
