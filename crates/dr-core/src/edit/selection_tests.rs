@@ -604,3 +604,64 @@ fn bulk_delete_large_selection_preserves_remaining_order_and_one_undo() {
     assert_eq!(ship, before);
     assert!(!history.can_undo());
 }
+
+#[test]
+fn selection_collision_preview_matches_direct_scan_for_duplicate_and_group_instances() {
+    let catalog = catalog();
+    let kind = catalog.get("tank").unwrap();
+    let mut ship = Ship {
+        parts: vec![
+            kind.instantiate(1, (-4.0, 0.0)),
+            kind.instantiate(1, (-4.0, 1.0)),
+            kind.instantiate(2, (2.0, 0.0)),
+        ],
+        disconnected: vec![ShipGroup {
+            parts: vec![
+                kind.instantiate(1, (-4.0, 2.0)),
+                kind.instantiate(3, (2.0, 2.0)),
+            ],
+            connections: vec![],
+        }],
+        ..Default::default()
+    };
+    let mut unknown = kind.instantiate(9, (0.0, 0.0));
+    unknown.part_type = "没有目录定义的历史部件".into();
+    ship.parts.push(unknown);
+    let selected = [PartKey::new(0, 1, 1), PartKey::new(1, 1, 0)];
+    let before = ship.clone();
+    for x in -20..=20 {
+        for y in -8..=8 {
+            let (dx, dy) = (x as f64 / 2.0, y as f64 / 2.0);
+            let proposed: Vec<_> = ship
+                .keyed_parts()
+                .filter(|(key, _)| selected.contains(key))
+                .map(|(key, part)| {
+                    let mut part = part.clone();
+                    part.x += dx;
+                    part.y += dy;
+                    (key, part)
+                })
+                .collect();
+            let collision = proposed.iter().any(|(_, part)| {
+                ship.keyed_parts()
+                    .filter(|(key, _)| !selected.contains(key))
+                    .any(|(_, other)| {
+                        catalog.get(&other.part_type).is_some_and(|other_kind| {
+                            crate::intersects(part, kind, other, other_kind)
+                        })
+                    })
+            });
+            let preview = selection::preview(
+                &ship,
+                Some(&catalog),
+                &selected,
+                SelectionTransform::Translate { dx, dy },
+            );
+            assert_eq!(preview.is_err(), collision, "{dx} {dy}");
+            if let Ok(actual) = preview {
+                assert_eq!(actual, proposed);
+            }
+            assert_eq!(ship, before);
+        }
+    }
+}

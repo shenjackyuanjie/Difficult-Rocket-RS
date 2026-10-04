@@ -93,19 +93,27 @@ pub fn intersects(a: &Part, at: &PartType, b: &Part, bt: &PartType) -> bool {
         .any(|a| b_shapes.iter().any(|b| shapes_intersect(a, b)))
 }
 
-/// 一次预览中的静止部件集合；缓存目录查询和保守半径，供多个落点重复检查。
-pub struct CollisionSet<'a>(Vec<(&'a Part, &'a PartType, f64)>);
+/// 一次预览中的静止部件集合；按 X 排序，仅对保守半径内的实例做精确碰撞。
+/// Shape 可以超出贴图，轮廓半径仍由实际形状决定，不按部件宽高裁剪。
+pub struct CollisionSet<'a> {
+    parts: Vec<(&'a Part, &'a PartType, f64)>,
+    max_radius: f64,
+}
 
 impl<'a> CollisionSet<'a> {
     pub fn new(parts: impl Iterator<Item = &'a Part>, catalog: &'a crate::PartCatalog) -> Self {
-        Self(
-            parts
-                .filter_map(|part| {
-                    let kind = catalog.get(&part.part_type)?;
-                    (!kind.ignore_editor_intersections).then(|| (part, kind, bounding_radius(kind)))
-                })
-                .collect(),
-        )
+        let mut parts: Vec<_> = parts
+            .filter_map(|part| {
+                let kind = catalog.get(&part.part_type)?;
+                (!kind.ignore_editor_intersections).then(|| (part, kind, bounding_radius(kind)))
+            })
+            .collect();
+        parts.sort_by(|a, b| a.0.x.total_cmp(&b.0.x));
+        let max_radius = parts
+            .iter()
+            .map(|(_, _, radius)| *radius)
+            .fold(0.0, f64::max);
+        Self { parts, max_radius }
     }
 
     pub fn intersects(&self, part: &Part, kind: &PartType) -> bool {
@@ -113,11 +121,20 @@ impl<'a> CollisionSet<'a> {
             return false;
         }
         let radius = bounding_radius(kind);
-        self.0.iter().any(|(other, other_kind, other_radius)| {
-            let distance_squared = (part.x - other.x).powi(2) + (part.y - other.y).powi(2);
-            distance_squared <= (radius + other_radius).powi(2)
-                && intersects(part, kind, other, other_kind)
-        })
+        let reach = radius + self.max_radius;
+        let start = self
+            .parts
+            .partition_point(|(other, _, _)| other.x < part.x - reach);
+        let end = self
+            .parts
+            .partition_point(|(other, _, _)| other.x <= part.x + reach);
+        self.parts[start..end]
+            .iter()
+            .any(|(other, other_kind, other_radius)| {
+                let distance_squared = (part.x - other.x).powi(2) + (part.y - other.y).powi(2);
+                distance_squared <= (radius + other_radius).powi(2)
+                    && intersects(part, kind, other, other_kind)
+            })
     }
 }
 
@@ -427,6 +444,77 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn sorted_collision_set_matches_unsorted_duplicates_and_large_offset_shapes() {
+        let mut far_shape = t(vec![]);
+        far_shape.id = "far".into();
+        far_shape.shapes = vec![crate::PolygonShape {
+            vertices: vec![(50.0, -4.0), (54.0, -4.0), (54.0, 4.0), (50.0, 4.0)],
+            sensor: false,
+        }];
+        let mut wheel = t(vec![]);
+        wheel.id = "wheel".into();
+        wheel.kind = PartKind::Wheel;
+        wheel.width = 8;
+        wheel.height = 8;
+        let mut ignored = t(vec![]);
+        ignored.id = "ignored".into();
+        ignored.ignore_editor_intersections = true;
+        let catalog = crate::PartCatalog::new("测试", vec![t(vec![]), far_shape, wheel, ignored]);
+        let targets: Vec<_> = (0..240)
+            .map(|i| {
+                let kind = &catalog.types[i % catalog.types.len()];
+                let mut part =
+                    kind.instantiate(1, (((i * 73) % 241) as f64 - 120.0, (i % 9) as f64 - 4.0));
+                part.angle = (i % 5) as f64 * 0.37;
+                part.flip_x = i % 2 == 0;
+                part.flip_y = i % 3 == 0;
+                part
+            })
+            .collect();
+        let cached = CollisionSet::new(targets.iter(), &catalog);
+        assert!(
+            cached
+                .parts
+                .windows(2)
+                .all(|pair| pair[0].0.x <= pair[1].0.x)
+        );
+        for kind in &catalog.types {
+            for x in -170..=170 {
+                for y in [-10.0, -0.25, 0.0, 7.0] {
+                    let mut part = kind.instantiate(1, (x as f64 + 0.125, y));
+                    part.angle = 0.71;
+                    part.flip_y = true;
+                    let direct = targets.iter().any(|other| {
+                        intersects(&part, kind, other, catalog.get(&other.part_type).unwrap())
+                    });
+                    assert_eq!(
+                        cached.intersects(&part, kind),
+                        direct,
+                        "{} {x} {y}",
+                        kind.id
+                    );
+                }
+            }
+        }
+        let empty = CollisionSet::new(std::iter::empty(), &catalog);
+        assert!(!empty.intersects(&p(1, 0.0), &catalog.types[0]));
+    }
+
+    #[test]
+    fn sorted_collision_set_keeps_boundary_contacts_non_colliding() {
+        let catalog = crate::PartCatalog::new("测试", vec![t(vec![])]);
+        let targets = [p(1, 2.0), p(1, -2.0)];
+        let cached = CollisionSet::new(targets.iter(), &catalog);
+        let kind = &catalog.types[0];
+        for x in [-2.5, -1.5, 1.5, 2.5] {
+            assert!(!cached.intersects(&p(1, x), kind));
+        }
+        for x in [-2.49999, -1.50001, 1.50001, 2.49999] {
+            assert!(cached.intersects(&p(1, x), kind));
         }
     }
 

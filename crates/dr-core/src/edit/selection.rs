@@ -1,5 +1,5 @@
 use super::*;
-use crate::ShipGroup;
+use crate::{ShipGroup, geometry::CollisionSet};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy)]
@@ -92,29 +92,26 @@ pub fn preview(
         result.push((key, part));
     }
     if let Some(catalog) = catalog {
-        let others: Vec<_> = ship
-            .keyed_parts()
-            .filter(|(key, _)| !keys.contains(key))
-            .map(|(_, part)| part)
-            .collect();
+        let others = CollisionSet::new(
+            ship.keyed_parts()
+                .filter(|(key, _)| !keys.contains(key))
+                .map(|(_, part)| part),
+            catalog,
+        );
         for (_, part) in &result {
-            collides(catalog, part, others.iter().copied())?;
+            collides(catalog, part, &others)?;
         }
     }
     Ok(result)
 }
 
-fn collides<'a>(
+fn collides(
     catalog: &PartCatalog,
     part: &Part,
-    others: impl Iterator<Item = &'a Part>,
+    others: &CollisionSet<'_>,
 ) -> Result<(), CommandError> {
     if let Some(kind) = catalog.get(&part.part_type)
-        && others.into_iter().any(|other| {
-            catalog
-                .get(&other.part_type)
-                .is_some_and(|other_kind| crate::intersects(part, kind, other, other_kind))
-        })
+        && others.intersects(part, kind)
     {
         return Err(CommandError::InvalidSelection(
             "部件与选择之外的部件重叠".into(),
@@ -324,6 +321,7 @@ pub(super) fn paste(
     offset: (f64, f64),
 ) -> Result<(), CommandError> {
     let mut groups = fragment.groups.clone();
+    let collision_set = catalog.map(|catalog| CollisionSet::new(ship.all_parts(), catalog));
     if let Some(catalog) = catalog {
         let mut counts = HashMap::<&str, usize>::new();
         for part in fragment.parts() {
@@ -367,7 +365,7 @@ pub(super) fn paste(
             }
             .apply(part, catalog)?;
             if let Some(catalog) = catalog {
-                collides(catalog, part, ship.all_parts())?;
+                collides(catalog, part, collision_set.as_ref().unwrap())?;
             }
         }
         for part in &mut group.parts {
