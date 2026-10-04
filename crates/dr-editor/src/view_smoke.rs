@@ -173,7 +173,9 @@ pub(crate) fn run(
                 );
                 assert!(
                     (sprite.color.alpha()
-                        - if visual.group == 0 {
+                        // 此样本没有连接或驾驶舱，主组首实例为参考根；
+                        // 主组中的着陆架、对接器与断开组都必须淡化。
+                        - if visual.group == 0 && visual.id == 1 {
                             1.0
                         } else {
                             100.0 / 255.0

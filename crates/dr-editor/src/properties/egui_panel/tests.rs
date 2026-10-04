@@ -120,6 +120,26 @@ fn text_edit_replaces_unicode_in_draft_and_applies_as_one_transaction() {
 }
 
 #[test]
+fn text_edit_navigation_deletes_whole_unicode_characters_only_in_draft() {
+    let mut panel = Panel::new();
+    let before = panel.document.ship.clone();
+    panel.click(Action::Focus(Field::Name));
+    panel.frame(vec![
+        key(egui::Key::A, egui::Modifiers::COMMAND),
+        egui::Event::Text("甲🚀乙".into()),
+    ]);
+    panel.frame(vec![key(egui::Key::ArrowLeft, egui::Modifiers::NONE)]);
+    panel.frame(vec![key(egui::Key::Backspace, egui::Modifiers::NONE)]);
+    assert_eq!(panel.inspector.draft.as_ref().unwrap().name, "甲乙");
+    panel.frame(vec![key(egui::Key::Delete, egui::Modifiers::NONE)]);
+    assert_eq!(panel.inspector.draft.as_ref().unwrap().name, "甲");
+    assert_eq!(panel.document.ship, before);
+    assert!(!panel.document.history.can_undo());
+    panel.click(Action::Cancel);
+    assert_eq!(panel.document.ship, before);
+}
+
+#[test]
 fn ime_cancel_with_escape_does_not_discard_draft() {
     let mut panel = Panel::new();
     let before = panel.document.ship.clone();
