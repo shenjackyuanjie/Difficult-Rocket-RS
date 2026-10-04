@@ -95,6 +95,14 @@ fn snaps(
             ))
         })
         .collect();
+    // 只扫描 X 范围内的目标，随后仍用原始圆半径和连接面精确判断。
+    // 目标索引保留文档顺序，不能让空间排序改变等距离吸附的优先项。
+    let mut by_x: Vec<_> = (0..targets.len()).collect();
+    by_x.sort_by(|a, b| targets[*a].1.x.total_cmp(&targets[*b].1.x));
+    let max_radius = targets
+        .iter()
+        .map(|(_, _, _, radius)| *radius)
+        .fold(0.0, f64::max);
     let mut result = vec![];
     for &(source_key, source) in parts.iter().filter(|(key, _)| selected.contains(key)) {
         let Some(st) = catalog.get(&source.part_type) else {
@@ -104,7 +112,13 @@ fn snaps(
         source.x += delta.0;
         source.y += delta.1;
         let source_radius = dr_core::connections::attachment_radius(st);
-        for &(target_key, target, tt, target_radius) in &targets {
+        let reach = source_radius + max_radius + 0.350001;
+        let start = by_x.partition_point(|index| targets[*index].1.x < source.x - reach);
+        let end = by_x.partition_point(|index| targets[*index].1.x <= source.x + reach);
+        let mut nearby = by_x[start..end].to_vec();
+        nearby.sort_unstable();
+        for index in nearby {
+            let (target_key, target, tt, target_radius) = targets[index];
             let distance_squared = (source.x - target.x).powi(2) + (source.y - target.y).powi(2);
             if distance_squared > (source_radius + target_radius + 0.350001).powi(2) {
                 continue;
