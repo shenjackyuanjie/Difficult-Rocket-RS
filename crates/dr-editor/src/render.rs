@@ -79,6 +79,62 @@ pub(crate) struct VisualIndex {
     entities: HashMap<VisualKey, (Entity, f32)>,
     dragged: BTreeSet<PartKey>,
     texture_sizes: HashMap<AssetId<Image>, Option<UVec2>>,
+    linked: HashSet<PartKey>,
+}
+
+/// 按真实拓扑从主驾驶舱遍历；同组重复编号的引用不猜测归属。
+fn linked_parts(ship: &Ship) -> HashSet<PartKey> {
+    let main: Vec<_> = ship
+        .keyed_parts()
+        .filter(|(key, _)| key.group == 0)
+        .collect();
+    let Some((root, _)) = main
+        .iter()
+        .find(|(_, part)| part.pod.is_some())
+        .or(main.first())
+    else {
+        return HashSet::new();
+    };
+    let mut unique = HashMap::<i64, Option<PartKey>>::new();
+    for (key, _) in &main {
+        unique
+            .entry(key.id)
+            .and_modify(|key| *key = None)
+            .or_insert(Some(*key));
+    }
+    let mut edges = HashMap::<i64, Vec<i64>>::new();
+    for connection in &ship.connections {
+        let ids = match *connection {
+            Connection::Normal { parent, child, .. } => vec![parent, child],
+            Connection::Dock {
+                parent,
+                child,
+                dock,
+            } => vec![parent, child, dock],
+        };
+        if ids
+            .iter()
+            .any(|id| !unique.get(id).is_some_and(Option::is_some))
+        {
+            continue;
+        }
+        for pair in ids.windows(2) {
+            edges.entry(pair[0]).or_default().push(pair[1]);
+            edges.entry(pair[1]).or_default().push(pair[0]);
+        }
+    }
+    let mut linked = HashSet::from([*root]);
+    let mut stack = vec![root.id];
+    while let Some(id) = stack.pop() {
+        for neighbour in edges.get(&id).into_iter().flatten() {
+            if let Some(Some(key)) = unique.get(neighbour)
+                && linked.insert(*key)
+            {
+                stack.push(*neighbour);
+            }
+        }
+    }
+    linked
 }
 
 fn appearance(
@@ -86,6 +142,7 @@ fn appearance(
     drag: &DragState,
     key: PartKey,
     part: &Part,
+    linked: bool,
 ) -> (Color, Transform) {
     let collision = if drag.contains(key) {
         if drag.members.len() > 1 {
@@ -113,7 +170,7 @@ fn appearance(
         (part.x, part.y)
     };
     (
-        color.with_alpha(if key.group == 0 { 1.0 } else { 100.0 / 255.0 }),
+        color.with_alpha(if linked { 1.0 } else { 100.0 / 255.0 }),
         Transform {
             translation: Vec3::new(x as f32 * 60.0, y as f32 * 60.0, 0.0),
             rotation: Quat::from_rotation_z(part.angle as f32),
@@ -141,6 +198,9 @@ pub(crate) fn sync(
     let refresh_all = document.is_changed() || textures_changed;
     if !refresh_all && !drag.is_changed() {
         return;
+    }
+    if document.is_changed() {
+        index.linked = linked_parts(&document.ship);
     }
     let parts: Vec<_> = if refresh_all {
         let parts: Vec<_> = parts(&document.ship).collect();
@@ -185,8 +245,14 @@ pub(crate) fn sync(
         let kind = document.catalog.get(&part.part_type);
         let texture = kind.map(|kind| kind.sprite.as_str()).unwrap_or("");
         let size = fallback_size(kind);
-        let (color, mut target) =
-            appearance(&document, &drag, PartKey::new(key.0, key.1, key.2), part);
+        let part_key = PartKey::new(key.0, key.1, key.2);
+        let (color, mut target) = appearance(
+            &document,
+            &drag,
+            part_key,
+            part,
+            index.linked.contains(&part_key),
+        );
         let layer = if refresh_all {
             order as f32 / count * 2.0
         } else {
@@ -309,16 +375,19 @@ pub(crate) fn connections(
                 ) else {
                     continue;
                 };
-                // 两端完全接触时线段没有长度，无需向 GPU 重复提交。
-                if a.distance(b) < 1e-6 {
-                    continue;
+                // 显示中心→连接面→连接面→中心。完全贴合时仍能看见连接，
+                // 而不是因接触点重合而把整条连接线省略。
+                let points = [
+                    Vec2::new(parent.x as f32, parent.y as f32) * 60.0,
+                    Vec2::new(a.x as f32, a.y as f32) * 60.0,
+                    Vec2::new(b.x as f32, b.y as f32) * 60.0,
+                    Vec2::new(child.x as f32, child.y as f32) * 60.0,
+                ];
+                for pair in points.windows(2) {
+                    if pair[0].distance_squared(pair[1]) > 1e-6 {
+                        lines.0.push((group, connection.clone(), pair[0], pair[1]));
+                    }
                 }
-                lines.0.push((
-                    group,
-                    connection.clone(),
-                    Vec2::new(a.x as f32 * 60.0, a.y as f32 * 60.0),
-                    Vec2::new(b.x as f32 * 60.0, b.y as f32 * 60.0),
-                ));
             }
         }
     }
@@ -366,6 +435,84 @@ mod tests {
             .find(|(_, visual, _, _)| visual.id == id)
             .map(|(entity, _, transform, sprite)| (entity, *transform, sprite.color))
             .unwrap()
+    }
+
+    #[test]
+    fn main_group_islands_and_ambiguous_links_are_dimmed_without_cross_group_id_leaks() {
+        let mut ship = crate::tests::document().ship;
+        let part = ship.parts[0].clone();
+        for id in 2..=4 {
+            let mut next = part.clone();
+            next.id = id;
+            ship.parts.push(next);
+        }
+        ship.connections = vec![
+            Connection::Normal {
+                parent: 1,
+                child: 2,
+                parent_attach: 1,
+                child_attach: 1,
+            },
+            Connection::Dock {
+                parent: 2,
+                child: 3,
+                dock: 4,
+            },
+        ];
+        ship.disconnected.push(dr_core::ShipGroup {
+            parts: vec![part.clone()],
+            connections: vec![],
+        });
+        let linked = linked_parts(&ship);
+        assert_eq!(linked.len(), 4);
+        assert!(!linked.contains(&PartKey::new(1, 1, 0)));
+        ship.parts.push(ship.parts[1].clone());
+        assert_eq!(linked_parts(&ship), HashSet::from([PartKey::new(0, 1, 0)]));
+        ship.connections.clear();
+        assert_eq!(linked_parts(&ship), HashSet::from([PartKey::new(0, 1, 0)]));
+    }
+
+    #[test]
+    fn connecting_and_undo_redo_refresh_opacity_without_rebuilding_visuals() {
+        let mut app = app();
+        let mut part = app.world().resource::<EditorDocument>().ship.parts[0].clone();
+        part.id = 2;
+        part.x = 2.0;
+        app.world_mut()
+            .resource_mut::<EditorDocument>()
+            .ship
+            .parts
+            .push(part);
+        app.update();
+        let initial = visual(&mut app, 2);
+        assert_eq!(initial.2.alpha(), 100.0 / 255.0);
+        {
+            let mut document = app.world_mut().resource_mut::<EditorDocument>();
+            let document = &mut *document;
+            document
+                .history
+                .execute(
+                    &mut document.ship,
+                    EditorCommand::Connect(Connection::Normal {
+                        parent: 1,
+                        child: 2,
+                        parent_attach: 1,
+                        child_attach: 1,
+                    }),
+                )
+                .unwrap();
+            document.refresh();
+        }
+        app.update();
+        assert_eq!(visual(&mut app, 2).0, initial.0);
+        assert_eq!(visual(&mut app, 2).2.alpha(), 1.0);
+        assert!(app.world_mut().resource_mut::<EditorDocument>().undo());
+        app.update();
+        assert_eq!(visual(&mut app, 2).2.alpha(), initial.2.alpha());
+        assert!(app.world_mut().resource_mut::<EditorDocument>().redo());
+        app.update();
+        assert_eq!(visual(&mut app, 2).0, initial.0);
+        assert_eq!(visual(&mut app, 2).2.alpha(), 1.0);
     }
 
     #[test]
@@ -462,16 +609,16 @@ mod tests {
             connections: vec![],
         });
         let mut drag = DragState::default();
-        let ordinary = appearance(&document, &drag, key, &part).0;
+        let ordinary = appearance(&document, &drag, key, &part, false).0;
         assert_eq!(ordinary, Color::WHITE.with_alpha(100.0 / 255.0));
         document.select_only(Some(key));
-        let selected = appearance(&document, &drag, key, &part).0;
+        let selected = appearance(&document, &drag, key, &part, false).0;
         assert_eq!(selected.alpha(), ordinary.alpha());
         assert_ne!(selected, ordinary);
         drag.id = Some(key);
         drag.members = [key, PartKey::new(0, 1, 0)].into_iter().collect();
         drag.blocked = true;
-        let blocked = appearance(&document, &drag, key, &part).0;
+        let blocked = appearance(&document, &drag, key, &part, false).0;
         assert_eq!(blocked, Color::srgba(1.0, 0.2, 0.2, 100.0 / 255.0));
     }
 
