@@ -4,6 +4,9 @@ use bevy::sprite::Anchor;
 use dr_core::PartType;
 use std::collections::{HashMap, HashSet};
 
+/// 未连接部件与从目录拖出的虚影使用同一透明度。
+pub const UNLINKED_ALPHA: f32 = 100.0 / 255.0;
+
 /// 原版贴图使用 PNG 原始像素，不以 PartList 的物理尺寸缩放。
 pub(crate) fn image_size(
     texture: &str,
@@ -170,7 +173,7 @@ fn appearance(
         (part.x, part.y)
     };
     (
-        color.with_alpha(if linked { 1.0 } else { 100.0 / 255.0 }),
+        color.with_alpha(if linked { 1.0 } else { UNLINKED_ALPHA }),
         Transform {
             translation: Vec3::new(x as f32 * 60.0, y as f32 * 60.0, 0.0),
             rotation: Quat::from_rotation_z(part.angle as f32),

@@ -98,6 +98,7 @@ fn read_ship_folder(folder: &Path) -> std::io::Result<(Vec<PathBuf>, usize)> {
 #[derive(Message, Clone, Debug, PartialEq)]
 pub enum PanelButton {
     Part(usize),
+    DragPart(usize),
     Category(Option<String>),
     Open(PathBuf),
     Folder,
@@ -144,10 +145,12 @@ pub(crate) fn panel_actions(
 ) {
     for action in buttons.read() {
         match action {
-            PanelButton::Part(index) => {
+            PanelButton::Part(index) | PanelButton::DragPart(index) => {
                 if document.catalog.visible().nth(*index).is_some() {
                     cursor.catalog_index = *index;
                     cursor.placing = true;
+                    cursor.palette_drag = matches!(action, PanelButton::DragPart(_));
+                    cursor.valid = false;
                     cursor.paste = None;
                     cursor.rotation = 0;
                     cursor.flip_x = false;
@@ -163,7 +166,7 @@ pub(crate) fn panel_actions(
                 {
                     cursor.catalog_index = *index;
                 }
-                cursor.placing = false;
+                cursor.cancel_placement();
                 cursor.paste = None;
             }
             PanelButton::Open(path) => {
@@ -212,6 +215,7 @@ pub(crate) fn cycle_part(
     cursor.flip_x = false;
     cursor.flip_y = false;
     cursor.placing = true;
+    cursor.palette_drag = false;
     cursor.paste = None;
 }
 

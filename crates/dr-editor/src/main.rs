@@ -1,6 +1,7 @@
 mod connection_smoke;
 mod egui_ui;
 mod files;
+mod native_input;
 mod panels;
 mod performance;
 mod placement;
@@ -161,10 +162,18 @@ struct EditorCursor {
     world: (f64, f64),
     catalog_index: usize,
     placing: bool,
+    palette_drag: bool,
     rotation: i32,
     flip_x: bool,
     flip_y: bool,
     valid: bool,
+}
+
+impl EditorCursor {
+    fn cancel_placement(&mut self) {
+        self.placing = false;
+        self.palette_drag = false;
+    }
 }
 
 #[derive(Component)]
@@ -189,6 +198,7 @@ struct SmokeTest {
     browser: bool,
     staging: bool,
     native_ime: bool,
+    native_input: Option<std::path::PathBuf>,
     egui: bool,
     started: std::time::Instant,
 }
@@ -240,6 +250,10 @@ fn main() -> anyhow::Result<()> {
             browser: args.iter().any(|arg| arg == "--browser-smoke-test"),
             staging: args.iter().any(|arg| arg == "--staging-smoke-test"),
             native_ime: args.iter().any(|arg| arg == "--native-ime-test"),
+            native_input: args
+                .windows(2)
+                .find(|args| args[0] == "--native-input-test")
+                .map(|args| std::path::PathBuf::from(&args[1])),
             egui: args.iter().any(|arg| arg == "--egui-smoke-test"),
             started: std::time::Instant::now(),
         })
@@ -296,6 +310,7 @@ fn main() -> anyhow::Result<()> {
                         properties::egui_smoke::run,
                         connection_smoke::run,
                         performance::run,
+                        native_input::run,
                         scoped_smoke::run,
                         properties::repair_smoke::run,
                         selection_smoke::run,
@@ -514,11 +529,17 @@ fn keyboard_commands(
     }
     let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
     if control && keys.just_pressed(KeyCode::KeyZ) {
+        if cursor.palette_drag {
+            cursor.cancel_placement();
+        }
         cursor.paste = None;
         document.undo();
         return;
     }
     if control && keys.just_pressed(KeyCode::KeyY) {
+        if cursor.palette_drag {
+            cursor.cancel_placement();
+        }
         cursor.paste = None;
         document.redo();
         return;
@@ -546,7 +567,11 @@ fn keyboard_commands(
         }
     }
     if keys.just_pressed(KeyCode::KeyP) && cursor.valid && !pointer.blocked {
-        placement::place(&mut document, &cursor);
+        if cursor.palette_drag {
+            placement::finish_palette_drag(&mut document, &mut cursor, true);
+        } else {
+            placement::place(&mut document, &cursor);
+        }
         return;
     }
     if cursor.placing {
@@ -591,7 +616,7 @@ fn mouse_editor(
 ) {
     if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right) {
         drag.cancel();
-        cursor.placing = false;
+        cursor.cancel_placement();
         cursor.paste = None;
         return;
     }
@@ -603,6 +628,9 @@ fn mouse_editor(
         cursor.valid = false;
         if !window.focused || !mouse.pressed(MouseButton::Left) {
             drag.cancel();
+            if cursor.palette_drag {
+                cursor.cancel_placement();
+            }
         }
         return;
     }
@@ -610,6 +638,9 @@ fn mouse_editor(
         cursor.valid = false;
         if mouse.just_released(MouseButton::Left) {
             drag.cancel();
+        }
+        if cursor.palette_drag && !mouse.pressed(MouseButton::Left) {
+            cursor.cancel_placement();
         }
         return;
     }
@@ -630,7 +661,12 @@ fn mouse_editor(
         return;
     }
     if cursor.placing {
-        if mouse.just_pressed(MouseButton::Left) {
+        if cursor.palette_drag {
+            // egui 的拖动消息在下一帧消费，松手可能已不在 just_released 帧。
+            if !mouse.pressed(MouseButton::Left) {
+                placement::finish_palette_drag(&mut document, &mut cursor, true);
+            }
+        } else if mouse.just_pressed(MouseButton::Left) {
             placement::place(&mut document, &cursor);
         }
         return;

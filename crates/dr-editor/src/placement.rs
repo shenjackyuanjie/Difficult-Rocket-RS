@@ -166,12 +166,41 @@ pub(crate) fn place(document: &mut EditorDocument, cursor: &EditorCursor) -> boo
     }
 }
 
+/// 目录拖拽结束只提交一次，取消和失败均清除虚影，不影响现有文档。
+pub fn finish_palette_drag(
+    document: &mut EditorDocument,
+    cursor: &mut EditorCursor,
+    canvas: bool,
+) -> bool {
+    if !cursor.palette_drag {
+        return false;
+    }
+    let placed = canvas && cursor.placing && cursor.valid && place(document, cursor);
+    cursor.cancel_placement();
+    placed
+}
+
+fn preview_color(allowed: bool, connected: bool, palette_drag: bool) -> Color {
+    let color = if !allowed {
+        Color::srgba(1.0, 0.2, 0.2, 0.65)
+    } else if connected {
+        Color::srgba(0.35, 1.0, 0.65, 0.75)
+    } else {
+        Color::srgba(1.0, 1.0, 1.0, 0.55)
+    };
+    if palette_drag {
+        color.with_alpha(render::UNLINKED_ALPHA)
+    } else {
+        color
+    }
+}
+
 pub(crate) fn cancel_for_file_action(
     mut actions: MessageReader<files::FileAction>,
     mut cursor: ResMut<EditorCursor>,
 ) {
     if actions.read().next().is_some() {
-        cursor.placing = false;
+        cursor.cancel_placement();
         cursor.paste = None;
         cursor.valid = false;
         actions.clear();
@@ -212,13 +241,7 @@ pub(crate) fn draw_preview(
     sprite.custom_size = custom_size;
     sprite.flip_x = part.flip_x;
     sprite.flip_y = part.flip_y;
-    sprite.color = if !allowed {
-        Color::srgba(1.0, 0.2, 0.2, 0.65)
-    } else if connection.is_some() {
-        Color::srgba(0.35, 1.0, 0.65, 0.75)
-    } else {
-        Color::srgba(1.0, 1.0, 1.0, 0.55)
-    };
+    sprite.color = preview_color(allowed, connection.is_some(), cursor.palette_drag);
     commands.spawn((
         sprite,
         anchor,
@@ -230,3 +253,6 @@ pub(crate) fn draw_preview(
         PlacementVisual,
     ));
 }
+
+#[cfg(test)]
+mod tests;

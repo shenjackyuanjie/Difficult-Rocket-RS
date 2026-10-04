@@ -431,7 +431,7 @@ pub fn actions(
         if *interaction == Interaction::Pressed {
             act(action, &mut inspector, &mut document);
             drag.cancel();
-            cursor.placing = false;
+            cursor.cancel_placement();
             cursor.paste = None;
         }
     }

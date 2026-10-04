@@ -79,6 +79,7 @@ struct PaintedRow {
     image: egui::Rect,
     text: egui::Rect,
     clicked: bool,
+    drag_started: bool,
 }
 
 fn row_frame(ctx: &egui::Context, size: Vec2, name: &str, events: Vec<egui::Event>) -> PaintedRow {
@@ -123,6 +124,7 @@ fn row_frame(ctx: &egui::Context, size: Vec2, name: &str, events: Vec<egui::Even
         image: image.expect("图片列未绘制"),
         text: text.expect("名称列未绘制"),
         clicked: response.clicked(),
+        drag_started: response.drag_started(),
     }
 }
 
@@ -190,4 +192,48 @@ fn clicking_image_or_name_selects_the_same_whole_row_button() {
             assert_eq!(result.clicked, !pressed);
         }
     }
+}
+
+#[test]
+fn dragging_from_the_name_column_starts_a_palette_gesture_without_a_click() {
+    let ctx = egui::Context::default();
+    let size = Vec2::new(129.0, 30.0);
+    row_frame(&ctx, size, "Detacher", vec![]);
+    let row = row_frame(&ctx, size, "Detacher", vec![]);
+    let origin = row.text.center();
+    row_frame(
+        &ctx,
+        size,
+        "Detacher",
+        vec![
+            egui::Event::PointerMoved(origin),
+            egui::Event::PointerButton {
+                pos: origin,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    let moved = origin + egui::vec2(-80.0, 70.0);
+    let row = row_frame(
+        &ctx,
+        size,
+        "Detacher",
+        vec![egui::Event::PointerMoved(moved)],
+    );
+    assert!(row.drag_started);
+    assert!(!row.clicked);
+    let row = row_frame(
+        &ctx,
+        size,
+        "Detacher",
+        vec![egui::Event::PointerButton {
+            pos: moved,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(!row.clicked);
 }

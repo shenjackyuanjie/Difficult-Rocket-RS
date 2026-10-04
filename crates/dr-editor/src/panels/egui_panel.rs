@@ -21,7 +21,12 @@ fn part_row(
     selected: bool,
     width: f32,
 ) -> egui::Response {
-    let response = ui.add_sized([width, 52.0], egui::Button::new("").selected(selected));
+    let response = ui.add_sized(
+        [width, 52.0],
+        egui::Button::new("")
+            .selected(selected)
+            .sense(egui::Sense::click_and_drag()),
+    );
     let rect = response.rect;
     let image_size = size / size.max_element().max(1.0) * 40.0;
     let image_rect = egui::Rect::from_center_size(
@@ -303,7 +308,10 @@ pub fn draw(
                     if selection_changed && index == cursor.catalog_index {
                         response.scroll_to_me(Some(egui::Align::Center));
                     }
-                    if response.clicked() {
+                    if response.drag_started() {
+                        response.surrender_focus();
+                        actions.write(PanelButton::DragPart(index));
+                    } else if response.clicked() {
                         response.surrender_focus();
                         actions.write(PanelButton::Part(index));
                     }

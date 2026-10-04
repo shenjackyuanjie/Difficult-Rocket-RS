@@ -245,7 +245,7 @@ pub(crate) fn keyboard(
         document.selection = document.ship.keyed_parts().map(|(key, _)| key).collect();
         document.selected = document.selection.last().copied();
         cursor.paste = None;
-        cursor.placing = false;
+        cursor.cancel_placement();
         return true;
     }
     if control && (keys.just_pressed(KeyCode::KeyC) || keys.just_pressed(KeyCode::KeyX)) {
@@ -269,7 +269,7 @@ pub(crate) fn keyboard(
     }
     if control && keys.just_pressed(KeyCode::KeyV) {
         cursor.paste = cursor.clipboard.clone();
-        cursor.placing = false;
+        cursor.cancel_placement();
         document.status = if cursor.paste.is_some() {
             "粘贴预览：移动鼠标定位，左键/P 放置，Esc 取消".into()
         } else {

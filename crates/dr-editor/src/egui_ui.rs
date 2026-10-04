@@ -49,7 +49,7 @@ pub fn prepare_input(
     }
     if inspector.is_open() {
         drag.cancel();
-        cursor.placing = false;
+        cursor.cancel_placement();
         cursor.paste = None;
         camera_drag.0 = None;
     }

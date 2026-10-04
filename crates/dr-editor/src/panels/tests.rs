@@ -357,3 +357,32 @@ fn snap_skips_occupied_nearest_anchor_and_commits_the_alternative() {
     assert!(document.undo());
     assert_eq!(document.ship, before);
 }
+
+#[test]
+fn dragging_a_catalog_row_starts_only_a_ghost_and_regular_click_resets_drag_mode() {
+    let mut app = App::new();
+    let mut document = crate::tests::document();
+    document.catalog = catalog();
+    let before = document.ship.clone();
+    app.insert_resource(document)
+        .init_resource::<Palette>()
+        .init_resource::<ShipBrowser>()
+        .init_resource::<EditorCursor>()
+        .init_resource::<DragState>()
+        .add_message::<files::FileAction>()
+        .add_message::<PanelButton>()
+        .add_systems(Update, panel_actions);
+    app.world_mut().write_message(PanelButton::DragPart(0));
+    app.update();
+    let cursor = app.world().resource::<EditorCursor>();
+    assert!(cursor.palette_drag && cursor.placing && !cursor.valid);
+    assert_eq!(cursor.catalog_index, 0);
+    let document = app.world().resource::<EditorDocument>();
+    assert_eq!(document.ship, before);
+    assert!(!document.history.can_undo());
+    app.world_mut().write_message(PanelButton::Part(2));
+    app.update();
+    let cursor = app.world().resource::<EditorCursor>();
+    assert!(cursor.placing && !cursor.palette_drag);
+    assert_eq!(cursor.catalog_index, 2);
+}
