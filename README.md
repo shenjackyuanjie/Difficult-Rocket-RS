@@ -31,7 +31,7 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 
 文件操作也可使用顶部工具栏。新建、打开和退出前会提示保存、放弃或取消；保存或打开失败时保留当前文档。保存先写入同目录临时文件再替换目标，不直接截断原文件。无法解释的 XML 根节点、扩展字段和异常内容会报错，避免静默丢失数据后覆盖保存。
 
-左侧船体列表支持滚动、刷新和切换目录，只列出可解析的 XML。右侧部件目录支持分类、贴图、名称、说明及数量上限；选择部件后进入连续放置预览，R/X/Y 调整预览方向，Esc/右键或“取消放置”返回选择模式。预览吸附时为绿色，发生碰撞或达到数量上限时为红色；放置与连接共用一次撤销。侧栏的点击和滚轮不会编辑或缩放画布。
+两个边栏使用 egui 内置 Panel 和 ScrollArea。左侧船体列表支持虚拟滚动、刷新和切换目录，只列出可解析的 XML；大目录只绘制可见行，打开文件保留滚动位置。右侧部件目录支持分类、贴图、名称、说明及数量上限；选择部件后进入连续放置预览，R/X/Y 调整预览方向，Esc/右键或“取消放置”返回选择模式。预览吸附时为绿色，发生碰撞或达到数量上限时为红色；放置与连接共用一次撤销。侧栏的点击和滚轮不会编辑或缩放画布，属性模态打开时两个边栏禁用。
 
 编辑历史默认最多 256 步、快照容量预算 64 MiB，超出时移除最旧记录；若单步本身超过预算，仍保留最近一步。每步只保存一份快照，撤销/重做交换快照；预算不包含当前文档、保存点、渲染及分配器开销。
 
@@ -41,9 +41,11 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 
 吸附区分固定中心点与 `Top/Bottom/Left/Right`、`*Side` 连接面；连接面允许沿边滑动，同边不同位置可以分别连接。固定点和共享 `group` 独占，吸附会跳过已占用、方向不兼容或产生碰撞的候选，拖动时忽略即将断开的旧连接。新建连接在原子提交时再次检查编号、实际接触及占用；机械连接不因燃料类型不同而禁止。显式标记 `dock="true"` 的自定义连接点只允许插头与端口配对，原版 XML 中的历史对接记录仍原样保留。
 
-属性面板支持激活状态、燃料，以及驾驶舱中的船体名称、油门和分级。可增删、排序分级步骤，按 ID 或上一/下一部件选择激活目标，增删动作并编辑移动标记。点击字段后输入会替换原值；支持中文输入法、Ctrl+A、方向键、Home/End、Backspace/Delete。点击“应用”提交整份草稿并支持一次撤销；“取消”或 Esc 放弃草稿。草稿打开时不处理画布快捷键，关闭窗口或拖入文件也不会丢弃草稿；需先应用或取消再继续文件操作。燃料不能为负或超过目录容量，油门范围为 0～1，分级目标必须存在且不能在同一级重复。
+属性面板使用 egui 内置 `Modal`、`TextEdit`、`ScrollArea` 和复选框，支持激活状态、燃料，以及驾驶舱中的船体名称、油门和分级。可增删、排序分级步骤，按 ID、下拉列表或上一/下一部件选择激活目标，增删动作并编辑移动标记。点击字段定位光标，Ctrl+A 全选后可替换原值；文本光标、选区、剪贴板和中文输入法由 egui 管理。点击“应用”提交整份草稿并支持一次撤销；“取消”或 Esc 放弃草稿，点击遮罩保留草稿，输入法事件同帧的 Esc 不关闭草稿。草稿打开时不处理画布快捷键，关闭窗口或拖入文件也不会丢弃草稿；需先应用或取消再继续文件操作。燃料不能为负或超过目录容量，油门范围为 0～1，分级目标必须存在且不能在同一级重复。
 
 编辑按所属组和具体实例定位，断开组复用同一个 ID 时可分别选择、拖动、删除和编辑属性。删除及分级目标只作用于本组；跨组吸附会合并相关组，并同步重编号冲突的部件、连接与分级引用，支持一次撤销恢复原数据。打开和保存本身不重编号。同组重复 ID 的实例仍分别显示和选择；已有连接或分级若无法判定归属，相关拓扑操作会报错，不自动猜测。
+
+绿色连接线经过部件中心及实际连接面，完全贴合时也可见。未连到主驾驶舱的部件以 `100/255` 透明度淡化，包括主组内的孤立部件；无驾驶舱时使用主组首实例作为参考根。选择或碰撞着色不取消淡化，连接及撤销/重做会更新显示；歧义重复编号的连接不猜测归属。
 
 选中同组重复编号的部件后，F2 属性中提供“修复引用归属”。界面展示每个实例的类型、位置和预分配编号，逐条列出普通连接、对接插头及分级动作；点击各引用按钮选择归属实例，全部指定后才能应用。没有引用的重复实例可直接分配独立编号。取消不改文档，应用后可一次撤销；修复不改变位置、运行状态或其他组。已有属性草稿需先应用或取消，再进入修复。
 
@@ -57,6 +59,8 @@ cargo run -p dr-core --example verify_history -- ../Difficult-Rocket/assets/ship
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --panel-smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --properties-smoke-test
+cargo run -p dr-editor -- --egui-smoke-test
+cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --native-ime-test
 cargo run -p dr-editor -- --connection-smoke-test
 cargo run -p dr-editor -- --scoped-smoke-test
 cargo run -p dr-editor -- --selection-smoke-test
@@ -71,9 +75,11 @@ python -X utf8 scripts/check_native_dialogs.py
 
 `--smoke-test` 启动真实窗口，在约 5 秒后截图并自动退出，图片位于 `target/editor-smoke.png`。它验证启动和渲染，不代替交互测试。最后一条是 Windows 原生对话框测试：使用构建好的程序，自动验证取消和退出保护，不保存样本，也不要求抢占桌面焦点。
 
-`--panel-smoke-test` 在真实窗口中通过 Bevy 输入与 UI 状态验证预览旋转/镜像、碰撞拒绝及红色预览、放置、撤销重做、取消及侧栏输入隔离；不依赖系统桌面焦点、不写回样本，输出 `target/editor-placement-preview.png`、`target/editor-collision-preview.png` 和 `target/editor-panels-smoke.png` 后退出。
+`--panel-smoke-test` 在真实窗口中点击实际 egui 部件按钮并发送滚轮，画布流程通过 Bevy 输入验证预览旋转/镜像、碰撞拒绝及红色预览、放置、撤销重做、取消及侧栏输入隔离；不写回样本，输出 `target/editor-placement-preview.png`、`target/editor-collision-preview.png` 和 `target/editor-panels-smoke.png` 后退出。
 
-`--properties-smoke-test` 验证中文输入消息、草稿输入隔离、分级激活动作、应用、一次撤销/重做、取消及 XML 文件往返。输出 `target/editor-properties-draft.png`、`target/editor-properties-smoke.png` 和 `target/properties-smoke.xml`，不改写源样本。输入法测试注入 Bevy 的 IME 消息，尚未覆盖各系统输入法的候选窗口。
+`--properties-smoke-test` 与 `--egui-smoke-test` 使用同一 egui 自测：点击实际 TextEdit、Ctrl+A 中文替换、注入 egui IME 预编辑/提交事件、草稿快捷键隔离、点击分级移动标记和应用、一次撤销/重做及 XML 文件往返。自测在内存构造独立船体，输出 `target/editor-egui-draft.png`、`target/editor-egui-smoke.png` 和 `target/egui-smoke.xml`，不改写源样本。遮罩、取消、输入法取消同帧 Esc 和最小窗口非法值另有 egui 控件测试；此输入注入不能代替系统输入法验收。
+
+`--native-ime-test` 仅适用于 Windows：在窗口创建线程通过已加载的简体中文 IMM 输入法生成真实预编辑/提交消息，经 Winit/Bevy/bevy_egui 进入 TextEdit，检查候选窗定位、草稿隔离、应用、撤销重做及 XML 往返。输出 `target/editor-native-ime.png` 和 `target/native-ime-smoke.xml`；此专项不代表所有第三方输入法或候选列表操作。
 
 `--connection-smoke-test` 从默认新建船体开始，用原版长梁和两个分离器验证沿边吸附、同边多点连接、原子撤销/重做及保存往返，输出 `target/editor-connections-smoke.png` 和 `target/connections-smoke.xml`；运行时不要传 `--ship`。
 
@@ -85,7 +91,7 @@ python -X utf8 scripts/check_native_dialogs.py
 
 `--view-smoke-test` 验证整船与选区适配、窗口缩小到 960×640 后重新适配、F3 调试标签和 F4 船体显隐，以及文档和历史不变；输出 `target/editor-view-smoke.png`。
 
-`--browser-smoke-test` 在 `target` 内生成 1,000 个小船体文件及 1 个异常 XML，验收排序、过滤、滚动到底、打开末项和保留滚动位置，输出 `target/editor-browser-smoke.png/json`。`--staging-smoke-test` 验收 64 级共 1,024 个动作的末项草稿编辑、原子应用、撤销重做和 XML 往返，输出 `target/editor-staging-draft.png`、`target/editor-staging-smoke.png` 与 `target/staging-smoke.xml`。
+`--browser-smoke-test` 在 `target` 内生成 1,000 个小船体文件及 1 个异常 XML，验收排序、过滤、虚拟列表只绘制可见行、滚动到底、实际点击末项和保留滚动位置，输出 `target/editor-browser-smoke.png/json`。`--staging-smoke-test` 验收 64 级共 1,024 个动作的末项草稿编辑、原子应用、撤销重做和 XML 往返，输出 `target/editor-staging-draft.png`、`target/editor-staging-smoke.png` 与 `target/staging-smoke.xml`。
 
 `--performance-test` 在真实窗口中适配船体视图并持续拖动 90 帧，确认部件实体保持不变、取消后船体数据未改动，输出 `target/editor-performance.json` 和 `target/editor-performance.png`。可加 `--performance-selection-count N` 测试从拖动锚点向外选择最近的 N 个部件，超过总数时全选；报告包含实际选择数。帧耗时包含实际吸附、碰撞和渲染流程，不是纯绘制基准；结果受硬件、驱动和构建配置影响。
 
