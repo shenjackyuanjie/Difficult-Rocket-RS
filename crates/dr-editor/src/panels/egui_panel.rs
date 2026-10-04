@@ -2,6 +2,16 @@
 use super::*;
 use bevy_egui::{EguiContexts, egui};
 
+#[cfg(test)]
+mod tests;
+
+/// 缩略图容纳在 40×40 的区域内，但纹理尺寸必须使用真实像素宽高。
+fn preview_image(texture: egui::TextureId, size: Vec2) -> egui::Image<'static> {
+    egui::Image::new((texture, egui::vec2(size.x, size.y)))
+        .maintain_aspect_ratio(true)
+        .fit_to_exact_size(egui::Vec2::splat(40.0))
+}
+
 #[derive(Resource, Default)]
 pub struct UiState {
     pub hits: Vec<(PanelButton, egui::Rect)>,
@@ -45,6 +55,7 @@ fn hit(ui: &egui::Ui, response: &egui::Response, action: PanelButton, state: &mu
 pub fn draw(
     mut contexts: EguiContexts,
     assets: Res<AssetServer>,
+    image_assets: Res<Assets<Image>>,
     document: Res<EditorDocument>,
     paths: Res<EditorPaths>,
     palette: Res<Palette>,
@@ -225,6 +236,8 @@ pub fn draw(
                             assets.load(format!("textures/parts/{}", kind.sprite)),
                         ))
                     });
+                    let size = render::image_size(&kind.sprite, &assets, &image_assets)
+                        .unwrap_or_else(|| render::fallback_size(Some(kind)));
                     let count = counts.get(&kind.id).copied().unwrap_or(0);
                     let limit = kind
                         .max_occurrences
@@ -233,10 +246,10 @@ pub fn draw(
                     let response = ui
                         .add_sized(
                             [ui.available_width(), 52.0],
-                            egui::Button::image_and_text(
-                                egui::Image::new((texture, egui::vec2(40.0, 40.0))),
+                            egui::Button::new((
+                                preview_image(texture, size),
                                 format!("{}{limit}", kind.name),
-                            )
+                            ))
                             .selected(index == cursor.catalog_index)
                             .truncate(),
                         )
