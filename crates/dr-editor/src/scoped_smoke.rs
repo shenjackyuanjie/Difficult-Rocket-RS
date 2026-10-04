@@ -5,6 +5,7 @@ pub(crate) struct State {
     phase: u8,
     before: Option<Ship>,
     after: Option<Ship>,
+    pointer: Option<Vec2>,
 }
 
 /// 真实窗口输入验证重复 ID 的选中、移动、删除、跨组吸附和撤销，不改源样本。
@@ -30,6 +31,12 @@ pub(crate) fn run(
     let Ok(mut window) = windows.single_mut() else {
         return;
     };
+    // 保持测试注入的坐标与焦点，避免桌面消息在释放帧取消预览。
+    window.focused = true;
+    let mut pointer = state.pointer;
+    if let Some(position) = pointer {
+        window.set_cursor_position(Some(position));
+    }
     let key = PartKey::new(1, 1, 0);
     let mut point = |x: f32, y: f32| {
         window.focused = true;
@@ -38,6 +45,7 @@ pub(crate) fn run(
             window.height() / 2.0 - y * 60.0,
         );
         window.set_cursor_position(Some(position));
+        pointer = Some(position);
     };
     match state.phase {
         0 => {
@@ -75,7 +83,7 @@ pub(crate) fn run(
             assert_eq!(
                 visuals
                     .iter()
-                    .filter(|(_, _, sprite)| sprite.color != Color::WHITE)
+                    .filter(|(_, _, sprite)| sprite.color.with_alpha(1.0) != Color::WHITE)
                     .count(),
                 1
             );
@@ -168,5 +176,6 @@ pub(crate) fn run(
         }
         _ => return,
     }
+    state.pointer = pointer;
     state.phase += 1;
 }

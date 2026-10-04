@@ -24,21 +24,27 @@ pub(crate) fn canvas(size: Vec2) -> Rect {
     )
 }
 
-pub(crate) fn fitted(document: &EditorDocument, size: Vec2, selected: bool) -> Option<(Vec2, f32)> {
+pub(crate) fn fitted(
+    document: &EditorDocument,
+    size: Vec2,
+    selected: bool,
+    mut texture_size: impl FnMut(&str) -> Option<Vec2>,
+) -> Option<(Vec2, f32)> {
     let mut low = Vec2::splat(f32::INFINITY);
     let mut high = Vec2::splat(f32::NEG_INFINITY);
     for (key, part) in document.ship.keyed_parts() {
         if selected && !document.is_selected(key) {
             continue;
         }
-        let mut radius = Vec2::splat(0.5);
-        if let Some(kind) = document.catalog.get(&part.part_type) {
-            let (w, h) = kind.half_extents();
-            let (sin, cos) = part.angle.sin_cos();
-            radius = Vec2::new(
-                (w * cos.abs() + h * sin.abs()) as f32,
-                (w * sin.abs() + h * cos.abs()) as f32,
-            );
+        let kind = document.catalog.get(&part.part_type);
+        let image_size = kind
+            .and_then(|kind| texture_size(&kind.sprite))
+            .unwrap_or_else(|| render::fallback_size(kind));
+        for corner in render::image_corners(part, image_size) {
+            low = low.min(corner);
+            high = high.max(corner);
+        }
+        if let Some(kind) = kind {
             // 贴图和实体 Shape 都必须进入视野。
             for shape in world_shapes(part, kind) {
                 match shape {
@@ -57,9 +63,6 @@ pub(crate) fn fitted(document: &EditorDocument, size: Vec2, selected: bool) -> O
                 }
             }
         }
-        let p = Vec2::new(part.x as f32, part.y as f32) * 60.0;
-        low = low.min(p - radius * 60.0);
-        high = high.max(p + radius * 60.0);
     }
     if !low.is_finite() || !high.is_finite() {
         return None;
@@ -78,11 +81,14 @@ pub(crate) fn fitted(document: &EditorDocument, size: Vec2, selected: bool) -> O
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn controls(
     keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     document: Res<EditorDocument>,
     drag: Res<DragState>,
+    assets: Res<AssetServer>,
+    images: Res<Assets<Image>>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
     mut options: ResMut<ViewOptions>,
 ) {
@@ -107,6 +113,7 @@ pub(crate) fn controls(
         &document,
         Vec2::new(window.width(), window.height()),
         selected,
+        |texture| render::image_size(texture, &assets, &images),
     ) else {
         return;
     };
@@ -242,6 +249,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fit_includes_real_texture_outside_shape_for_rotation_and_mirrors() {
+        let mut document = crate::tests::document();
+        document.catalog = panels::tests::catalog();
+        document.ship.parts[0].angle = 0.37;
+        document.ship.parts[0].flip_x = true;
+        document.ship.parts[0].flip_y = true;
+        let size = Vec2::new(960.0, 640.0);
+        let texture = Vec2::new(84.0, 207.0);
+        let (_, physical_scale) = fitted(&document, size, false, |_| None).unwrap();
+        let (center, scale) = fitted(&document, size, false, |_| Some(texture)).unwrap();
+        assert!(scale > physical_scale);
+        for corner in render::image_corners(&document.ship.parts[0], texture) {
+            let offset = (corner - center) / scale;
+            assert!(canvas(size).contains(size * 0.5 + Vec2::new(offset.x, -offset.y)));
+        }
+    }
+
+    #[test]
     fn fit_places_rotated_ship_inside_canvas_and_selection_excludes_other_parts() {
         let mut document = crate::tests::document();
         document.catalog = panels::tests::catalog();
@@ -253,7 +278,7 @@ mod tests {
         document.ship.parts[0].angle = 0.71;
         document.select_only(Some(PartKey::new(0, 1, 0)));
         for size in [Vec2::new(960.0, 640.0), Vec2::new(1440.0, 900.0)] {
-            let (center, scale) = fitted(&document, size, false).unwrap();
+            let (center, scale) = fitted(&document, size, false, |_| None).unwrap();
             for part in &document.ship.parts {
                 for shape in world_shapes(part, &kind) {
                     if let WorldShape::Polygon(vertices) = shape {
@@ -266,9 +291,9 @@ mod tests {
                     }
                 }
             }
-            assert!(fitted(&document, size, true).unwrap().1 < scale);
+            assert!(fitted(&document, size, true, |_| None).unwrap().1 < scale);
         }
         document.ship.parts.clear();
-        assert!(fitted(&document, Vec2::new(960.0, 640.0), false).is_none());
+        assert!(fitted(&document, Vec2::new(960.0, 640.0), false, |_| None).is_none());
     }
 }

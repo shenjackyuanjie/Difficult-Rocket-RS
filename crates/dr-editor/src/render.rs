@@ -1,5 +1,62 @@
 use super::*;
+use bevy::asset::AssetId;
+use bevy::sprite::Anchor;
+use dr_core::PartType;
 use std::collections::{HashMap, HashSet};
+
+/// 原版贴图使用 PNG 原始像素，不以 PartList 的物理尺寸缩放。
+pub(crate) fn image_size(
+    texture: &str,
+    assets: &AssetServer,
+    images: &Assets<Image>,
+) -> Option<Vec2> {
+    let handle = assets.get_handle::<Image>(format!("textures/parts/{texture}"))?;
+    images.get(&handle).map(|image| image.size().as_vec2())
+}
+
+pub(crate) fn fallback_size(kind: Option<&PartType>) -> Vec2 {
+    kind.map(|kind| Vec2::new(kind.width as f32 * 30.0, kind.height as f32 * 30.0))
+        .unwrap_or(Vec2::splat(30.0))
+}
+
+/// pyglet 的锚点为 floor(width/2)、floor(height/2)。Bevy 的 flip 只翻 UV，
+/// 因此奇数像素的半像素锚点偏移也要随镜像翻转，随后再按实例角度旋转。
+pub(crate) fn pixel_anchor(size: Vec2, flip_x: bool, flip_y: bool) -> Anchor {
+    let center = size * 0.5;
+    let offset = (center.floor() - center) / size.max(Vec2::ONE);
+    Anchor(
+        offset
+            * Vec2::new(
+                if flip_x { -1.0 } else { 1.0 },
+                if flip_y { -1.0 } else { 1.0 },
+            ),
+    )
+}
+
+pub(crate) fn sprite_geometry(
+    kind: Option<&PartType>,
+    image: &Handle<Image>,
+    images: &Assets<Image>,
+    part: &Part,
+) -> (Option<Vec2>, Anchor) {
+    if kind.is_some_and(|kind| !kind.sprite.is_empty()) {
+        let anchor = images.get(image).map_or(Anchor::CENTER, |image| {
+            pixel_anchor(image.size().as_vec2(), part.flip_x, part.flip_y)
+        });
+        (None, anchor)
+    } else {
+        (Some(fallback_size(kind)), Anchor::CENTER)
+    }
+}
+
+/// 仅供视图适配的可见四角；碰撞和命中仍独立使用 dr_core 的 Shape。
+pub(crate) fn image_corners(part: &Part, size: Vec2) -> [Vec2; 4] {
+    let anchor = pixel_anchor(size, part.flip_x, part.flip_y).as_vec();
+    let rotation = Mat2::from_angle(part.angle as f32);
+    let position = Vec2::new(part.x as f32, part.y as f32) * 60.0;
+    [Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y]
+        .map(|corner| position + rotation * ((corner - Vec2::splat(0.5) - anchor) * size))
+}
 
 #[derive(Component)]
 pub(crate) struct PartVisual {
@@ -21,6 +78,7 @@ pub(crate) fn parts(ship: &Ship) -> impl Iterator<Item = (VisualKey, &Part)> {
 pub(crate) struct VisualIndex {
     entities: HashMap<VisualKey, (Entity, f32)>,
     dragged: BTreeSet<PartKey>,
+    texture_sizes: HashMap<AssetId<Image>, Option<UVec2>>,
 }
 
 fn appearance(
@@ -55,7 +113,7 @@ fn appearance(
         (part.x, part.y)
     };
     (
-        color,
+        color.with_alpha(if key.group == 0 { 1.0 } else { 100.0 / 255.0 }),
         Transform {
             translation: Vec3::new(x as f32 * 60.0, y as f32 * 60.0, 0.0),
             rotation: Quat::from_rotation_z(part.angle as f32),
@@ -70,13 +128,21 @@ pub(crate) fn sync(
     document: Res<EditorDocument>,
     drag: Res<DragState>,
     assets: Res<AssetServer>,
-    mut visuals: Query<(&mut PartVisual, &mut Sprite, &mut Transform)>,
+    images: Res<Assets<Image>>,
+    mut visuals: Query<(&mut PartVisual, &mut Sprite, &mut Transform, &mut Anchor)>,
     mut index: Local<VisualIndex>,
 ) {
-    if !document.is_changed() && !drag.is_changed() {
+    // 异步解码完成后补齐半像素锚点；字体图集变化不应重扫整艘船。
+    let textures_changed = images.is_changed()
+        && index
+            .texture_sizes
+            .iter()
+            .any(|(id, size)| images.get(*id).map(Image::size) != *size);
+    let refresh_all = document.is_changed() || textures_changed;
+    if !refresh_all && !drag.is_changed() {
         return;
     }
-    let parts: Vec<_> = if document.is_changed() {
+    let parts: Vec<_> = if refresh_all {
         let parts: Vec<_> = parts(&document.ship).collect();
         let ids: HashSet<_> = parts.iter().map(|(key, _)| *key).collect();
         index.entities.retain(|id, (entity, _)| {
@@ -111,16 +177,17 @@ pub(crate) fn sync(
         }
     };
     index.dragged = drag.keys();
+    if refresh_all {
+        index.texture_sizes.clear();
+    }
     let count = parts.len().max(1) as f32;
     for (order, (key, part)) in parts.into_iter().enumerate() {
         let kind = document.catalog.get(&part.part_type);
         let texture = kind.map(|kind| kind.sprite.as_str()).unwrap_or("");
-        let size = kind
-            .map(|kind| Vec2::new(kind.width as f32 * 30.0, kind.height as f32 * 30.0))
-            .unwrap_or(Vec2::splat(30.0));
+        let size = fallback_size(kind);
         let (color, mut target) =
             appearance(&document, &drag, PartKey::new(key.0, key.1, key.2), part);
-        let layer = if document.is_changed() {
+        let layer = if refresh_all {
             order as f32 / count * 2.0
         } else {
             index
@@ -131,7 +198,7 @@ pub(crate) fn sync(
         };
         target.translation.z = layer;
         if let Some(&(entity, _)) = index.entities.get(&key)
-            && let Ok((mut visual, mut sprite, mut transform)) = visuals.get_mut(entity)
+            && let Ok((mut visual, mut sprite, mut transform, mut anchor)) = visuals.get_mut(entity)
         {
             debug_assert_eq!(visual.id, part.id);
             debug_assert_eq!(visual.group, key.0);
@@ -143,8 +210,18 @@ pub(crate) fn sync(
                 };
                 visual.texture = texture.to_owned();
             }
-            if sprite.custom_size != Some(size) {
-                sprite.custom_size = Some(size);
+            let (custom_size, target_anchor) = sprite_geometry(kind, &sprite.image, &images, part);
+            if sprite.custom_size != custom_size {
+                sprite.custom_size = custom_size;
+            }
+            if *anchor != target_anchor {
+                *anchor = target_anchor;
+            }
+            if !texture.is_empty() {
+                index.texture_sizes.insert(
+                    sprite.image.id(),
+                    images.get(&sprite.image).map(Image::size),
+                );
             }
             if sprite.color != color {
                 sprite.color = color;
@@ -165,13 +242,21 @@ pub(crate) fn sync(
             } else {
                 Sprite::from_image(assets.load(format!("textures/parts/{texture}")))
             };
-            sprite.custom_size = Some(size);
+            let (custom_size, anchor) = sprite_geometry(kind, &sprite.image, &images, part);
+            sprite.custom_size = custom_size;
+            if !texture.is_empty() {
+                index.texture_sizes.insert(
+                    sprite.image.id(),
+                    images.get(&sprite.image).map(Image::size),
+                );
+            }
             sprite.color = color;
             sprite.flip_x = part.flip_x;
             sprite.flip_y = part.flip_y;
             let entity = commands
                 .spawn((
                     sprite,
+                    anchor,
                     target,
                     PartVisual {
                         id: part.id,
@@ -267,6 +352,7 @@ mod tests {
     fn app() -> App {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>()
             .insert_resource(crate::tests::document())
             .init_resource::<DragState>()
             .add_systems(Update, sync);
@@ -280,6 +366,113 @@ mod tests {
             .find(|(_, visual, _, _)| visual.id == id)
             .map(|(entity, _, transform, sprite)| (entity, *transform, sprite.color))
             .unwrap()
+    }
+
+    #[test]
+    fn natural_image_size_and_odd_pixel_anchor_are_independent_of_physics() {
+        let mut kind = panels::tests::catalog().get("pod").unwrap().clone();
+        kind.sprite = "DockingConnector.png".into();
+        kind.width = 4;
+        kind.height = 1;
+        let part = kind.instantiate(1, (0.0, 0.0));
+        let mut images = Assets::<Image>::default();
+        let mut image = Image::default();
+        image.texture_descriptor.size.width = 61;
+        image.texture_descriptor.size.height = 29;
+        let image = images.add(image);
+        let (size, anchor) = sprite_geometry(Some(&kind), &image, &images, &part);
+        assert_eq!(size, None);
+        assert!(
+            anchor
+                .as_vec()
+                .abs_diff_eq(Vec2::new(-0.5 / 61.0, -0.5 / 29.0), 1e-7)
+        );
+        assert_eq!(kind.half_extents(), (1.0, 0.25));
+        assert_eq!(
+            sprite_geometry(None, &image, &images, &part),
+            (Some(Vec2::splat(30.0)), Anchor::CENTER)
+        );
+        images.remove(image.id());
+        assert_eq!(
+            sprite_geometry(Some(&kind), &image, &images, &part),
+            (None, Anchor::CENTER)
+        );
+    }
+
+    #[test]
+    fn mirrored_odd_pixels_rotate_about_original_floor_anchor() {
+        let mut part = crate::tests::document().ship.parts.remove(0);
+        part.x = 3.0;
+        part.y = -2.0;
+        for size in [
+            Vec2::new(61.0, 29.0),
+            Vec2::new(84.0, 207.0),
+            Vec2::new(60.0, 30.0),
+        ] {
+            for flip_x in [false, true] {
+                for flip_y in [false, true] {
+                    for angle in [0.0, 0.37, std::f64::consts::FRAC_PI_2, -2.1] {
+                        part.flip_x = flip_x;
+                        part.flip_y = flip_y;
+                        part.angle = angle;
+                        let corners = image_corners(&part, size);
+                        for uv in [Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y] {
+                            let local = (uv * size - (size * 0.5).floor())
+                                * Vec2::new(
+                                    if flip_x { -1.0 } else { 1.0 },
+                                    if flip_y { -1.0 } else { 1.0 },
+                                );
+                            let (sin, cos) = angle.sin_cos();
+                            let expected = Vec2::new(
+                                (local.x as f64 * cos - local.y as f64 * sin) as f32 + 180.0,
+                                (local.x as f64 * sin + local.y as f64 * cos) as f32 - 120.0,
+                            );
+                            // 世界坐标约 291 时一个 f32 ULP 为 0.000030517578125，
+                            // 原固定阈值 0.00003 小于可表示的最小步进。每轴最多补足
+                            // 一个 ULP，不扩大为统一宽松阈值；半像素锚点符号错误仍会
+                            // 产生约 1 像素差异。参考值继续独立使用 floor 锚点及 f64 旋转。
+                            let one_ulp = |value: f32| {
+                                let value = value.abs();
+                                value.next_up() - value
+                            };
+                            let tolerance = Vec2::new(
+                                3e-5_f32.max(one_ulp(expected.x)),
+                                3e-5_f32.max(one_ulp(expected.y)),
+                            );
+                            assert!(
+                                corners.iter().any(|corner| {
+                                    (*corner - expected).abs().cmple(tolerance).all()
+                                }),
+                                "size={size:?}, angle={angle}, flip=({flip_x},{flip_y}), uv={uv:?}, corners={corners:?}, expected={expected:?}, tolerance={tolerance:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn disconnected_alpha_survives_selection_and_collision_tints() {
+        let mut document = crate::tests::document();
+        let part = document.ship.parts[0].clone();
+        let key = PartKey::new(1, 1, 0);
+        document.ship.disconnected.push(dr_core::ShipGroup {
+            parts: vec![part.clone()],
+            connections: vec![],
+        });
+        let mut drag = DragState::default();
+        let ordinary = appearance(&document, &drag, key, &part).0;
+        assert_eq!(ordinary, Color::WHITE.with_alpha(100.0 / 255.0));
+        document.select_only(Some(key));
+        let selected = appearance(&document, &drag, key, &part).0;
+        assert_eq!(selected.alpha(), ordinary.alpha());
+        assert_ne!(selected, ordinary);
+        drag.id = Some(key);
+        drag.members = [key, PartKey::new(0, 1, 0)].into_iter().collect();
+        drag.blocked = true;
+        let blocked = appearance(&document, &drag, key, &part).0;
+        assert_eq!(blocked, Color::srgba(1.0, 0.2, 0.2, 100.0 / 255.0));
     }
 
     #[test]
@@ -473,7 +666,14 @@ mod tests {
                 assert_ne!(sprite.color, Color::WHITE);
             } else {
                 assert_eq!(transform.translation.x, 0.0);
-                assert_eq!(sprite.color, Color::WHITE);
+                assert_eq!(
+                    sprite.color,
+                    Color::WHITE.with_alpha(if visual.group == 0 {
+                        1.0
+                    } else {
+                        100.0 / 255.0
+                    })
+                );
             }
         }
         app.world_mut().resource_mut::<DragState>().id = None;

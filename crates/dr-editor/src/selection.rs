@@ -442,7 +442,8 @@ pub(crate) fn draw_preview(
     drag: Res<DragState>,
     pointer: Res<panels::UiPointer>,
     assets: Res<AssetServer>,
-    mut visuals: Query<(&mut Sprite, &mut Transform), With<PasteVisual>>,
+    images: Res<Assets<Image>>,
+    mut visuals: Query<(&mut Sprite, &mut Transform, &mut bevy::sprite::Anchor), With<PasteVisual>>,
     mut entities: Local<Vec<Entity>>,
     mut gizmos: Gizmos,
 ) {
@@ -459,7 +460,11 @@ pub(crate) fn draw_preview(
             gizmos.line_2d(a, b, Color::srgb(0.3, 0.85, 1.0));
         }
     }
-    if !cursor.is_changed() && !document.is_changed() && !pointer.is_changed() {
+    if !cursor.is_changed()
+        && !document.is_changed()
+        && !pointer.is_changed()
+        && !images.is_changed()
+    {
         return;
     }
     let preview = if cursor.valid && !pointer.blocked {
@@ -484,17 +489,15 @@ pub(crate) fn draw_preview(
     for (index, part) in preview.parts.iter().enumerate() {
         let kind = document.catalog.get(&part.part_type);
         let sprite_path = kind.map(|kind| kind.sprite.as_str()).unwrap_or("");
-        let size = kind
-            .map(|kind| Vec2::new(kind.width as f32 * 30.0, kind.height as f32 * 30.0))
-            .unwrap_or(Vec2::splat(30.0));
         let image = if sprite_path.is_empty() {
             default()
         } else {
             assets.load(format!("textures/parts/{sprite_path}"))
         };
+        let (custom_size, anchor) = render::sprite_geometry(kind, &image, &images, part);
         let sprite = Sprite {
             image,
-            custom_size: Some(size),
+            custom_size,
             color,
             flip_x: part.flip_x,
             flip_y: part.flip_y,
@@ -510,12 +513,18 @@ pub(crate) fn draw_preview(
             ..default()
         };
         if let Some(entity) = entities.get(index)
-            && let Ok((mut existing_sprite, mut existing_transform)) = visuals.get_mut(*entity)
+            && let Ok((mut existing_sprite, mut existing_transform, mut existing_anchor)) =
+                visuals.get_mut(*entity)
         {
             *existing_sprite = sprite;
             *existing_transform = transform;
+            *existing_anchor = anchor;
         } else {
-            entities.push(commands.spawn((sprite, transform, PasteVisual)).id());
+            entities.push(
+                commands
+                    .spawn((sprite, anchor, transform, PasteVisual))
+                    .id(),
+            );
         }
     }
 }

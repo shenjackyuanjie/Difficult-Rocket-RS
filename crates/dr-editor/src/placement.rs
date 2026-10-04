@@ -187,6 +187,7 @@ pub(crate) fn draw_preview(
     cursor: Res<EditorCursor>,
     pointer: Res<panels::UiPointer>,
     assets: Res<AssetServer>,
+    images: Res<Assets<Image>>,
     existing: Query<Entity, With<PlacementVisual>>,
 ) {
     for entity in &existing {
@@ -207,10 +208,8 @@ pub(crate) fn draw_preview(
     } else {
         Sprite::from_image(assets.load(format!("textures/parts/{}", kind.sprite)))
     };
-    sprite.custom_size = Some(Vec2::new(
-        kind.width as f32 * 30.0,
-        kind.height as f32 * 30.0,
-    ));
+    let (custom_size, anchor) = render::sprite_geometry(Some(kind), &sprite.image, &images, &part);
+    sprite.custom_size = custom_size;
     sprite.flip_x = part.flip_x;
     sprite.flip_y = part.flip_y;
     sprite.color = if !allowed {
@@ -222,6 +221,7 @@ pub(crate) fn draw_preview(
     };
     commands.spawn((
         sprite,
+        anchor,
         Transform {
             translation: Vec3::new(part.x as f32 * 60.0, part.y as f32 * 60.0, 5.0),
             rotation: Quat::from_rotation_z(part.angle as f32),

@@ -182,7 +182,8 @@ pub(crate) fn run(
             assert!(
                 previews
                     .iter()
-                    .all(|(sprite, _)| sprite.color == Color::srgba(0.35, 1.0, 0.65, 0.75))
+                    .all(|(sprite, _)| sprite.color == Color::srgba(0.35, 1.0, 0.65, 0.75)),
+                "世界位置 {:?}；预览 {:?}", cursor.world, previews.iter().map(|(sprite, transform)| (sprite.color, transform.translation)).collect::<Vec<_>>()
             );
             use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
             commands
