@@ -3,6 +3,7 @@ use super::*;
 #[derive(Default)]
 pub(crate) struct State {
     phase: u8,
+    pointer: Option<Vec2>,
     before: Option<Ship>,
     after: Option<Ship>,
     input: crate::egui_ui::UiTestInput,
@@ -33,6 +34,12 @@ pub(crate) fn run(
     let Ok((window_id, mut window)) = windows.single_mut() else {
         return;
     };
+    // 注入式回归持续保存焦点/光标，避免桌面 CursorMoved 覆盖上一阶段坐标。
+    // 操作系统前台是否成立仍由外部驱动独立校验，不据此伪造真实焦点验收。
+    window.focused = true;
+    if let Some(point) = state.pointer {
+        window.set_cursor_position(Some(point));
+    }
     let Ok(mut input) = inputs.single_mut() else {
         return;
     };
@@ -205,5 +212,6 @@ pub(crate) fn run(
         }
         _ => return,
     }
+    state.pointer = window.cursor_position();
     state.phase += 1;
 }

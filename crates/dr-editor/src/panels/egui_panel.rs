@@ -12,6 +12,52 @@ fn preview_image(texture: egui::TextureId, size: Vec2) -> egui::Image<'static> {
         .fit_to_exact_size(egui::Vec2::splat(40.0))
 }
 
+/// 内置 Button 负责整行交互，图片和 Label 放入各自固定的列区域。
+fn part_row(
+    ui: &mut egui::Ui,
+    texture: egui::TextureId,
+    size: Vec2,
+    name: String,
+    selected: bool,
+    width: f32,
+) -> egui::Response {
+    let response = ui.add_sized([width, 52.0], egui::Button::new("").selected(selected));
+    let rect = response.rect;
+    let image_size = size / size.max_element().max(1.0) * 40.0;
+    let image_rect = egui::Rect::from_center_size(
+        egui::pos2(rect.left() + 28.0, rect.center().y),
+        egui::vec2(image_size.x, image_size.y),
+    );
+    preview_image(texture, size).paint_at(ui, image_rect);
+    let text_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + 64.0, rect.top()),
+        egui::pos2(rect.right() - 8.0, rect.bottom()),
+    );
+    let color = ui
+        .style()
+        .interact_selectable(&response, selected)
+        .text_color();
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(text_rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        |ui| {
+            ui.add(
+                egui::Label::new(egui::RichText::new(name).color(color))
+                    .halign(egui::Align::Min)
+                    .selectable(false)
+                    .truncate(),
+            );
+        },
+    );
+    ui.painter().vline(
+        rect.left() + 56.0,
+        rect.y_range(),
+        ui.visuals().widgets.noninteractive.bg_stroke,
+    );
+    response
+}
+
 #[derive(Resource, Default)]
 pub struct UiState {
     pub hits: Vec<(PanelButton, egui::Rect)>,
@@ -243,17 +289,16 @@ pub fn draw(
                         .max_occurrences
                         .map(|limit| format!(" {count}/{limit}"))
                         .unwrap_or_default();
-                    let response = ui
-                        .add_sized(
-                            [ui.available_width(), 52.0],
-                            egui::Button::new((
-                                preview_image(texture, size),
-                                format!("{}{limit}", kind.name),
-                            ))
-                            .selected(index == cursor.catalog_index)
-                            .truncate(),
-                        )
-                        .on_hover_text(&kind.description);
+                    let width = ui.available_width();
+                    let response = part_row(
+                        ui,
+                        texture,
+                        size,
+                        format!("{}{limit}", kind.name),
+                        index == cursor.catalog_index,
+                        width,
+                    )
+                    .on_hover_text(&kind.description);
                     hit(ui, &response, PanelButton::Part(index), &mut state);
                     if selection_changed && index == cursor.catalog_index {
                         response.scroll_to_me(Some(egui::Align::Center));
