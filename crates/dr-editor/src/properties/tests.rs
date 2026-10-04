@@ -301,6 +301,95 @@ fn focused_input_consumes_shortcuts_and_ime_commit_once() {
 }
 
 #[test]
+fn cancelling_ime_composition_keeps_draft_and_late_commit_does_not_edit_numeric_fields() {
+    let mut document = document();
+    let original = document.ship.clone();
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    act(&Action::Focus(Field::Name), &mut inspector, &mut document);
+    let original_name = inspector.draft.as_ref().unwrap().name.clone();
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .insert_resource(document)
+        .insert_resource(inspector)
+        .init_resource::<DragState>()
+        .init_resource::<EditorCursor>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .add_message::<KeyboardInput>()
+        .add_message::<Ime>()
+        .add_systems(Update, input);
+    let window = app.world_mut().spawn(Window::default()).id();
+    app.world_mut().spawn((
+        Action::Focus(Field::Name),
+        ComputedNode {
+            size: Vec2::new(400.0, 68.0),
+            inverse_scale_factor: 0.5,
+            ..default()
+        },
+        UiGlobalTransform::from_xy(800.0, 400.0),
+    ));
+    app.world_mut().write_message(Ime::Preedit {
+        window,
+        value: "huojian".into(),
+        cursor: Some((7, 7)),
+    });
+    app.update();
+    assert_eq!(
+        app.world().get::<Window>(window).unwrap().ime_position,
+        Vec2::new(310.0, 219.0)
+    );
+    app.world_mut().write_message(Ime::Preedit {
+        window,
+        value: String::new(),
+        cursor: None,
+    });
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Escape);
+    app.update();
+    let inspector = app.world().resource::<Inspector>();
+    assert_eq!(inspector.draft.as_ref().unwrap().name, original_name);
+    assert!(inspector.preedit.is_empty());
+    {
+        let mut inspector = app.world_mut().resource_mut::<Inspector>();
+        inspector.focus = Some(Field::Throttle);
+        inspector.caret = inspector.draft.as_ref().unwrap().throttle.len();
+    }
+    let throttle = app
+        .world()
+        .resource::<Inspector>()
+        .draft
+        .as_ref()
+        .unwrap()
+        .throttle
+        .clone();
+    app.world_mut().write_message(Ime::Commit {
+        window,
+        value: "迟到的候选".into(),
+    });
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<Inspector>()
+            .draft
+            .as_ref()
+            .unwrap()
+            .throttle,
+        throttle
+    );
+    assert!(!app.world().get::<Window>(window).unwrap().ime_enabled);
+    assert_eq!(app.world().resource::<EditorDocument>().ship, original);
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .reset_all();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Escape);
+    app.update();
+    assert!(app.world().resource::<Inspector>().draft.is_none());
+}
+
+#[test]
 fn closing_or_dropping_a_file_keeps_unapplied_draft() {
     use bevy::window::{FileDragAndDrop, WindowCloseRequested};
     let document = document();
@@ -367,4 +456,24 @@ fn fuel_capacity_is_checked_and_valid_change_undoes() {
     assert!(document.undo());
     assert!(!document.dirty);
     assert_eq!(document.ship.part(2).unwrap().fuel, Some(max));
+}
+
+#[test]
+fn empty_commit_and_control_text_do_not_erase_selected_name() {
+    let document = document();
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    inspector.focus = Some(Field::Name);
+    inspector.select_all = true;
+    inspector.draft.as_mut().unwrap().name = "应保留的名称".into();
+    inspector.caret = "应保留的名称".len();
+    for text in ["", "\r", "\n", "\t", "\u{1b}"] {
+        insert_text(&mut inspector, text);
+        assert_eq!(inspector.draft.as_ref().unwrap().name, "应保留的名称");
+        assert!(inspector.select_all);
+        assert_eq!(inspector.caret, "应保留的名称".len());
+    }
+    insert_text(&mut inspector, "替换\r名称");
+    assert_eq!(inspector.draft.as_ref().unwrap().name, "替换名称");
+    assert!(!inspector.select_all);
 }

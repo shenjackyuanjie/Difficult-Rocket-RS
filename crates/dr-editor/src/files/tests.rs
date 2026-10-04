@@ -313,3 +313,320 @@ fn toolbar_press_routes_to_file_workflow() {
         app.world().resource::<EditorDocument>().ship
     );
 }
+
+// 跨组重复编号是原版船体的合法输入，混合流程不能把 XML 编号当全局身份。
+fn grouped_workflow_document() -> EditorDocument {
+    let mut document = crate::tests::document();
+    document.ship.parts[0].active = true;
+    document.ship.parts[0].pod = Some(dr_core::PodState {
+        name: "原始驾驶舱".into(),
+        throttle: 0.25,
+        staging: Some(dr_core::StagingState {
+            current_stage: 0,
+            steps: vec![dr_core::StageStep {
+                activations: vec![dr_core::Activation {
+                    id: 2,
+                    moved: false,
+                }],
+            }],
+        }),
+    });
+    let mut engine = document.ship.parts[0].clone();
+    engine.id = 2;
+    engine.part_type = "engine".into();
+    engine.x = 2.0;
+    engine.pod = None;
+    document.ship.parts.push(engine);
+    document.ship.connections.push(Connection::Normal {
+        parent: 1,
+        child: 2,
+        parent_attach: 1,
+        child_attach: 1,
+    });
+    let mut detached = dr_core::ShipGroup {
+        parts: document.ship.parts.clone(),
+        connections: document.ship.connections.clone(),
+    };
+    for part in &mut detached.parts {
+        part.x += 10.0;
+    }
+    document.ship.disconnected.push(detached);
+    document.saved_ship = document.ship.clone();
+    document.refresh();
+    document
+}
+
+fn copy_or_paste(document: &mut EditorDocument, cursor: &mut EditorCursor, key: KeyCode) {
+    let mut keys = ButtonInput::default();
+    keys.press(KeyCode::ControlLeft);
+    keys.press(key);
+    assert!(selection::keyboard(document, cursor, &keys, false));
+}
+
+// 原生对话框由 mock 替代；保留生产入口对粘贴预览的 Bevy 消息取消路径。
+fn workflow_file_action(
+    action: FileAction,
+    document: &mut EditorDocument,
+    paths: &mut EditorPaths,
+    dialogs: &mut TestDialogs,
+    cursor: &mut EditorCursor,
+) {
+    let mut app = App::new();
+    app.insert_resource(std::mem::take(cursor))
+        .add_message::<FileAction>()
+        .add_systems(Update, placement::cancel_for_file_action);
+    app.world_mut().write_message(action.clone());
+    app.update();
+    *cursor = app.world_mut().remove_resource::<EditorCursor>().unwrap();
+    assert!(!apply_action(action, document, paths, dialogs));
+}
+
+#[test]
+fn grouped_copy_properties_staging_save_history_and_reopen_preserve_references() {
+    let directory = tempfile::tempdir().unwrap();
+    let original_path = directory.path().join("原始多组.xml");
+    let edited_path = directory.path().join("中文 & 另存.xml");
+    let (_, mut paths, mut dialogs) = context();
+    let mut document = grouped_workflow_document();
+    let original = document.ship.clone();
+    let mut cursor = EditorCursor::default();
+    dialogs.saves.push_back(Some(original_path.clone()));
+    workflow_file_action(
+        FileAction::SaveAs,
+        &mut document,
+        &mut paths,
+        &mut dialogs,
+        &mut cursor,
+    );
+
+    document.selection = document.ship.keyed_parts().map(|(key, _)| key).collect();
+    copy_or_paste(&mut document, &mut cursor, KeyCode::KeyC);
+    let clipboard = cursor.clipboard.as_ref().unwrap().groups().to_vec();
+    copy_or_paste(&mut document, &mut cursor, KeyCode::KeyV);
+    cursor.world = (6.0, 20.0);
+    cursor.valid = true;
+    assert!(selection::commit_paste(&mut document, &mut cursor));
+    assert_eq!(document.selected_keys().len(), 4);
+    assert_eq!(document.history.undo_len(), 1);
+    let pasted = document.ship.clone();
+    assert_eq!(pasted.all_parts().count(), 8);
+    assert_eq!(pasted.all_connections().count(), 4);
+    for (_, parts, connections) in pasted.groups() {
+        assert_eq!(parts.len(), 2);
+        let pod = parts.iter().find(|part| part.pod.is_some()).unwrap();
+        let engine = parts.iter().find(|part| part.pod.is_none()).unwrap();
+        assert_eq!(
+            connections[0],
+            Connection::Normal {
+                parent: pod.id,
+                child: engine.id,
+                parent_attach: 1,
+                child_attach: 1,
+            }
+        );
+        assert_eq!(
+            pod.pod.as_ref().unwrap().staging.as_ref().unwrap().steps[0].activations[0].id,
+            engine.id
+        );
+    }
+    let pod_key = document
+        .selected_keys()
+        .into_iter()
+        .find(|key| document.ship.part_at(*key).unwrap().pod.is_some())
+        .unwrap();
+    let engine_id = document
+        .ship
+        .groups()
+        .find(|(group, _, _)| *group == pod_key.group)
+        .unwrap()
+        .1
+        .iter()
+        .find(|part| part.pod.is_none())
+        .unwrap()
+        .id;
+    let staging = dr_core::StagingState {
+        current_stage: 1,
+        steps: vec![
+            dr_core::StageStep::default(),
+            dr_core::StageStep {
+                activations: vec![dr_core::Activation {
+                    id: engine_id,
+                    moved: true,
+                }],
+            },
+        ],
+    };
+    assert!(document.execute(EditorCommand::Scoped {
+        part: pod_key,
+        command: Box::new(EditorCommand::Batch(vec![
+            EditorCommand::RenamePod(pod_key.id, "副本 <驾驶舱> & 分级".into()),
+            EditorCommand::SetThrottle(pod_key.id, 0.75),
+            EditorCommand::SetStaging(pod_key.id, Some(staging)),
+        ])),
+    }));
+    let edited = document.ship.clone();
+    assert_eq!(document.history.undo_len(), 2);
+    dialogs.saves.push_back(Some(edited_path.clone()));
+    workflow_file_action(
+        FileAction::SaveAs,
+        &mut document,
+        &mut paths,
+        &mut dialogs,
+        &mut cursor,
+    );
+    assert_eq!(load_ship(&original_path).unwrap(), original);
+    assert_eq!(load_ship(&edited_path).unwrap(), edited);
+    assert_eq!(document.saved_ship, edited);
+    assert!(!document.dirty);
+
+    assert!(document.undo());
+    assert_eq!(document.ship, pasted);
+    assert!(document.dirty);
+    assert!(document.redo());
+    assert_eq!(document.ship, edited);
+    assert!(!document.dirty);
+    assert!(document.undo());
+    assert!(document.undo());
+    assert_eq!(document.ship, original);
+    assert!(document.dirty);
+    assert_eq!(document.history.redo_len(), 2);
+    // 取消打开既不能丢弃未保存快照，也不能吃掉已存在的重做分支。
+    document.select_only(Some(PartKey::new(1, 1, 0)));
+    copy_or_paste(&mut document, &mut cursor, KeyCode::KeyV);
+    dialogs.choices.push_back(UnsavedChoice::Cancel);
+    workflow_file_action(
+        FileAction::Open(edited_path.clone()),
+        &mut document,
+        &mut paths,
+        &mut dialogs,
+        &mut cursor,
+    );
+    assert_eq!(document.ship, original);
+    assert_eq!(document.selected_keys(), vec![PartKey::new(1, 1, 0)]);
+    assert_eq!(document.history.redo_len(), 2);
+    assert_eq!(document.saved_ship, edited);
+    assert!(cursor.paste.is_none());
+    assert_eq!(cursor.clipboard.as_ref().unwrap().groups(), clipboard);
+
+    dialogs.choices.push_back(UnsavedChoice::Discard);
+    workflow_file_action(
+        FileAction::Open(edited_path.clone()),
+        &mut document,
+        &mut paths,
+        &mut dialogs,
+        &mut cursor,
+    );
+    assert_eq!(document.ship, edited);
+    assert!(!document.dirty);
+    assert!(document.selected_keys().is_empty());
+    assert!(!document.history.can_undo() && !document.history.can_redo());
+    assert_eq!(paths.ship, Some(edited_path.to_string_lossy().into_owned()));
+    assert_eq!(cursor.clipboard.as_ref().unwrap().groups(), clipboard);
+    // 重开后应用内剪贴板仍可使用，且重新分配编号，不覆盖刚载入的副本。
+    copy_or_paste(&mut document, &mut cursor, KeyCode::KeyV);
+    cursor.world = (6.0, 40.0);
+    cursor.valid = true;
+    assert!(selection::commit_paste(&mut document, &mut cursor));
+    assert_eq!(document.ship.all_parts().count(), 12);
+    assert_eq!(document.ship.all_connections().count(), 6);
+    assert!(document.undo());
+    assert_eq!(document.ship, edited);
+    assert!(!document.dirty);
+}
+
+#[test]
+fn failed_save_during_new_preserves_cut_redo_and_clipboard_for_a_new_document() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("剪切前.xml");
+    let (_, mut paths, mut dialogs) = context();
+    let mut document = grouped_workflow_document();
+    let original = document.ship.clone();
+    let mut cursor = EditorCursor::default();
+    dialogs.saves.push_back(Some(path.clone()));
+    workflow_file_action(
+        FileAction::SaveAs,
+        &mut document,
+        &mut paths,
+        &mut dialogs,
+        &mut cursor,
+    );
+    document.selection = [PartKey::new(1, 1, 0), PartKey::new(1, 2, 0)]
+        .into_iter()
+        .collect();
+    copy_or_paste(&mut document, &mut cursor, KeyCode::KeyX);
+    let cut = document.ship.clone();
+    let clipboard = cursor.clipboard.as_ref().unwrap().groups().to_vec();
+    assert_eq!(cut.all_parts().count(), 2);
+    assert!(document.execute(EditorCommand::SetActive(1, false)));
+    assert!(document.undo());
+    assert_eq!(document.ship, cut);
+    assert_eq!(document.history.redo_len(), 1);
+
+    // 已有路径的保存失败不应误当作“放弃更改”而新建文档。
+    paths.ship = Some(
+        directory
+            .path()
+            .join("不存在/失败.xml")
+            .to_string_lossy()
+            .into_owned(),
+    );
+    let failed_path = paths.ship.clone();
+    dialogs.choices.push_back(UnsavedChoice::Save);
+    workflow_file_action(
+        FileAction::New,
+        &mut document,
+        &mut paths,
+        &mut dialogs,
+        &mut cursor,
+    );
+    assert_eq!(document.ship, cut);
+    assert_eq!(document.saved_ship, original);
+    assert_eq!(paths.ship, failed_path);
+    assert!(document.dirty);
+    assert_eq!(document.history.undo_len(), 1);
+    assert_eq!(document.history.redo_len(), 1);
+    assert_eq!(load_ship(&path).unwrap(), original);
+    assert_eq!(cursor.clipboard.as_ref().unwrap().groups(), clipboard);
+    assert!(document.status.contains("无法保存"));
+
+    assert!(document.redo());
+    assert!(!document.ship.parts[0].active);
+    assert!(document.undo());
+    assert!(document.undo());
+    assert_eq!(document.ship, original);
+    assert!(!document.dirty);
+    // 真正新建才清空两个历史分支，剪切得到的组可跨文档粘贴。
+    workflow_file_action(
+        FileAction::New,
+        &mut document,
+        &mut paths,
+        &mut dialogs,
+        &mut cursor,
+    );
+    assert_eq!(document.ship, Ship::default());
+    assert!(paths.ship.is_none());
+    assert!(!document.history.can_undo() && !document.history.can_redo());
+    copy_or_paste(&mut document, &mut cursor, KeyCode::KeyV);
+    cursor.world = (0.0, 0.0);
+    cursor.valid = true;
+    assert!(selection::commit_paste(&mut document, &mut cursor));
+    let pod = document
+        .ship
+        .all_parts()
+        .find(|part| part.pod.is_some())
+        .unwrap();
+    let engine = document
+        .ship
+        .all_parts()
+        .find(|part| part.pod.is_none())
+        .unwrap();
+    assert_eq!(document.ship.all_parts().count(), 2);
+    assert_eq!(document.ship.all_connections().count(), 1);
+    assert_eq!(
+        pod.pod.as_ref().unwrap().staging.as_ref().unwrap().steps[0].activations[0].id,
+        engine.id
+    );
+    assert!(document.undo());
+    assert_eq!(document.ship, Ship::default());
+    assert!(!document.dirty);
+}

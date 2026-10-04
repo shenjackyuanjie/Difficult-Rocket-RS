@@ -187,6 +187,7 @@ struct SmokeTest {
     view: bool,
     browser: bool,
     staging: bool,
+    native_ime: bool,
     started: std::time::Instant,
 }
 
@@ -236,6 +237,7 @@ fn main() -> anyhow::Result<()> {
             view: args.iter().any(|arg| arg == "--view-smoke-test"),
             browser: args.iter().any(|arg| arg == "--browser-smoke-test"),
             staging: args.iter().any(|arg| arg == "--staging-smoke-test"),
+            native_ime: args.iter().any(|arg| arg == "--native-ime-test"),
             started: std::time::Instant::now(),
         })
         .insert_resource(EditorPaths {
@@ -295,6 +297,7 @@ fn main() -> anyhow::Result<()> {
                         view_smoke::run,
                         panels::browser_smoke::run,
                         properties::staging_smoke::run,
+                        properties::native_ime::run,
                     )
                         .chain(),
                     panels::pointer_over_ui,

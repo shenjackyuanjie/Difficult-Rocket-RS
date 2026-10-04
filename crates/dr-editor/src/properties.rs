@@ -5,6 +5,7 @@ use dr_core::{
     Activation, ConnectionRole, DuplicateRepair, ReferenceSite, StageStep, StagingState,
 };
 
+pub(crate) mod native_ime;
 pub(crate) mod repair_smoke;
 pub(crate) mod smoke;
 pub(crate) mod staging_smoke;
@@ -454,6 +455,10 @@ pub(crate) fn actions(
 }
 
 fn insert_text(inspector: &mut Inspector, text: &str) {
+    let text: String = text.chars().filter(|c| !c.is_control()).collect();
+    if text.is_empty() {
+        return;
+    }
     let Some(field) = inspector.focus else {
         return;
     };
@@ -466,7 +471,6 @@ fn insert_text(inspector: &mut Inspector, text: &str) {
         inspector.caret = 0;
     }
     inspector.select_all = false;
-    let text: String = text.chars().filter(|c| !c.is_control()).collect();
     value.insert_str(inspector.caret, &text);
     inspector.caret += text.len();
 }
@@ -520,6 +524,7 @@ pub(crate) fn input(
     mut windows: Query<&mut Window>,
     mut drag: ResMut<DragState>,
     mut cursor: ResMut<EditorCursor>,
+    fields: Query<(&Action, &ComputedNode, &UiGlobalTransform)>,
 ) {
     if inspector.draft.is_none() {
         if keys.just_pressed(KeyCode::F2) {
@@ -532,24 +537,31 @@ pub(crate) fn input(
         ime.clear();
     } else {
         let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-        let mut committed = false;
+        // 取消/提交预编辑的同一帧仍属于输入法，不能把 Escape 或候选键交给草稿。
+        let mut composition_frame = !inspector.preedit.is_empty();
         for event in ime.read() {
+            if inspector.focus != Some(Field::Name) {
+                continue;
+            }
             match event {
-                Ime::Preedit { value, .. } => inspector.preedit = value.clone(),
+                Ime::Preedit { value, .. } => {
+                    inspector.preedit = value.clone();
+                    composition_frame = true;
+                }
                 Ime::Commit { value, .. } => {
                     insert_text(&mut inspector, value);
                     inspector.preedit.clear();
-                    committed = true;
+                    composition_frame = true;
                 }
                 Ime::Disabled { .. } => inspector.preedit.clear(),
                 _ => {}
             }
         }
-        if keys.just_pressed(KeyCode::Escape) && inspector.preedit.is_empty() && !committed {
+        if keys.just_pressed(KeyCode::Escape) && !composition_frame {
             *inspector = Inspector::default();
-        } else if control && keys.just_pressed(KeyCode::KeyA) {
+        } else if control && keys.just_pressed(KeyCode::KeyA) && !composition_frame {
             inspector.select_all = true;
-        } else if !control && inspector.preedit.is_empty() && !committed {
+        } else if !control && !composition_frame {
             for event in events
                 .read()
                 .filter(|event| event.state == ButtonState::Pressed)
@@ -566,8 +578,16 @@ pub(crate) fn input(
     }
     for mut window in &mut windows {
         window.ime_enabled = inspector.draft.is_some() && inspector.focus == Some(Field::Name);
-        if window.ime_enabled {
-            window.ime_position = Vec2::new(window.width() * 0.4, window.height() * 0.35);
+        if window.ime_enabled
+            && let Some((_, node, transform)) = fields
+                .iter()
+                .find(|(action, _, _)| **action == Action::Focus(Field::Name))
+        {
+            let bottom_left = transform
+                .transform_point2(Vec2::new(-node.size().x * 0.5, node.size().y * 0.5))
+                * node.inverse_scale_factor();
+            window.ime_position = (bottom_left + Vec2::new(10.0, 2.0))
+                .clamp(Vec2::ZERO, Vec2::new(window.width(), window.height()));
         }
     }
 }

@@ -1883,8 +1883,10 @@ dependencies = [
  "anyhow",
  "bevy",
  "dr-core",
+ "raw-window-handle",
  "rfd",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
