@@ -277,6 +277,7 @@ fn main() -> anyhow::Result<()> {
         )
         .add_plugins(egui_ui::EditorEguiPlugin)
         .add_message::<files::FileAction>()
+        .add_message::<panels::PanelButton>()
         .add_systems(
             Startup,
             (
@@ -319,12 +320,9 @@ fn main() -> anyhow::Result<()> {
                     view::controls.run_if(egui_ui::canvas_input_available),
                 )
                     .chain(),
-                panels::scroll_panels,
                 render::sync,
                 placement::draw_preview,
                 selection::draw_preview,
-                panels::render_palette,
-                panels::render_browser,
                 render::connections,
                 view::draw_debug,
                 update_hud,
@@ -474,8 +472,10 @@ fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: px(16),
+                left: px(264),
                 top: px(60),
+                max_width: Val::Percent(40.0),
+                overflow: Overflow::clip(),
                 padding: UiRect::all(px(8)),
                 ..default()
             },
@@ -769,7 +769,7 @@ fn update_hud(
         .map(|ty| ty.name.as_str())
         .unwrap_or("无可用部件");
     for mut text in &mut labels {
-        **text = format!(
+        let value = format!(
             "DR Editor | 部件: {} | 质量: {:.2} | 已选: {} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存 Ctrl+Shift+S: 另存为\nShift: 增减选择 空白拖动: 框选 Ctrl+A: 全选 Ctrl+C/X/V: 复制/剪切/粘贴\nCtrl+N: 新建 Ctrl+O: 打开（也可拖入 XML）\n滚轮/中键: 视图 Home: 复位 F/Shift+F: 适配 F3: 调试 F4: 显隐 F12: 截图\n{}",
             document.ship.all_parts().count(),
             document.ship.total_mass(&document.catalog),
@@ -782,6 +782,9 @@ fn update_hud(
             chosen,
             document.status
         );
+        if text.0 != value {
+            text.0 = value;
+        }
     }
 }
 

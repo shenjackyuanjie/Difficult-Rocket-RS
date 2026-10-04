@@ -5,6 +5,7 @@ pub(crate) struct State {
     phase: u8,
     before: Option<Ship>,
     after: Option<Ship>,
+    input: crate::egui_ui::UiTestInput,
 }
 
 /// 在真实窗口和 ECS 调度中验证目录→画布→撤销重做及 UI 输入隔离。
@@ -14,12 +15,13 @@ pub(crate) fn run(
     mut state: Local<State>,
     document: Res<EditorDocument>,
     cursor: Res<EditorCursor>,
-    mut buttons: Query<(&PanelButton, &mut Interaction)>,
+    ui: Res<egui_panel::UiState>,
+    mut inputs: Query<&mut bevy_egui::EguiInput, With<bevy_egui::PrimaryEguiContext>>,
     mut windows: Query<(Entity, &mut Window), With<bevy::window::PrimaryWindow>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut wheels: MessageWriter<MouseWheel>,
-    scrolling: Query<&ScrollPosition, With<PaletteScroll>>,
+
     cameras: Query<&Projection, With<Camera2d>>,
     previews: Query<(&Sprite, &Transform), With<placement::PlacementVisual>>,
     mut commands: Commands,
@@ -31,14 +33,21 @@ pub(crate) fn run(
     let Ok((window_id, mut window)) = windows.single_mut() else {
         return;
     };
+    let Ok(mut input) = inputs.single_mut() else {
+        return;
+    };
+    if state.input.tick(&mut input) {
+        return;
+    }
     match state.phase {
         0 => {
             state.before = Some(document.ship.clone());
-            let (_, mut interaction) = buttons
-                .iter_mut()
-                .find(|(button, _)| matches!(button, PanelButton::Part(0)))
-                .expect("目录中缺少首个可见部件");
-            *interaction = Interaction::Pressed;
+            if !state
+                .input
+                .click_panel(PanelButton::Part(0), &ui, &mut input)
+            {
+                return;
+            }
         }
         1 => {
             assert!(cursor.placing, "目录选择未进入放置预览");
@@ -158,6 +167,15 @@ pub(crate) fn run(
             keys.press(KeyCode::Escape);
             window.focused = true;
             window.set_cursor_position(Some(Vec2::new(1300.0, 400.0)));
+            input.0.events.extend([
+                bevy_egui::egui::Event::PointerMoved(bevy_egui::egui::pos2(1300.0, 400.0)),
+                bevy_egui::egui::Event::MouseWheel {
+                    phase: bevy_egui::egui::TouchPhase::Move,
+                    unit: bevy_egui::egui::MouseWheelUnit::Point,
+                    delta: bevy_egui::egui::vec2(0.0, -120.0),
+                    modifiers: bevy_egui::egui::Modifiers::NONE,
+                },
+            ]);
             wheels.write(MouseWheel {
                 phase: bevy::input::touch::TouchPhase::Moved,
                 unit: MouseScrollUnit::Line,
@@ -168,7 +186,7 @@ pub(crate) fn run(
         }
         12 => {
             assert!(!cursor.placing, "Esc 未取消预览");
-            assert!(scrolling.single().unwrap().y > 0.0, "目录滚轮没有滚动列表");
+            assert!(ui.palette_offset > 0.0, "目录滚轮没有滚动列表");
             let Projection::Orthographic(projection) = cameras.single().unwrap() else {
                 panic!("相机投影错误")
             };

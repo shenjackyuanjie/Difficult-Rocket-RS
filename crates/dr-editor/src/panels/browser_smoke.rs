@@ -4,6 +4,7 @@ use super::*;
 pub(crate) struct State {
     phase: u8,
     delay: u8,
+    input: crate::egui_ui::UiTestInput,
     before: Option<Ship>,
     last: Option<PathBuf>,
     scan_ms: f64,
@@ -16,14 +17,20 @@ pub(crate) fn run(
     document: Res<EditorDocument>,
     paths: Res<EditorPaths>,
     mut browser: ResMut<ShipBrowser>,
-    mut scrolling: Query<(&ComputedNode, &mut ScrollPosition), With<BrowserScroll>>,
-    mut buttons: Query<(&PanelButton, &mut Interaction)>,
+    mut ui: ResMut<egui_panel::UiState>,
+    mut inputs: Query<&mut bevy_egui::EguiInput, With<bevy_egui::PrimaryEguiContext>>,
     mut commands: Commands,
 ) {
     if !mode.browser || mode.started.elapsed().as_secs() < 3 {
         return;
     }
     assert!(mode.started.elapsed().as_secs() < 90, "大目录交互自测超时");
+    let Ok(mut input) = inputs.single_mut() else {
+        return;
+    };
+    if state.input.tick(&mut input) {
+        return;
+    }
     match state.phase {
         0 => {
             state.before = Some(document.ship.clone());
@@ -51,22 +58,25 @@ pub(crate) fn run(
             if state.delay < 5 {
                 return;
             }
-            assert_eq!(
-                buttons
-                    .iter()
-                    .filter(|(button, _)| matches!(button, PanelButton::Open(_)))
-                    .count(),
-                1000
+            assert!(
+                ui.browser_rows > 0 && ui.browser_rows < 80,
+                "虚拟列表应只绘制可见行"
             );
-            let (node, mut scroll) = scrolling.single_mut().unwrap();
-            scroll.y = (node.content_size().y - node.size().y) * node.inverse_scale_factor();
-            assert!(scroll.y > 10000.0);
+            ui.browser_scroll = Some(browser.files.len() as f32 * 32.0);
         }
         2 => {
-            assert!(scrolling.single().unwrap().1.y > 10000.0);
-            let (_, mut interaction) = buttons.iter_mut().find(|(button, _)| matches!(button, PanelButton::Open(path) if Some(path) == state.last.as_ref())).unwrap();
-            *interaction = Interaction::Pressed;
+            if ui.browser_offset <= 10000.0 {
+                return;
+            }
+            let last = state.last.clone().unwrap();
+            if !state
+                .input
+                .click_panel(PanelButton::Open(last), &ui, &mut input)
+            {
+                return;
+            }
         }
+
         3 => {
             assert_eq!(
                 paths.ship.as_deref().map(PathBuf::from).as_ref(),
@@ -75,7 +85,7 @@ pub(crate) fn run(
             assert_eq!(state.before.as_ref(), Some(&document.ship));
             assert!(!document.dirty);
             assert!(!document.history.can_undo());
-            assert!(scrolling.single().unwrap().1.y > 10000.0);
+            assert!(ui.browser_offset > 10000.0);
         }
         4 => {
             let report = format!(
@@ -84,7 +94,7 @@ pub(crate) fn run(
             );
             std::fs::write("target/editor-browser-smoke.json", &report).unwrap();
             info!(
-                "大目录交互自测通过：1000 个文件排序与渲染、异常 XML 过滤、滚动到底、末项打开与滚动位置保留，{}",
+                "大目录交互自测通过：1000 个文件排序与虚拟列表渲染、异常 XML 过滤、滚动到底、末项打开与滚动位置保留，{}",
                 report.trim()
             );
             use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};

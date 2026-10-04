@@ -118,9 +118,9 @@ fn palette_click_selects_template_without_mutating_ship_or_history() {
         .init_resource::<EditorCursor>()
         .init_resource::<DragState>()
         .add_message::<files::FileAction>()
+        .add_message::<PanelButton>()
         .add_systems(Update, panel_actions);
-    app.world_mut()
-        .spawn((PanelButton::Part(2), Interaction::Pressed));
+    app.world_mut().write_message(PanelButton::Part(2));
     app.update();
     let cursor = app.world().resource::<EditorCursor>();
     assert_eq!(cursor.catalog_index, 2);

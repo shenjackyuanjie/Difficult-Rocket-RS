@@ -13,7 +13,7 @@ pub(crate) fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     document: Res<EditorDocument>,
-    mut buttons: Query<(&panels::PanelButton, &mut Interaction)>,
+    mut buttons: MessageWriter<panels::PanelButton>,
     mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
@@ -32,11 +32,7 @@ pub(crate) fn run(
             .visible()
             .position(|kind| kind.id == id)
             .expect("自测需要原版部件目录");
-        let (_, mut interaction) = buttons
-            .iter_mut()
-            .find(|(button, _)| matches!(button, panels::PanelButton::Part(i) if *i == index))
-            .unwrap();
-        *interaction = Interaction::Pressed;
+        buttons.write(panels::PanelButton::Part(index));
     };
     let mut click = |position: (f32, f32)| {
         window.focused = true;

@@ -5,7 +5,6 @@
 //! EguiPrimaryContextPass 由插件在 PostUpdate::EndPass 内执行，不应手动运行。
 
 use super::*;
-use bevy_egui::input::EguiWantsInput;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 
 /// 本次 egui pass 的逻辑坐标，供窗口自动化直接生成 egui 指针事件。
@@ -19,18 +18,18 @@ impl Plugin for EditorEguiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin::default())
             .init_resource::<UiHits>()
-            .add_systems(EguiPrimaryContextPass, draw);
+            .init_resource::<panels::egui_panel::UiState>()
+            .add_systems(
+                EguiPrimaryContextPass,
+                (panels::egui_panel::draw, draw).chain(),
+            );
     }
 }
 
-/// EguiWantsInput 在 PostUpdate 更新，Update 看到的是上一 pass 的结果。
-/// 因此模态是否打开还必须直接检查 Inspector，不能只依赖 egui 的焦点标志。
-pub fn canvas_input_available(
-    inspector: Option<Res<properties::Inspector>>,
-    wants: Option<Res<EguiWantsInput>>,
-) -> bool {
+/// 边栏按钮焦点不独占画布快捷键；只有属性草稿中的文本/模态独占输入。
+/// 直接检查事务状态，避免依赖 PostUpdate 才更新的上一帧焦点。
+pub fn canvas_input_available(inspector: Option<Res<properties::Inspector>>) -> bool {
     !inspector.is_some_and(|inspector| inspector.is_open())
-        && wants.is_none_or(|wants| !wants.wants_any_input())
 }
 
 /// 放在 pointer_over_ui、properties::actions 之后，画布输入系统之前。
@@ -40,13 +39,12 @@ pub fn prepare_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut inspector: ResMut<properties::Inspector>,
     document: Res<EditorDocument>,
-    wants: Res<EguiWantsInput>,
     mut pointer: ResMut<panels::UiPointer>,
     mut drag: ResMut<DragState>,
     mut cursor: ResMut<EditorCursor>,
     mut camera_drag: ResMut<CameraDrag>,
 ) {
-    if !inspector.is_open() && !wants.wants_any_keyboard_input() && keys.just_pressed(KeyCode::F2) {
+    if !inspector.is_open() && keys.just_pressed(KeyCode::F2) {
         properties::open(&mut inspector, &document);
     }
     if inspector.is_open() {
@@ -56,7 +54,7 @@ pub fn prepare_input(
         camera_drag.0 = None;
     }
     // 沿用现有 Bevy 工具栏的命中结果，而不是覆盖它。
-    pointer.blocked |= inspector.is_open() || wants.wants_any_pointer_input();
+    pointer.blocked |= inspector.is_open();
 }
 
 fn configure_chinese_font(ctx: &egui::Context, paths: &EditorPaths) {
@@ -141,6 +139,20 @@ impl UiTestInput {
             return true;
         }
         false
+    }
+
+    pub fn click_rect(&mut self, rect: egui::Rect, input: &mut bevy_egui::EguiInput) {
+        let pos = rect.center();
+        input.0.events.extend([
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]);
+        self.release = Some(pos);
     }
 
     pub fn click(
