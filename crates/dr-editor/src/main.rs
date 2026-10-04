@@ -1,4 +1,5 @@
 mod connection_smoke;
+mod egui_ui;
 mod files;
 mod panels;
 mod performance;
@@ -188,6 +189,7 @@ struct SmokeTest {
     browser: bool,
     staging: bool,
     native_ime: bool,
+    egui: bool,
     started: std::time::Instant,
 }
 
@@ -238,6 +240,7 @@ fn main() -> anyhow::Result<()> {
             browser: args.iter().any(|arg| arg == "--browser-smoke-test"),
             staging: args.iter().any(|arg| arg == "--staging-smoke-test"),
             native_ime: args.iter().any(|arg| arg == "--native-ime-test"),
+            egui: args.iter().any(|arg| arg == "--egui-smoke-test"),
             started: std::time::Instant::now(),
         })
         .insert_resource(EditorPaths {
@@ -272,6 +275,7 @@ fn main() -> anyhow::Result<()> {
                     ..default()
                 }),
         )
+        .add_plugins(egui_ui::EditorEguiPlugin)
         .add_message::<files::FileAction>()
         .add_systems(
             Startup,
@@ -288,7 +292,7 @@ fn main() -> anyhow::Result<()> {
                 (
                     (
                         panels::smoke::run,
-                        properties::smoke::run,
+                        properties::egui_smoke::run,
                         connection_smoke::run,
                         performance::run,
                         scoped_smoke::run,
@@ -302,17 +306,17 @@ fn main() -> anyhow::Result<()> {
                         .chain(),
                     panels::pointer_over_ui,
                     properties::actions,
-                    properties::input,
+                    egui_ui::prepare_input,
                     panels::panel_actions.run_if(properties::closed),
                     files::toolbar_actions.run_if(properties::closed),
                     files::file_inputs,
                     properties::cancel_for_file_action,
                     placement::cancel_for_file_action,
                     files::file_actions,
-                    mouse_editor.run_if(properties::closed),
-                    keyboard_commands.run_if(properties::closed),
-                    camera_controls.run_if(properties::closed),
-                    view::controls.run_if(properties::closed),
+                    mouse_editor.run_if(egui_ui::canvas_input_available),
+                    keyboard_commands.run_if(egui_ui::canvas_input_available),
+                    camera_controls,
+                    view::controls.run_if(egui_ui::canvas_input_available),
                 )
                     .chain(),
                 panels::scroll_panels,
@@ -321,7 +325,6 @@ fn main() -> anyhow::Result<()> {
                 selection::draw_preview,
                 panels::render_palette,
                 panels::render_browser,
-                properties::render,
                 render::connections,
                 view::draw_debug,
                 update_hud,
@@ -424,6 +427,11 @@ fn camera_controls(
     let Projection::Orthographic(projection) = &mut *projection else {
         return;
     };
+    if pointer.blocked {
+        drag.0 = None;
+        wheels.clear();
+        return;
+    }
     if keys.just_pressed(KeyCode::Home) && window.focused {
         transform.translation.x = 0.0;
         transform.translation.y = 0.0;
@@ -434,11 +442,6 @@ fn camera_controls(
         wheels.clear();
         return;
     };
-    if pointer.blocked {
-        drag.0 = None;
-        wheels.clear();
-        return;
-    }
     if mouse.pressed(MouseButton::Middle) {
         if let Some(previous) = drag.0 {
             let delta = cursor - previous;

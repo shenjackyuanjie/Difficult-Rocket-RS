@@ -178,15 +178,7 @@ pub(crate) fn pointer_over_ui(
 pub(crate) fn scroll_panels(
     mut wheels: MessageReader<MouseWheel>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    mut areas: Query<
-        (
-            &ComputedNode,
-            &UiGlobalTransform,
-            &mut ScrollPosition,
-            Has<properties::InspectorScroll>,
-        ),
-        With<ScrollArea>,
-    >,
+    mut areas: Query<(&ComputedNode, &UiGlobalTransform, &mut ScrollPosition), With<ScrollArea>>,
     inspector: Option<Res<properties::Inspector>>,
 ) {
     let position = windows
@@ -198,8 +190,8 @@ pub(crate) fn scroll_panels(
         let Some(position) = position else {
             continue;
         };
-        for (node, transform, mut scroll, is_inspector) in &mut areas {
-            if modal && !is_inspector {
+        for (node, transform, mut scroll) in &mut areas {
+            if modal {
                 continue;
             }
             if node.contains_point(*transform, position) {

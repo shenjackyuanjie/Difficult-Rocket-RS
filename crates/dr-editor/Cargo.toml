@@ -9,6 +9,7 @@ anyhow.workspace = true
 bevy.workspace = true
 dr-core = { path = "../dr-core" }
 rfd = "0.17"
+bevy_egui = { version = "0.42", default-features = false, features = ["render", "default_fonts", "manage_clipboard", "bevy_ui"] }
 
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6"

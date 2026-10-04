@@ -1,4 +1,8 @@
 use super::*;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 #[derive(Default)]
 pub(crate) struct State {
@@ -6,6 +10,8 @@ pub(crate) struct State {
     before: Option<Ship>,
     after: Option<Ship>,
     new_id: i64,
+    input: crate::egui_ui::UiTestInput,
+    captured: Option<Arc<AtomicBool>>,
 }
 
 /// 用 Heronb 的真实发动机/油箱重号验证修复 UI，不自动修改源文件。
@@ -15,7 +21,8 @@ pub(crate) fn run(
     mut state: Local<State>,
     inspector: Res<Inspector>,
     mut document: ResMut<EditorDocument>,
-    mut buttons: Query<(&Action, &mut Interaction)>,
+    hits: Res<crate::egui_ui::UiHits>,
+    mut inputs: Query<&mut bevy_egui::EguiInput, With<bevy_egui::PrimaryEguiContext>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
     mut commands: Commands,
@@ -27,13 +34,12 @@ pub(crate) fn run(
         mode.started.elapsed().as_secs() < 60,
         "重复编号修复自测超时"
     );
-    let mut press = |action: Action| {
-        let (_, mut interaction) = buttons
-            .iter_mut()
-            .find(|(item, _)| **item == action)
-            .unwrap_or_else(|| panic!("未找到修复按钮：{action:?}"));
-        *interaction = Interaction::Pressed;
+    let Ok(mut input) = inputs.single_mut() else {
+        return;
     };
+    if state.input.tick(&mut input) {
+        return;
+    }
     let id = 1_200_404;
     match state.phase {
         0 => {
@@ -59,32 +65,79 @@ pub(crate) fn run(
         }
         1 => {
             keys.reset_all();
-            press(Action::OpenRepair);
+            if !state.input.click(Action::OpenRepair, &hits, &mut input) {
+                return;
+            }
         }
         2 => {
             assert_eq!(inspector.repair.as_ref().unwrap().unassigned(), 4);
-            press(Action::Apply);
+            if !state.input.click(Action::Apply, &hits, &mut input) {
+                return;
+            }
         }
         3 => {
             assert!(inspector.is_open());
             assert!(!inspector.error.is_empty());
             assert_eq!(state.before.as_ref(), Some(&document.ship));
-            press(Action::RepairTarget(0));
+            if !state
+                .input
+                .click(Action::RepairTarget(0), &hits, &mut input)
+            {
+                return;
+            }
         }
-        4 | 5 => press(Action::RepairTarget(1)),
-        6 | 7 => press(Action::RepairTarget(2)),
-        8 => press(Action::RepairTarget(3)),
+        4 | 5 => {
+            if !state
+                .input
+                .click(Action::RepairTarget(1), &hits, &mut input)
+            {
+                return;
+            }
+        }
+        6 | 7 => {
+            if !state
+                .input
+                .click(Action::RepairTarget(2), &hits, &mut input)
+            {
+                return;
+            }
+        }
+        8 => {
+            if !state
+                .input
+                .click(Action::RepairTarget(3), &hits, &mut input)
+            {
+                return;
+            }
+        }
         9 => {
             let repair = inspector.repair.as_ref().unwrap();
-            assert_eq!(repair.unassigned(), 0);
+            assert_eq!(
+                repair.unassigned(),
+                0,
+                "引用分配：{:?}",
+                repair.references()
+            );
             state.new_id = repair.new_ids()[1];
             assert_eq!(state.before.as_ref(), Some(&document.ship));
-            use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+            use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
+            let captured = Arc::new(AtomicBool::new(false));
+            state.captured = Some(captured.clone());
             commands
                 .spawn(Screenshot::primary_window())
-                .observe(save_to_disk("target/editor-repair-draft.png"));
+                .observe(save_to_disk("target/editor-repair-draft.png"))
+                .observe(move |_: On<ScreenshotCaptured>| {
+                    captured.store(true, Ordering::Release);
+                });
         }
-        10 => press(Action::Apply),
+        10 => {
+            if !state.captured.as_ref().unwrap().load(Ordering::Acquire) {
+                return;
+            }
+            if !state.input.click(Action::Apply, &hits, &mut input) {
+                return;
+            }
+        }
         11 => {
             assert!(!inspector.is_open(), "{}", inspector.error);
             let mut expected = state.before.as_ref().unwrap().clone();

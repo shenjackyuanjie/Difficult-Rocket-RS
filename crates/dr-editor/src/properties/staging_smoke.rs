@@ -6,7 +6,7 @@ pub(crate) struct Captured;
 #[derive(Default)]
 pub(crate) struct State {
     phase: u8,
-    delay: u8,
+    input: crate::egui_ui::UiTestInput,
     before: Option<Ship>,
     after: Option<Ship>,
 }
@@ -16,9 +16,9 @@ pub(crate) fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     mut document: ResMut<EditorDocument>,
-    inspector: Res<Inspector>,
-    mut scrolling: Query<(&ComputedNode, &mut ScrollPosition), With<InspectorScroll>>,
-    mut buttons: Query<(&Action, &mut Interaction)>,
+    mut inspector: ResMut<Inspector>,
+    hits: Res<crate::egui_ui::UiHits>,
+    mut inputs: Query<&mut bevy_egui::EguiInput, With<bevy_egui::PrimaryEguiContext>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     captured: Option<Res<Captured>>,
     mut commands: Commands,
@@ -30,13 +30,12 @@ pub(crate) fn run(
         mode.started.elapsed().as_secs() < 90,
         "复杂分级交互自测超时"
     );
-    let mut press = |action: Action| {
-        let (_, mut interaction) = buttons
-            .iter_mut()
-            .find(|(button, _)| **button == action)
-            .unwrap_or_else(|| panic!("未找到按钮 {action:?}"));
-        *interaction = Interaction::Pressed;
+    let Ok(mut input) = inputs.single_mut() else {
+        return;
     };
+    if state.input.tick(&mut input) {
+        return;
+    }
     match state.phase {
         0 => {
             let mut ship = new_ship(&document.catalog);
@@ -57,13 +56,9 @@ pub(crate) fn run(
             document.clear_selection();
             document.refresh();
             state.before = Some(document.ship.clone());
-            press(Action::Open);
+            act(&Action::Open, &mut inspector, &mut document);
         }
         1 => {
-            state.delay += 1;
-            if state.delay < 5 {
-                return;
-            }
             assert_eq!(
                 inspector
                     .draft
@@ -76,16 +71,16 @@ pub(crate) fn run(
                     .len(),
                 64
             );
-            let (node, mut scroll) = scrolling.single_mut().unwrap();
-            scroll.y = (node.content_size().y - node.size().y) * node.inverse_scale_factor();
-            assert!(scroll.y > 10000.0);
         }
-        2 => press(Action::Moved(63, 15)),
+        2 => {
+            if !state.input.click(Action::Moved(63, 15), &hits, &mut input) {
+                return;
+            }
+        }
         3 => {
             let draft = inspector.draft.as_ref().unwrap();
             assert!(draft.staging.as_ref().unwrap().steps[63].activations[15].moved);
             assert_eq!(state.before.as_ref(), Some(&document.ship));
-            assert!(scrolling.single().unwrap().1.y > 10000.0);
             use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
             commands
                 .spawn(Screenshot::primary_window())
@@ -98,7 +93,9 @@ pub(crate) fn run(
             if captured.is_none() {
                 return;
             }
-            press(Action::Apply);
+            if !state.input.click(Action::Apply, &hits, &mut input) {
+                return;
+            }
         }
         5 => {
             assert!(inspector.draft.is_none(), "{}", inspector.error);

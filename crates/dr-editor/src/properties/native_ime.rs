@@ -6,6 +6,8 @@ pub(crate) struct State {
     before: Option<Ship>,
     status: String,
     native_phase: u8,
+    native_preedit: String,
+    input: crate::egui_ui::UiTestInput,
 }
 
 /// Windows 主线程上的 IMM 负责预编辑与提交；此处不注入 Bevy IME 消息。
@@ -14,9 +16,20 @@ pub(crate) fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     mut document: ResMut<EditorDocument>,
-    inspector: Res<Inspector>,
-    mut buttons: Query<(&Action, &mut Interaction)>,
-    windows: Query<(&Window, &bevy::window::RawHandleWrapper), With<bevy::window::PrimaryWindow>>,
+    mut inspector: ResMut<Inspector>,
+    hits: Res<crate::egui_ui::UiHits>,
+    mut inputs: Query<
+        (
+            &mut bevy_egui::EguiInput,
+            &bevy_egui::input::EguiContextImeState,
+        ),
+        With<bevy_egui::PrimaryEguiContext>,
+    >,
+    mut ime: MessageReader<bevy::window::Ime>,
+    mut windows: Query<
+        (&mut Window, &bevy::window::RawHandleWrapper),
+        With<bevy::window::PrimaryWindow>,
+    >,
     _main_thread: bevy::ecs::system::NonSendMarker,
     mut commands: Commands,
 ) {
@@ -27,43 +40,68 @@ pub(crate) fn run(
         mode.started.elapsed().as_secs() < 90,
         "Windows 原生 IME 自测超时"
     );
-    let mut press = |action: Action| {
-        let (_, mut interaction) = buttons
-            .iter_mut()
-            .find(|(button, _)| **button == action)
-            .unwrap();
-        *interaction = Interaction::Pressed;
+    for event in ime.read() {
+        match event {
+            bevy::window::Ime::Preedit { value, .. } => state.native_preedit = value.clone(),
+            bevy::window::Ime::Commit { .. } | bevy::window::Ime::Disabled { .. } => {
+                state.native_preedit.clear()
+            }
+            _ => {}
+        }
+    }
+    let Ok((mut input, ime_state)) = inputs.single_mut() else {
+        return;
     };
+    let Ok((mut window, raw)) = windows.single_mut() else {
+        return;
+    };
+    window.focused = true;
+    if state.input.tick(&mut input) {
+        return;
+    }
     match state.phase {
         0 => {
             state.before = Some(document.ship.clone());
-            press(Action::Open);
+            act(&Action::Open, &mut inspector, &mut document);
         }
-        1 => press(Action::Focus(Field::Name)),
-        2 => {
-            let (window, raw) = windows.single().unwrap();
-            if !window.ime_enabled {
+        1 => {
+            if !state
+                .input
+                .click(Action::Focus(Field::Name), &hits, &mut input)
+            {
                 return;
             }
+        }
+        2 => {
+            // bevy_egui 直接更新 Winit，不回写 Bevy Window 的旧 IME 字段。
+            if !ime_state.is_ime_allowed {
+                return;
+            }
+            let anchor = ime_state.ime_rect.expect("egui 未定位 TextEdit").min;
             let draft = inspector.draft.as_ref().expect("输入法取消意外关闭了草稿");
             assert_eq!(state.before.as_ref(), Some(&document.ship));
             let status = format!(
                 "ready\nname={}\npreedit={}\nanchor={},{}\n",
-                draft.name, inspector.preedit, window.ime_position.x, window.ime_position.y
+                draft.name, state.native_preedit, anchor.x, anchor.y
             );
             if status != state.status {
                 std::fs::write("target/native-ime-state.txt", &status).unwrap();
                 state.status = status;
             }
             #[cfg(windows)]
-            drive_native(&mut state.native_phase, &inspector.preedit, window, raw);
+            {
+                let preedit = state.native_preedit.clone();
+                drive_native(&mut state.native_phase, &preedit, &window, raw, anchor);
+            }
             #[cfg(not(windows))]
             panic!("此自测仅支持 Windows");
             if draft.name != "原生火箭" {
                 return;
             }
-            assert!(inspector.preedit.is_empty());
-            press(Action::Apply);
+            assert!(state.native_preedit.is_empty());
+            if !state.input.click(Action::Apply, &hits, &mut input) {
+                return;
+            }
         }
         3 => {
             assert!(inspector.draft.is_none(), "{}", inspector.error);
@@ -96,6 +134,7 @@ fn drive_native(
     preedit: &str,
     window: &Window,
     raw: &bevy::window::RawHandleWrapper,
+    anchor: bevy_egui::egui::Pos2,
 ) {
     use windows_sys::Win32::UI::Input::{Ime::*, KeyboardAndMouse::*};
     let raw_window_handle::RawWindowHandle::Win32(handle) = raw.get_window_handle() else {
@@ -128,12 +167,8 @@ fn drive_native(
                     "未配置候选窗"
                 );
                 let scale = window.scale_factor();
-                assert!(
-                    (candidate.ptCurrentPos.x as f32 - window.ime_position.x * scale).abs() <= 2.0
-                );
-                assert!(
-                    (candidate.ptCurrentPos.y as f32 - window.ime_position.y * scale).abs() <= 2.0
-                );
+                assert!((candidate.ptCurrentPos.x as f32 - anchor.x * scale).abs() <= 2.0);
+                assert!((candidate.ptCurrentPos.y as f32 - anchor.y * scale).abs() <= 2.0);
                 assert!(ImmSetOpenStatus(context, 1) != 0, "无法开启 IME");
                 let text: Vec<u16> = "原生火箭".encode_utf16().collect();
                 assert!(

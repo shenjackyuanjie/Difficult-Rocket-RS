@@ -1,17 +1,16 @@
 use super::*;
-use bevy::input::{ButtonState, keyboard::KeyboardInput};
-use bevy::window::Ime;
 use dr_core::{
     Activation, ConnectionRole, DuplicateRepair, ReferenceSite, StageStep, StagingState,
 };
 
-pub(crate) mod native_ime;
-pub(crate) mod repair_smoke;
-pub(crate) mod smoke;
-pub(crate) mod staging_smoke;
+pub mod egui_panel;
+pub mod egui_smoke;
+pub mod native_ime;
+pub mod repair_smoke;
+pub mod staging_smoke;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Field {
+pub enum Field {
     Name,
     Fuel,
     Throttle,
@@ -20,20 +19,20 @@ pub(crate) enum Field {
 }
 
 #[derive(Clone)]
-struct Draft {
-    key: PartKey,
-    original: Part,
-    name: String,
-    fuel: String,
-    throttle: String,
-    current_stage: String,
-    target: String,
-    active: bool,
-    staging: Option<StagingState>,
+pub struct Draft {
+    pub key: PartKey,
+    pub original: Part,
+    pub name: String,
+    pub fuel: String,
+    pub throttle: String,
+    pub current_stage: String,
+    pub target: String,
+    pub active: bool,
+    pub staging: Option<StagingState>,
 }
 
 impl Draft {
-    fn new(key: PartKey, part: &Part) -> Self {
+    pub fn new(key: PartKey, part: &Part) -> Self {
         let pod = part.pod.as_ref();
         let staging = pod.and_then(|pod| pod.staging.clone());
         Self {
@@ -53,7 +52,7 @@ impl Draft {
         }
     }
 
-    fn field(&mut self, field: Field) -> &mut String {
+    pub fn field(&mut self, field: Field) -> &mut String {
         match field {
             Field::Name => &mut self.name,
             Field::Fuel => &mut self.fuel,
@@ -63,7 +62,7 @@ impl Draft {
         }
     }
 
-    fn command(&self, document: &EditorDocument) -> Result<EditorCommand, String> {
+    pub fn command(&self, document: &EditorDocument) -> Result<EditorCommand, String> {
         if document.ship.part_at(self.key) != Some(&self.original) {
             return Err("部件已变更，请取消后重新打开属性".into());
         }
@@ -128,32 +127,29 @@ fn number(value: &str, label: &str) -> Result<f64, String> {
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct Inspector {
-    draft: Option<Draft>,
-    repair: Option<DuplicateRepair>,
-    focus: Option<Field>,
-    select_all: bool,
-    caret: usize,
-    preedit: String,
-    error: String,
+pub struct Inspector {
+    pub draft: Option<Draft>,
+    pub repair: Option<DuplicateRepair>,
+    pub focus: Option<Field>,
+    pub error: String,
 }
 
 impl Inspector {
-    pub(crate) fn is_open(&self) -> bool {
+    pub fn is_open(&self) -> bool {
         self.draft.is_some()
     }
 
-    pub(crate) fn guard_file_input(&mut self) {
+    pub fn guard_file_input(&mut self) {
         self.error = "请先应用或取消属性草稿，再打开文件或关闭窗口".into();
     }
 }
 
-pub(crate) fn closed(inspector: Option<Res<Inspector>>) -> bool {
+pub fn closed(inspector: Option<Res<Inspector>>) -> bool {
     inspector.is_none_or(|inspector| inspector.draft.is_none())
 }
 
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Action {
+pub enum Action {
     Open,
     Cancel,
     Apply,
@@ -170,11 +166,6 @@ pub(crate) enum Action {
     RemoveActivation(usize, usize),
     Moved(usize, usize),
 }
-
-#[derive(Component)]
-pub(crate) struct InspectorRoot;
-#[derive(Component)]
-pub(crate) struct InspectorScroll;
 
 fn label(value: impl Into<String>, font: &Handle<Font>, size: f32) -> impl Bundle {
     (
@@ -210,7 +201,7 @@ fn button(action: Action, selected: bool) -> impl Bundle {
     )
 }
 
-pub(crate) fn setup(mut commands: Commands, assets: Res<AssetServer>) {
+pub fn setup(mut commands: Commands, assets: Res<AssetServer>) {
     let font = assets.load("fonts/HarmonyOS_Sans/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ttf");
     commands
         .spawn(button(Action::Open, false))
@@ -229,7 +220,7 @@ pub(crate) fn setup(mut commands: Commands, assets: Res<AssetServer>) {
         });
 }
 
-fn open(inspector: &mut Inspector, document: &EditorDocument) {
+pub fn open(inspector: &mut Inspector, document: &EditorDocument) {
     let part = document
         .selected
         .and_then(|key| document.ship.part_at(key).map(|part| (key, part)))
@@ -245,7 +236,7 @@ fn open(inspector: &mut Inspector, document: &EditorDocument) {
     }
 }
 
-fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument) {
+pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument) {
     match action {
         Action::Open => {
             open(inspector, document);
@@ -292,7 +283,6 @@ fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument
                     Ok(repair) => {
                         inspector.repair = Some(repair);
                         inspector.focus = None;
-                        inspector.preedit.clear();
                         inspector.error.clear();
                     }
                     Err(error) => inspector.error = error,
@@ -329,9 +319,6 @@ fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument
     match *action {
         Action::Focus(field) => {
             inspector.focus = Some(field);
-            inspector.caret = draft.field(field).len();
-            inspector.select_all = true;
-            inspector.preedit.clear();
         }
         Action::Active => draft.active = !draft.active,
         Action::CycleTarget(forward) => {
@@ -362,10 +349,6 @@ fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument
                     (None, false) => parts.len() - 1,
                 };
                 draft.target = parts[index].to_string();
-                if inspector.focus == Some(Field::Target) {
-                    inspector.caret = draft.target.len();
-                    inspector.select_all = true;
-                }
             }
         }
         Action::AddStep => {
@@ -437,7 +420,7 @@ fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument
     }
 }
 
-pub(crate) fn actions(
+pub fn actions(
     buttons: Query<(&Interaction, &Action), Changed<Interaction>>,
     mut inspector: ResMut<Inspector>,
     mut document: ResMut<EditorDocument>,
@@ -454,145 +437,7 @@ pub(crate) fn actions(
     }
 }
 
-fn insert_text(inspector: &mut Inspector, text: &str) {
-    let text: String = text.chars().filter(|c| !c.is_control()).collect();
-    if text.is_empty() {
-        return;
-    }
-    let Some(field) = inspector.focus else {
-        return;
-    };
-    let Some(draft) = &mut inspector.draft else {
-        return;
-    };
-    let value = draft.field(field);
-    if inspector.select_all {
-        value.clear();
-        inspector.caret = 0;
-    }
-    inspector.select_all = false;
-    value.insert_str(inspector.caret, &text);
-    inspector.caret += text.len();
-}
-
-fn edit_key(inspector: &mut Inspector, key: KeyCode) {
-    let Some(field) = inspector.focus else {
-        return;
-    };
-    let Some(draft) = &mut inspector.draft else {
-        return;
-    };
-    let value = draft.field(field);
-    let previous = value[..inspector.caret]
-        .char_indices()
-        .next_back()
-        .map(|(i, _)| i)
-        .unwrap_or(0);
-    let next = value[inspector.caret..]
-        .chars()
-        .next()
-        .map(|c| inspector.caret + c.len_utf8())
-        .unwrap_or(value.len());
-    match key {
-        KeyCode::Backspace | KeyCode::Delete if inspector.select_all => {
-            value.clear();
-            inspector.caret = 0;
-        }
-        KeyCode::Backspace => {
-            value.drain(previous..inspector.caret);
-            inspector.caret = previous;
-        }
-        KeyCode::Delete => {
-            value.drain(inspector.caret..next);
-        }
-        KeyCode::ArrowLeft => inspector.caret = previous,
-        KeyCode::ArrowRight => inspector.caret = next,
-        KeyCode::Home => inspector.caret = 0,
-        KeyCode::End => inspector.caret = value.len(),
-        _ => return,
-    }
-    inspector.select_all = false;
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn input(
-    mut inspector: ResMut<Inspector>,
-    document: Res<EditorDocument>,
-    mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut events: MessageReader<KeyboardInput>,
-    mut ime: MessageReader<Ime>,
-    mut windows: Query<&mut Window>,
-    mut drag: ResMut<DragState>,
-    mut cursor: ResMut<EditorCursor>,
-    fields: Query<(&Action, &ComputedNode, &UiGlobalTransform)>,
-) {
-    if inspector.draft.is_none() {
-        if keys.just_pressed(KeyCode::F2) {
-            open(&mut inspector, &document);
-            drag.cancel();
-            cursor.placing = false;
-            cursor.paste = None;
-        }
-        events.clear();
-        ime.clear();
-    } else {
-        let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-        // 取消/提交预编辑的同一帧仍属于输入法，不能把 Escape 或候选键交给草稿。
-        let mut composition_frame = !inspector.preedit.is_empty();
-        for event in ime.read() {
-            if inspector.focus != Some(Field::Name) {
-                continue;
-            }
-            match event {
-                Ime::Preedit { value, .. } => {
-                    inspector.preedit = value.clone();
-                    composition_frame = true;
-                }
-                Ime::Commit { value, .. } => {
-                    insert_text(&mut inspector, value);
-                    inspector.preedit.clear();
-                    composition_frame = true;
-                }
-                Ime::Disabled { .. } => inspector.preedit.clear(),
-                _ => {}
-            }
-        }
-        if keys.just_pressed(KeyCode::Escape) && !composition_frame {
-            *inspector = Inspector::default();
-        } else if control && keys.just_pressed(KeyCode::KeyA) && !composition_frame {
-            inspector.select_all = true;
-        } else if !control && !composition_frame {
-            for event in events
-                .read()
-                .filter(|event| event.state == ButtonState::Pressed)
-            {
-                edit_key(&mut inspector, event.key_code);
-                if let Some(text) = &event.text {
-                    insert_text(&mut inspector, text);
-                }
-            }
-        }
-        events.clear();
-        // 草稿输入独占快捷键，避免输入 R/X/Y/Delete 或 Ctrl+S 改写画布。
-        keys.clear();
-    }
-    for mut window in &mut windows {
-        window.ime_enabled = inspector.draft.is_some() && inspector.focus == Some(Field::Name);
-        if window.ime_enabled
-            && let Some((_, node, transform)) = fields
-                .iter()
-                .find(|(action, _, _)| **action == Action::Focus(Field::Name))
-        {
-            let bottom_left = transform
-                .transform_point2(Vec2::new(-node.size().x * 0.5, node.size().y * 0.5))
-                * node.inverse_scale_factor();
-            window.ime_position = (bottom_left + Vec2::new(10.0, 2.0))
-                .clamp(Vec2::ZERO, Vec2::new(window.width(), window.height()));
-        }
-    }
-}
-
-pub(crate) fn cancel_for_file_action(
+pub fn cancel_for_file_action(
     mut events: MessageReader<files::FileAction>,
     mut inspector: ResMut<Inspector>,
 ) {
@@ -600,427 +445,6 @@ pub(crate) fn cancel_for_file_action(
         events.clear();
         *inspector = Inspector::default();
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn render(
-    mut commands: Commands,
-    inspector: Res<Inspector>,
-    document: Res<EditorDocument>,
-    assets: Res<AssetServer>,
-    roots: Query<Entity, With<InspectorRoot>>,
-    scrolling: Query<&ScrollPosition, With<InspectorScroll>>,
-) {
-    if !inspector.is_changed() {
-        return;
-    }
-    let offset = scrolling
-        .single()
-        .map(|scroll| scroll.y)
-        .unwrap_or_default();
-    for entity in &roots {
-        commands.entity(entity).despawn();
-    }
-    let Some(draft) = &inspector.draft else {
-        return;
-    };
-    let font = assets.load("fonts/HarmonyOS_Sans/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ttf");
-    commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                width: percent(100),
-                height: percent(100),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            GlobalZIndex(100),
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
-            Interaction::None,
-            panels::EditorPanel,
-            InspectorRoot,
-        ))
-        .with_children(|overlay| {
-            overlay
-                .spawn((
-                    Node {
-                        width: px(700),
-                        max_width: percent(95),
-                        height: percent(85),
-                        padding: UiRect::all(px(18)),
-                        row_gap: px(8),
-                        flex_direction: FlexDirection::Column,
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgb(0.04, 0.065, 0.09)),
-                ))
-                .with_children(|root| {
-                    let kind = document.catalog.get(&draft.original.part_type);
-                    root.spawn(label(
-                        format!(
-                            "{} · {}",
-                            draft.key,
-                            kind.map(|kind| kind.name.as_str())
-                                .unwrap_or(&draft.original.part_type)
-                        ),
-                        &font,
-                        22.0,
-                    ));
-                    root.spawn(label(
-                        if inspector.repair.is_some() {
-                            "修复重复编号：逐条指定引用归属，应用后可一次撤销。"
-                        } else {
-                            "修改暂存为草稿；应用后可一次撤销。点击字段后输入替换，Esc 取消。"
-                        },
-                        &font,
-                        14.0,
-                    ));
-                    root.spawn((
-                        Node {
-                            flex_direction: FlexDirection::Column,
-                            row_gap: px(8),
-                            flex_grow: 1.0,
-                            min_height: px(0),
-                            overflow: Overflow::scroll_y(),
-                            ..default()
-                        },
-                        panels::ScrollArea,
-                        InspectorScroll,
-                        ScrollPosition(Vec2::new(0.0, offset)),
-                    ))
-                    .with_children(|body| {
-                        if let Some(repair) = &inspector.repair {
-                            body.spawn(label(
-                                format!(
-                                    "待分配引用：{} / {}（点击引用按钮切换实例）",
-                                    repair.unassigned(),
-                                    repair.references().len()
-                                ),
-                                &font,
-                                16.0,
-                            ));
-                            for (occurrence, part) in repair
-                                .original()
-                                .parts
-                                .iter()
-                                .filter(|part| part.id == repair.old_id())
-                                .enumerate()
-                            {
-                                body.spawn(label(
-                                    format!(
-                                        "实例 {}：{}  坐标 ({:.3}, {:.3})",
-                                        occurrence + 1,
-                                        part.part_type,
-                                        part.x,
-                                        part.y
-                                    ),
-                                    &font,
-                                    16.0,
-                                ));
-                                body.spawn(label(
-                                    format!(
-                                        "编号 #{} → #{}",
-                                        part.id,
-                                        repair.new_ids()[occurrence]
-                                    ),
-                                    &font,
-                                    14.0,
-                                ));
-                            }
-                            for (index, (site, target)) in repair.references().iter().enumerate() {
-                                let description = match *site {
-                                    ReferenceSite::Connection { index, role } => {
-                                        let (parent, child) =
-                                            match repair.original().connections[index] {
-                                                Connection::Normal { parent, child, .. }
-                                                | Connection::Dock { parent, child, .. } => {
-                                                    (parent, child)
-                                                }
-                                            };
-                                        let role = match role {
-                                            ConnectionRole::Parent => "母端",
-                                            ConnectionRole::Child => "子端",
-                                            ConnectionRole::Dock => "对接插头",
-                                        };
-                                        format!("连接 {}：#{parent} → #{child} · {role}", index + 1)
-                                    }
-                                    ReferenceSite::Activation {
-                                        owner,
-                                        stage,
-                                        index,
-                                    } => format!(
-                                        "驾驶舱 #{} 实例 {} · 第 {stage} 级 · 动作 {}",
-                                        owner.id,
-                                        owner.occurrence + 1,
-                                        index + 1
-                                    ),
-                                };
-                                body.spawn(label(description, &font, 14.0));
-                                if let ReferenceSite::Connection { index, role } = *site {
-                                    let peer_id = match repair.original().connections[index] {
-                                        Connection::Normal { parent, child, .. }
-                                        | Connection::Dock { parent, child, .. } => {
-                                            if role == ConnectionRole::Child {
-                                                parent
-                                            } else {
-                                                child
-                                            }
-                                        }
-                                    };
-                                    for peer in repair
-                                        .original()
-                                        .parts
-                                        .iter()
-                                        .filter(|part| part.id == peer_id)
-                                    {
-                                        body.spawn(label(
-                                            format!(
-                                                "相邻 #{} · {} ({:.2}, {:.2})",
-                                                peer.id, peer.part_type, peer.x, peer.y
-                                            ),
-                                            &font,
-                                            14.0,
-                                        ));
-                                    }
-                                }
-                                let text = target
-                                    .map(|target| {
-                                        format!(
-                                            "归属：实例 {}（#{}）",
-                                            target + 1,
-                                            repair.new_ids()[target]
-                                        )
-                                    })
-                                    .unwrap_or_else(|| "归属：未指定".into());
-                                body.spawn(button(Action::RepairTarget(index), target.is_some()))
-                                    .with_children(|button| {
-                                        button.spawn(label(text, &font, 16.0));
-                                    });
-                            }
-                            if repair.references().is_empty() {
-                                body.spawn(label(
-                                    "没有连接或分级引用；应用后各实例使用独立编号。",
-                                    &font,
-                                    14.0,
-                                ));
-                            }
-                            body.spawn(button(Action::BackToProperties, false))
-                                .with_children(|button| {
-                                    button.spawn(label("返回属性", &font, 16.0));
-                                });
-                            return;
-                        }
-                        if document
-                            .ship
-                            .group(draft.key.group)
-                            .is_some_and(|(parts, _)| {
-                                parts.iter().filter(|part| part.id == draft.key.id).count() > 1
-                            })
-                        {
-                            body.spawn(button(Action::OpenRepair, false))
-                                .with_children(|button| {
-                                    button.spawn(label("本组编号重复 · 修复引用归属", &font, 16.0));
-                                });
-                        }
-                        body.spawn(button(Action::Active, draft.active))
-                            .with_children(|button| {
-                                button.spawn(label(
-                                    format!(
-                                        "激活状态：{}",
-                                        if draft.active {
-                                            "已激活"
-                                        } else {
-                                            "未激活"
-                                        }
-                                    ),
-                                    &font,
-                                    16.0,
-                                ));
-                            });
-                        let mut fields = vec![];
-                        if draft.original.fuel_kind.is_some() {
-                            fields.push((Field::Fuel, "燃料", draft.fuel.as_str()));
-                        }
-                        if draft.original.pod.is_some() {
-                            fields.push((Field::Name, "船体名称", draft.name.as_str()));
-                            fields.push((Field::Throttle, "油门（0～1）", draft.throttle.as_str()));
-                            if draft.staging.is_some() {
-                                fields.push((
-                                    Field::CurrentStage,
-                                    "当前级（从 0 起）",
-                                    draft.current_stage.as_str(),
-                                ));
-                            }
-                            fields.push((
-                                Field::Target,
-                                "新增激活动作的目标部件 ID",
-                                draft.target.as_str(),
-                            ));
-                        }
-                        for (field, title, value) in fields {
-                            body.spawn(label(title, &font, 14.0));
-                            let focused = inspector.focus == Some(field);
-                            let display = if focused {
-                                if inspector.select_all {
-                                    format!("【{value}】{}", inspector.preedit)
-                                } else {
-                                    format!(
-                                        "{}{}│{}",
-                                        &value[..inspector.caret],
-                                        inspector.preedit,
-                                        &value[inspector.caret..]
-                                    )
-                                }
-                            } else if value.is_empty() {
-                                "（空）".into()
-                            } else {
-                                value.to_owned()
-                            };
-                            body.spawn(button(Action::Focus(field), focused))
-                                .with_children(|button| {
-                                    button.spawn((
-                                        label(display, &font, 16.0),
-                                        Node {
-                                            width: px(590),
-                                            ..default()
-                                        },
-                                    ));
-                                });
-                        }
-                        if draft.original.pod.is_some() {
-                            body.spawn((Node {
-                                column_gap: px(6),
-                                flex_shrink: 0.0,
-                                align_items: AlignItems::Center,
-                                ..default()
-                            },))
-                                .with_children(|row| {
-                                    for (text, action) in [
-                                        ("上一部件", Action::CycleTarget(false)),
-                                        ("下一部件", Action::CycleTarget(true)),
-                                    ] {
-                                        row.spawn(button(action, false)).with_children(|button| {
-                                            button.spawn(label(text, &font, 14.0));
-                                        });
-                                    }
-                                    let target = draft.target.parse::<i64>().ok().and_then(|id| {
-                                        document.ship.group_part(draft.key.group, id)
-                                    });
-                                    let target_name = target
-                                        .and_then(|part| document.catalog.get(&part.part_type))
-                                        .map(|kind| kind.name.as_str())
-                                        .unwrap_or("未选目标");
-                                    row.spawn(label(target_name, &font, 14.0));
-                                });
-                            body.spawn(button(Action::AddStep, false))
-                                .with_children(|button| {
-                                    button.spawn(label("添加分级步骤", &font, 16.0));
-                                });
-                        }
-                        if let Some(staging) = &draft.staging {
-                            for (index, step) in staging.steps.iter().enumerate() {
-                                body.spawn((Node {
-                                    column_gap: px(6),
-                                    flex_wrap: FlexWrap::Wrap,
-                                    flex_shrink: 0.0,
-                                    align_items: AlignItems::Center,
-                                    ..default()
-                                },))
-                                    .with_children(|row| {
-                                        row.spawn(label(format!("第 {index} 级"), &font, 18.0));
-                                        for (text, action) in [
-                                            ("上移", Action::MoveStep(index, false)),
-                                            ("下移", Action::MoveStep(index, true)),
-                                            ("删除级", Action::RemoveStep(index)),
-                                            ("添加目标", Action::AddActivation(index)),
-                                        ] {
-                                            row.spawn(button(action, false)).with_children(
-                                                |button| {
-                                                    button.spawn(label(text, &font, 14.0));
-                                                },
-                                            );
-                                        }
-                                    });
-                                for (activation_index, activation) in
-                                    step.activations.iter().enumerate()
-                                {
-                                    body.spawn((Node {
-                                        column_gap: px(6),
-                                        flex_shrink: 0.0,
-                                        height: px(34),
-                                        align_items: AlignItems::Center,
-                                        ..default()
-                                    },))
-                                        .with_children(|row| {
-                                            let name = document
-                                                .ship
-                                                .group_part(draft.key.group, activation.id)
-                                                .and_then(|part| {
-                                                    document.catalog.get(&part.part_type)
-                                                })
-                                                .map(|kind| kind.name.as_str())
-                                                .unwrap_or("未知部件");
-                                            row.spawn((
-                                                label(
-                                                    format!("激活 #{} · {name}", activation.id),
-                                                    &font,
-                                                    14.0,
-                                                ),
-                                                Node {
-                                                    width: px(320),
-                                                    ..default()
-                                                },
-                                            ));
-                                            for (text, action) in [
-                                                (
-                                                    format!(
-                                                        "移动标记：{}",
-                                                        if activation.moved {
-                                                            "是"
-                                                        } else {
-                                                            "否"
-                                                        }
-                                                    ),
-                                                    Action::Moved(index, activation_index),
-                                                ),
-                                                (
-                                                    "移除".into(),
-                                                    Action::RemoveActivation(
-                                                        index,
-                                                        activation_index,
-                                                    ),
-                                                ),
-                                            ] {
-                                                row.spawn(button(action, false)).with_children(
-                                                    |button| {
-                                                        button.spawn(label(text, &font, 14.0));
-                                                    },
-                                                );
-                                            }
-                                        });
-                                }
-                            }
-                        }
-                    });
-                    if !inspector.error.is_empty() {
-                        root.spawn(label(&inspector.error, &font, 16.0));
-                    }
-                    root.spawn((Node {
-                        column_gap: px(10),
-                        ..default()
-                    },))
-                        .with_children(|row| {
-                            for (text, action) in
-                                [("应用", Action::Apply), ("取消", Action::Cancel)]
-                            {
-                                row.spawn(button(action, false)).with_children(|button| {
-                                    button.spawn(label(text, &font, 18.0));
-                                });
-                            }
-                        });
-                });
-        });
 }
 
 #[cfg(test)]
