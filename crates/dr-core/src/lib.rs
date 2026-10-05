@@ -4,6 +4,8 @@ pub mod bounds;
 pub use bounds::{Bounds, image_bounds, image_corners, part_bounds, ship_bounds};
 pub use model::ShipScope;
 
+pub mod topology;
+pub use topology::{ConnectionRef, LinkForest, Topology, TopologyEdge, UnresolvedConnection};
 pub mod connections;
 pub mod edit;
 pub mod geometry;

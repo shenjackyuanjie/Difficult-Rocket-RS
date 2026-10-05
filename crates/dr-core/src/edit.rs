@@ -1,5 +1,6 @@
 mod repair;
 pub mod selection;
+mod topology;
 pub use selection::{SelectionTransform, ShipFragment};
 pub(crate) mod scoped;
 pub use repair::{ConnectionRole, DuplicateRepair, ReferenceSite};
@@ -31,6 +32,13 @@ pub enum CommandError {
 
 #[derive(Debug, Clone)]
 pub enum EditorCommand {
+    RemoveConnection(crate::topology::ConnectionRef),
+    /// 树编辑只替换唯一父边，拒绝引入环或静默抹去多父关系。
+    Reparent {
+        parent: PartKey,
+        child: PartKey,
+        kind: LinkKind,
+    },
     SetMetadata {
         name: String,
         description: String,
@@ -260,6 +268,12 @@ impl EditorCommand {
         scope: Option<PartKey>,
     ) -> Result<(), CommandError> {
         match self {
+            Self::RemoveConnection(reference) => topology::unlink(ship, reference)?,
+            Self::Reparent {
+                parent,
+                child,
+                kind,
+            } => topology::reparent(ship, catalog, *parent, *child, kind)?,
             Self::SetMetadata { name, description } => {
                 ship.name = name.clone();
                 ship.description = description.clone();
