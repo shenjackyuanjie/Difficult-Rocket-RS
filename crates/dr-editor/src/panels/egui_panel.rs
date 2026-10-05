@@ -113,6 +113,7 @@ pub fn draw(
     mut browser: ResMut<ShipBrowser>,
     cursor: Res<EditorCursor>,
     inspector: Res<properties::Inspector>,
+    mut topology: ResMut<crate::topology_ui::ConnectionEditor>,
     mut state: ResMut<UiState>,
     mut actions: MessageWriter<PanelButton>,
     mut images: Local<std::collections::HashMap<String, egui::TextureId>>,
@@ -242,6 +243,9 @@ pub fn draw(
                 ui.disable();
             }
             ui.heading("部件目录");
+            if ui.button("连接树 / 连接图 (F6)").clicked() {
+                topology.open = true;
+            }
             let mut categories: Vec<_> = document
                 .catalog
                 .visible()

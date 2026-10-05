@@ -5,6 +5,7 @@ pub(super) fn document() -> EditorDocument {
         dr_core::ship_from_xml(r#"<Ship><Parts><Part id="1" partType="pod"/></Parts></Ship>"#)
             .unwrap();
     EditorDocument {
+        revision: 0,
         saved_ship: ship.clone(),
         ship,
         catalog: PartCatalog::default(),

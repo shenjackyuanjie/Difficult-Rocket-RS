@@ -18,18 +18,23 @@ impl Plugin for EditorEguiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin::default())
             .init_resource::<UiHits>()
+            .init_resource::<topology_ui::ConnectionEditor>()
             .init_resource::<panels::egui_panel::UiState>()
             .add_systems(
                 EguiPrimaryContextPass,
-                (panels::egui_panel::draw, draw).chain(),
+                (panels::egui_panel::draw, draw, topology_ui::draw).chain(),
             );
     }
 }
 
 /// 边栏按钮焦点不独占画布快捷键；只有属性草稿中的文本/模态独占输入。
 /// 直接检查事务状态，避免依赖 PostUpdate 才更新的上一帧焦点。
-pub fn canvas_input_available(inspector: Option<Res<properties::Inspector>>) -> bool {
+pub fn canvas_input_available(
+    inspector: Option<Res<properties::Inspector>>,
+    topology: Option<Res<topology_ui::ConnectionEditor>>,
+) -> bool {
     !inspector.is_some_and(|inspector| inspector.is_open())
+        && !topology.is_some_and(|state| state.open)
 }
 
 /// 放在 pointer_over_ui、properties::actions 之后，画布输入系统之前。
@@ -38,23 +43,36 @@ pub fn canvas_input_available(inspector: Option<Res<properties::Inspector>>) -> 
 pub fn prepare_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut inspector: ResMut<properties::Inspector>,
+    mut topology: Option<ResMut<topology_ui::ConnectionEditor>>,
     document: Res<EditorDocument>,
     mut pointer: ResMut<panels::UiPointer>,
     mut drag: ResMut<DragState>,
     mut cursor: ResMut<EditorCursor>,
     mut camera_drag: ResMut<CameraDrag>,
 ) {
-    if !inspector.is_open() && keys.just_pressed(KeyCode::F2) {
+    if let Some(state) = topology.as_mut() {
+        if !inspector.is_open() && keys.just_pressed(KeyCode::F6) {
+            state.open = !state.open;
+        }
+        if state.open && keys.just_pressed(KeyCode::Escape) {
+            state.open = false;
+        }
+        if inspector.is_open() {
+            state.open = false;
+        }
+    }
+    let topology_open = topology.as_ref().is_some_and(|state| state.open);
+    if !inspector.is_open() && !topology_open && keys.just_pressed(KeyCode::F2) {
         properties::open(&mut inspector, &document);
     }
-    if inspector.is_open() {
+    if inspector.is_open() || topology_open {
         drag.cancel();
         cursor.cancel_placement();
         cursor.paste = None;
         camera_drag.0 = None;
     }
     // 沿用现有 Bevy 工具栏的命中结果，而不是覆盖它。
-    pointer.blocked |= inspector.is_open();
+    pointer.blocked |= inspector.is_open() || topology_open;
 }
 
 fn configure_chinese_font(ctx: &egui::Context, paths: &EditorPaths) {

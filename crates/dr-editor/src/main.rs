@@ -10,6 +10,7 @@ mod render;
 mod scoped_smoke;
 mod selection;
 mod selection_smoke;
+mod topology_ui;
 mod view;
 mod view_smoke;
 
@@ -33,6 +34,7 @@ pub struct EditorPaths {
 
 #[derive(Resource)]
 pub struct EditorDocument {
+    pub revision: u64,
     pub ship: Ship,
     pub catalog: PartCatalog,
     pub selected: Option<PartKey>,
@@ -65,6 +67,7 @@ impl EditorDocument {
         self.selected = key;
     }
     fn refresh(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
         self.dirty = self.ship != self.saved_ship;
         if self
             .selected
@@ -186,6 +189,7 @@ struct CameraDrag(Option<Vec2>);
 struct SmokeTest {
     enabled: bool,
     native_dialogs: bool,
+    topology: bool,
     panels: bool,
     properties: bool,
     connections: bool,
@@ -233,6 +237,7 @@ fn main() -> anyhow::Result<()> {
         .init_resource::<properties::Inspector>()
         .insert_resource(SmokeTest {
             enabled: args.iter().any(|arg| arg == "--smoke-test"),
+            topology: args.iter().any(|arg| arg == "--topology-smoke-test"),
             native_dialogs: args.iter().any(|arg| arg == "--native-dialog-test"),
             panels: args.iter().any(|arg| arg == "--panel-smoke-test"),
             properties: args.iter().any(|arg| arg == "--properties-smoke-test"),
@@ -307,6 +312,7 @@ fn main() -> anyhow::Result<()> {
                 (
                     (
                         panels::smoke::run,
+                        topology_ui::smoke::run,
                         properties::egui_smoke::run,
                         connection_smoke::run,
                         performance::run,
@@ -394,6 +400,7 @@ fn load_document(ship_path: Option<&str>, catalog_path: &str) -> anyhow::Result<
         .transpose()?
         .unwrap_or_else(|| new_ship(&catalog));
     Ok(EditorDocument {
+        revision: 0,
         saved_ship: ship.clone(),
         status: String::new(),
         ship,
@@ -806,7 +813,7 @@ fn update_hud(
         .unwrap_or("无可用部件");
     for mut text in &mut labels {
         let value = format!(
-            "DR Editor | 部件: {} | 质量 main/all: {:.2}/{:.2} | 已选: {} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存 Ctrl+Shift+S: 另存为\nShift: 增减选择 空白拖动: 框选 Ctrl+A: 全选 Ctrl+C/X/V: 复制/剪切/粘贴\nCtrl+N: 新建 Ctrl+O: 打开（也可拖入 XML）\n滚轮/中键: 视图 Home: 复位 F/Shift+F: 适配 F3: 调试 F4: 显隐 F12: 截图\n{}",
+            "DR Editor | 部件: {} | 质量 main/all: {:.2}/{:.2} | 已选: {} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存 Ctrl+Shift+S: 另存为\nShift: 增减选择 空白拖动: 框选 Ctrl+A: 全选 Ctrl+C/X/V: 复制/剪切/粘贴\nCtrl+N: 新建 Ctrl+O: 打开（也可拖入 XML）\n滚轮/中键: 视图 Home: 复位 F/Shift+F: 适配 F3: 调试 F4: 显隐 F6: 连接树/图 F12: 截图\n{}",
             document.ship.all_parts().count(),
             document
                 .ship
