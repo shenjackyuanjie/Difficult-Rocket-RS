@@ -20,6 +20,7 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 | 切换待放置部件、放置 | 当前分类中 Tab / Shift+Tab 切换；左键点击画布或 P 放置 |
 | 删除、旋转、镜像 | Delete、R、X / Y |
 | 撤销、重做 | Ctrl+Z、Ctrl+Y |
+| 连接树 / 连接图编辑 | F6 或右侧“连接树 / 连接图”；Esc 关闭 |
 | 属性与分级编辑 | F2 或顶部“属性 / 分级”；未选部件时打开驾驶舱 |
 | 新建、打开 | Ctrl+N、Ctrl+O；支持单个 XML 文件拖入 |
 | 保存、另存为 | Ctrl+S、Ctrl+Shift+S；首次保存选择目标文件 |
@@ -108,6 +109,36 @@ uv run --no-project --python 3.12 python -X utf8 scripts/check_native_input.py
 
 该脚本只操作自己启动的编辑器和失焦辅助窗口，验证真正的系统前台句柄，再通过系统鼠标和 `SendInput` 运行多选拖动、目录虚影、空白放置/吸附连接、原子撤销重做及侧栏/Esc/真实失焦取消。应用侧只观察，不伪造焦点或直接注入 Bevy/egui 输入；虚影截图捕获完成后才松手，并检查 XML 往返和源样本未改动。输入法/系统文字专项按当前要求跳过，报告明确记为未运行。
 
-置前/失焦干扰最多自动重试三次，连续失败时尝试通过本机 noticer 提醒；程序断言和数据错误直接失败，不作为焦点失败重试。测试时会短暂置前窗口，不永久置顶、不向其他应用发送快捷键。产物位于 `target/foreground-*`，最近成功路径记录在 `target/foreground-last.txt`。可用 `--window-case panels|connections|scoped|selection|view` 在受控前台运行已有注入式窗口回归，或 `--window-case performance --selection-count 1000` 测量拖动；前台受控不意味着这些旧回归已改为系统输入。
+置前/失焦干扰最多自动重试三次，连续失败时尝试通过本机 noticer 的 `sr1` 房间提醒；程序断言和数据错误直接失败，不作为焦点失败重试。测试时会短暂置前窗口，不永久置顶、不向其他应用发送快捷键。产物位于 `target/foreground-*`，最近成功路径记录在 `target/foreground-last.txt`。可用 `--window-case keys` 运行真实系统快捷键验收，使用 `--window-case panels|connections|scoped|selection|view|topology` 在受控前台运行已有注入式窗口回归，或 `--window-case performance --selection-count 1000` 测量拖动；前台受控不意味着这些旧回归已改为系统输入。
 
 前台驱动自身的无副作用回归：`uv run --no-project --python 3.12 python -X utf8 -m unittest discover -s scripts -p test_native_input_driver.py`。
+
+
+## 连接树与连接图
+
+F6 或右侧入口打开同一份船体的连接编辑窗口，两个视图共用文档和撤销历史：
+
+1. **连接树**展示确定性的生成森林。点击节点可选择部件，“选择子树”后可一次删除整支并撤销；折叠只影响显示。环、多父关系不会被剪掉，额外边计数仍可在图视图中编辑。
+2. **连接图**显示有向连接，支持点击节点或连线、选择连通分量、添加普通/对接连接、精确断开一条边。对接插头标记为父/子之一；历史文件中独立的第三引用也会保留显示，跨组编号不会混用。歧义或悬空边单独列出，不猜测端点。
+3. 先选节点并点击“选中设为父/子”，或在下拉列表选择端点；选择双方的连接点后，树模式“设置父节点”原子替换唯一父边，图模式“添加连接”允许合法环。树模式拒绝将节点接到自身/后代，也不擅自清除多父边。
+4. **连接仍遵守船体实际几何、连接面兼容和占用规则**；不接触时先在物理画布移动部件，再编辑关系。拖动图节点只改变图的排版，不会移动船体或新增撤销记录。
+5. 使用窗口内的撤销/重做按钮恢复操作。失败保留文档及重做；窗口打开期间隔离物理画布的编辑快捷键，并取消尚未提交的放置/拖动预览。
+
+## 可复用核心接口
+
+- `catalog_from_xml` / `load_catalog` 完整读取静态规格，`catalog_to_xml` / `save_catalog` 输出目录 XML；目录安全保存和船体保存一样使用同目录临时文件替换。可选物理字段保留未声明与显式零值的区别。
+- `PartCatalog.types` 可以直接插入、删除、重排或重命名；`get` 始终查询当前列表，同 ID 类型按当前首项处理，不保留易失效的旁路索引。
+- `Ship::mass(catalog, ShipScope::Main)` 只计算主组，`ShipScope::All` 计算主组和全部断开组；旧 `total_mass` 保持 all，HUD 同时显示 main/all。
+- `Ship.name/description` 是船体元数据，不是驾驶舱名称。`EditorCommand::SetMetadata` 可原子修改；非空值通过可选 XML 根属性保存，空值不添加属性，纳入撤销和历史内存预算。
+- `part_bounds` / `ship_bounds` 返回 Ship 单位的物理轮廓范围；`image_corners` / `image_bounds` 返回像素范围，原图尺寸由调用方提供，保留奇数像素锚点和镜像。没有部件时范围为 `None`，核心不依赖 Bevy 或 GPU。
+- `Topology::from_ship` 提供精确实例连接图，`forest` 提供不丢边的生成森林，`reachable` 与 `subtree` 支持图分量和树分支选择；拓扑修改使用 `ConnectParts`、`Reparent`、`RemoveConnection` 等原子命令。
+
+
+### 新增核心和拓扑回归
+
+```powershell
+cargo run --locked -p dr-core --example verify_catalog -- ../Difficult-Rocket/assets/builtin/PartList.xml
+uv run --no-project --python 3.12 python -X utf8 scripts/check_native_input.py --window-case topology
+```
+
+目录校验逐项比较原始 XML 元素/属性，不修改原文件。拓扑窗口专项经过实际 egui 控件，覆盖树选择/删除/换父、拒绝树环、图环和断边、撤销重做、最小窗口与 XML 往返；它属于**系统前台受控的注入式回归**，不是系统键鼠专项。截图及数据输出为 `target/editor-topology-{tree,graph,smoke}.png` 与 `target/topology-smoke.xml/json`。
