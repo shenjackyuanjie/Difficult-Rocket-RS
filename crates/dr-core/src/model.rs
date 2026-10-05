@@ -551,32 +551,29 @@ impl Ship {
     }
 }
 
-/// 可复用的部件目录及其快速索引。
+/// 可直接编辑的部件目录。查询始终读取当前列表；重复 ID 按原版取首项。
 #[derive(Debug, Clone, Default)]
 pub struct PartCatalog {
     pub name: String,
     pub types: Vec<PartType>,
-    index: HashMap<String, usize>,
 }
 
 impl PartCatalog {
-    /// 构建目录，同时建立部件 ID 到数组索引的映射。
+    /// 保留输入顺序，不维护会因公开列表修改而过期的旁路索引。
     pub fn new(name: impl Into<String>, types: Vec<PartType>) -> Self {
-        let index = types
-            .iter()
-            .enumerate()
-            .map(|(i, p)| (p.id.clone(), i))
-            .collect();
         Self {
             name: name.into(),
             types,
-            index,
         }
     }
     pub fn get(&self, id: &str) -> Option<&PartType> {
-        self.index.get(id).and_then(|i| self.types.get(*i))
+        self.types.iter().find(|part| part.id == id)
     }
     pub fn visible(&self) -> impl Iterator<Item = &PartType> {
         self.types.iter().filter(|p| !p.hidden)
     }
 }
+
+#[cfg(test)]
+#[path = "model_tests.rs"]
+mod tests;
