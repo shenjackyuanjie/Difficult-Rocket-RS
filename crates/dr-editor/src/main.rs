@@ -2,6 +2,7 @@ mod connection_smoke;
 mod egui_ui;
 mod files;
 mod native_input;
+mod native_keys;
 mod panels;
 mod performance;
 mod placement;
@@ -203,6 +204,7 @@ struct SmokeTest {
     staging: bool,
     native_ime: bool,
     native_input: Option<std::path::PathBuf>,
+    native_keys: Option<std::path::PathBuf>,
     egui: bool,
     started: std::time::Instant,
 }
@@ -255,6 +257,10 @@ fn main() -> anyhow::Result<()> {
             browser: args.iter().any(|arg| arg == "--browser-smoke-test"),
             staging: args.iter().any(|arg| arg == "--staging-smoke-test"),
             native_ime: args.iter().any(|arg| arg == "--native-ime-test"),
+            native_keys: args
+                .windows(2)
+                .find(|args| args[0] == "--native-keys-test")
+                .map(|args| std::path::PathBuf::from(&args[1])),
             native_input: args
                 .windows(2)
                 .find(|args| args[0] == "--native-input-test")
@@ -317,6 +323,7 @@ fn main() -> anyhow::Result<()> {
                         connection_smoke::run,
                         performance::run,
                         native_input::run,
+                        native_keys::run,
                         scoped_smoke::run,
                         properties::repair_smoke::run,
                         selection_smoke::run,

@@ -5,6 +5,9 @@ import io
 from pathlib import Path
 import re
 import sys
+import tempfile
+import time
+import os
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -33,6 +36,8 @@ class DriverTests(unittest.TestCase):
         main, report, sleep = self.run_wrapper([AssertionError("系统拒绝将测试窗口置前")] * 3)
         self.assertEqual(main.call_count, 3)
         self.assertEqual(report.call_count, 1)
+        arguments = report.call_args.args[0]
+        self.assertEqual(arguments[arguments.index("--room") + 1], "sr1")
         self.assertEqual(sleep.call_count, 2)
         arguments = report.call_args.args[0]
         self.assertIn("noticer-progress", arguments[5])
@@ -52,16 +57,55 @@ class DriverTests(unittest.TestCase):
 
     def test_window_cases_map_to_flags_supported_by_the_editor(self):
         mapping = next(ast.literal_eval(node) for node in ast.walk(TREE)
-                       if isinstance(node, ast.Dict) and any(isinstance(key, ast.Constant) and key.value == "panels" for key in node.keys))
+                       if isinstance(node, ast.Dict)
+                       and any(isinstance(value, ast.Constant) and value.value == "panel-smoke-test"
+                               for value in node.values))
         choices = next(ast.literal_eval(keyword.value) for node in ast.walk(TREE)
                        if isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant)
                        and node.args[0].value == "--window-case" for keyword in node.keywords if keyword.arg == "choices")
         editor = (SOURCE.parents[1] / "crates/dr-editor/src/main.rs").read_text(encoding="utf-8")
         supported = set(re.findall(r'"(--[a-z-]+test)"', editor))
         for case in choices:
+            if case == "keys":
+                self.assertIn("--native-keys-test", supported)
+                continue
             if case not in ["native", "performance"]:
                 flag = "--" + mapping.get(case, case + "-smoke-test")
                 self.assertIn(flag, supported, f"{case} 的标志未启用测试，编辑器会一直停在普通窗口")
+
+
+class CompletionTests(unittest.TestCase):
+    def checker(self):
+        nodes = [node for node in TREE.body if
+                 isinstance(node, ast.FunctionDef) and node.name == "completed_window_case"
+                 or isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "WINDOW_ARTIFACTS" for t in node.targets)]
+        scope = {}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SOURCE), "exec"), scope)
+        return scope["completed_window_case"]
+
+    def test_clean_exit_race_requires_a_fresh_final_artifact(self):
+        check = self.checker()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "target").mkdir()
+            started = time.time_ns()
+            artifact = root / "target/editor-connections-smoke.png"
+            self.assertFalse(check(root, "connections", started, 0))
+            artifact.write_bytes("本次窗口产物".encode())
+            os.utime(artifact, ns=(started + 1_000_000, started + 1_000_000))
+            self.assertTrue(check(root, "connections", started, 0))
+            self.assertFalse(check(root, "connections", started, 101))
+            self.assertFalse(check(root, "connections", started, None))
+
+    def test_old_artifact_does_not_turn_early_close_into_success(self):
+        check = self.checker()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "target").mkdir()
+            artifact = root / "target/editor-topology-smoke.png"
+            artifact.write_bytes("旧产物".encode())
+            os.utime(artifact, ns=(1_000_000, 1_000_000))
+            self.assertFalse(check(root, "topology", time.time_ns(), 0))
 
 
 if __name__ == "__main__":

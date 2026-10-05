@@ -40,9 +40,29 @@ class INPUT(ctypes.Structure):
     _fields_ = [("type", wintypes.DWORD), ("data", INPUTDATA)]
 
 
+WINDOW_ARTIFACTS = {
+    "panels": "editor-panels-smoke.png", "browser": "editor-browser-smoke.png",
+    "egui": "editor-egui-smoke.png", "staging": "editor-staging-smoke.png",
+    "repair": "editor-repair-smoke.png", "native-ime": "editor-native-ime.png",
+    "connections": "editor-connections-smoke.png", "scoped": "editor-scoped-smoke.png",
+    "selection": "editor-selection-smoke.png", "view": "editor-view-smoke.png",
+    "topology": "editor-topology-smoke.png", "performance": "editor-performance.json",
+}
+
+
+def completed_window_case(root, case, started_ns, exit_code):
+    """只接受正常退出和本次新生成的最终产物，不把提前关闭当作验收成功。"""
+    if exit_code != 0 or case not in WINDOW_ARTIFACTS:
+        return False
+    try:
+        return (root / "target" / WINDOW_ARTIFACTS[case]).stat().st_mtime_ns >= started_ns
+    except OSError:
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--window-case", choices=["native", "performance", "panels", "browser", "egui", "staging", "repair", "native-ime", "connections", "scoped", "selection", "view"], default="native")
+    parser.add_argument("--window-case", choices=["native", "performance", "panels", "browser", "egui", "staging", "repair", "native-ime", "connections", "scoped", "selection", "view", "topology", "keys"], default="native")
     parser.add_argument("--selection-count", type=int, default=1)
     options = parser.parse_args()
     if sys.platform != "win32":
@@ -82,8 +102,8 @@ def main():
     samples = [root / "../Difficult-Rocket/assets/ships/Test.xml", root / "../Difficult-Rocket/assets/ships/Heronb.xml"]
     hashes = [hashlib.sha256(path.read_bytes()).digest() for path in samples]
     args = [str(root / "target/debug/dr-editor.exe")]
-    if options.window_case == "native":
-        args += ["--native-input-test", str(run)]
+    if options.window_case in ["native", "keys"]:
+        args += ["--native-input-test" if options.window_case == "native" else "--native-keys-test", str(run)]
     elif options.window_case == "performance":
         args += ["--ship", str(root / "../Difficult-Rocket/assets/ships/Ophioglossum.xml"), "--performance-test", "--performance-selection-count", str(options.selection_count)]
     else:
@@ -96,6 +116,7 @@ def main():
     helper = None
     foreground_checks = 0
     events = []
+    started_ns = time.time_ns()
     with (run / "editor.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen(args, cwd=root, stdout=log, stderr=log, creationflags=subprocess.CREATE_NO_WINDOW)
 
@@ -178,18 +199,30 @@ def main():
                 raise ctypes.WinError(ctypes.get_last_error())
 
         def key(vk, down, hwnd):
-            send([INPUT(type=1, ki=KEYBDINPUT(wVk=vk, dwFlags=0 if down else 2))], hwnd)
+            # Delete/Home 属于扩展键；直接发送虚拟键时可能被解释成小键盘键，
+            # 因此明确发送 E0 扫描码，让 Bevy 收到稳定的物理键事件。
+            extended_scan = {0x24: 0x47, 0x2E: 0x53}.get(vk)
+            if extended_scan is not None:
+                flags = 0x0008 | 0x0001 | (0 if down else 0x0002)
+                keyboard = KEYBDINPUT(wVk=0, wScan=extended_scan, dwFlags=flags)
+            else:
+                keyboard = KEYBDINPUT(wVk=vk, dwFlags=0 if down else 0x0002)
+            send([INPUT(type=1, ki=keyboard)], hwnd)
             if down:
                 held.add(vk)
             else:
                 held.discard(vk)
 
-        def chord(vk, hwnd, control=False):
+        def chord(vk, hwnd, control=False, shift=False):
             if control:
                 key(0x11, True, hwnd)
+            if shift:
+                key(0x10, True, hwnd)
             key(vk, True, hwnd)
             time.sleep(0.09)
             key(vk, False, hwnd)
+            if shift:
+                key(0x10, False, hwnd)
             if control:
                 key(0x11, False, hwnd)
             time.sleep(0.12)
@@ -215,23 +248,33 @@ def main():
             for modifier in [0x10, 0x11, 0x12, 0x5B, 0x5C]:
                 if user.GetAsyncKeyState(modifier) & 0x8000:
                     raise AssertionError("检测到真实修饰键被按住，不能安全执行自动键鼠测试")
-            if options.window_case != "native":
+            if options.window_case not in ["native", "keys"]:
                 end = time.monotonic() + 120
                 while process.poll() is None:
                     if not user.IsWindow(hwnd):
                         process.wait(timeout=10)
                         break
-                    check_front(hwnd)
+                    try:
+                        check_front(hwnd)
+                    except AssertionError:
+                        if completed_window_case(root, options.window_case, started_ns, process.poll()):
+                            break
+                        raise
                     if time.monotonic() > end:
                         raise AssertionError("前台窗口回归超时")
                     time.sleep(0.02)
+                assert completed_window_case(root, options.window_case, started_ns, process.returncode), "窗口提前退出或缺少本次最终验收产物"
             else:
-                for step in range(21):
+                for step in range(100 if options.window_case == "keys" else 21):
                     request = run / f"step-{step}.json"
                     def ready():
-                        check_front(helper if step == 18 else hwnd)
+                        if options.window_case == "keys" and (run / "report.json").exists():
+                            return True
+                        check_front(helper if options.window_case == "native" and step == 18 else hwnd)
                         return request.exists()
                     wait_for(ready, f"输入步骤 {step}")
+                    if options.window_case == "keys" and (run / "report.json").exists():
+                        break
                     data = json.loads(request.read_text(encoding="utf-8"))
                     action = data["action"]
                     if action not in ["blur", "refocus"]:
@@ -248,6 +291,16 @@ def main():
                             button(hwnd, False)
                         if action == "shift_click":
                             key(0x10, False, hwnd)
+                    elif action == "move":
+                        move(hwnd, data["x0"], data["y0"])
+                    elif action.startswith("key:"):
+                        _, modifiers, name = action.split(":")
+                        if modifiers not in ["none", "ctrl", "shift", "ctrlshift"]:
+                            raise AssertionError(f"未知修饰键：{modifiers}")
+                        codes = {"ESC": 0x1B, "DELETE": 0x2E, "TAB": 0x09, "HOME": 0x24,
+                                 "F2": 0x71, "F3": 0x72, "F4": 0x73, "F6": 0x75}
+                        vk = ord(name) if len(name) == 1 and "A" <= name <= "Z" else codes[name]
+                        chord(vk, hwnd, control="ctrl" in modifiers, shift="shift" in modifiers)
                     elif action in ["undo", "redo"]:
                         chord(0x5A if action == "undo" else 0x59, hwnd, control=True)
                     elif action == "release":
@@ -288,7 +341,7 @@ def main():
                 report = json.loads((root / "target/editor-performance.json").read_text(encoding="utf-8"))
                 (run / "performance.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
                 print(json.dumps(report, ensure_ascii=False), flush=True)
-            result = {"case": options.window_case, "system_foreground_checks": foreground_checks, "real_system_input": options.window_case == "native", "ime_tested": options.window_case == "native-ime", "events": events, "source_samples_unchanged": True}
+            result = {"case": options.window_case, "system_foreground_checks": foreground_checks, "real_system_input": options.window_case in ["native", "keys"], "ime_tested": options.window_case == "native-ime", "events": events, "source_samples_unchanged": True}
             (run / "driver.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
             (root / "target/foreground-last.txt").write_text(str(run), encoding="utf-8")
             print(f"前台验收通过：{foreground_checks} 次系统前台校验；产物 {run}", flush=True)
@@ -323,7 +376,7 @@ if __name__ == "__main__":
                 if skill.is_file():
                     try:
                         subprocess.run(["uv", "run", "--no-project", "--python", "3.12", str(skill),
-                            "--state", "progress", "--task", "DR 编辑器前台测试焦点提醒",
+                            "--state", "progress", "--room", "sr1", "--task", "DR 编辑器前台测试焦点提醒",
                             "--message", "前台窗口测试连续三次受到焦点或真实键鼠干扰，当前专项未通过。测试短暂运行时请尽量暂停桌面键鼠输入；Agent 会继续其他工作并按需重新验证，不把失败当通过。"],
                             check=True, creationflags=subprocess.CREATE_NO_WINDOW)
                     except (OSError, subprocess.CalledProcessError) as notify_error:

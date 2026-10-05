@@ -18,7 +18,7 @@ pub struct State {
 #[derive(Resource)]
 pub struct PreviewCaptured(usize);
 
-fn request(folder: &Path, step: usize, action: &str, points: &[Vec2]) {
+pub fn request(folder: &Path, step: usize, action: &str, points: &[Vec2]) {
     let coordinates: String = points
         .iter()
         .enumerate()
@@ -34,7 +34,7 @@ fn request(folder: &Path, step: usize, action: &str, points: &[Vec2]) {
 }
 
 #[cfg(windows)]
-fn foreground(raw: &bevy::window::RawHandleWrapper) -> bool {
+pub fn foreground(raw: &bevy::window::RawHandleWrapper) -> bool {
     let raw_window_handle::RawWindowHandle::Win32(handle) = raw.get_window_handle() else {
         panic!("系统键鼠自测未取得 Win32 句柄")
     };
@@ -45,7 +45,7 @@ fn foreground(raw: &bevy::window::RawHandleWrapper) -> bool {
 }
 
 #[cfg(not(windows))]
-fn foreground(_: &bevy::window::RawHandleWrapper) -> bool {
+pub fn foreground(_: &bevy::window::RawHandleWrapper) -> bool {
     panic!("系统键鼠自测仅支持 Windows")
 }
 
