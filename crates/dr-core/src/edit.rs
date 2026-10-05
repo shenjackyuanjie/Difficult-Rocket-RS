@@ -31,6 +31,10 @@ pub enum CommandError {
 
 #[derive(Debug, Clone)]
 pub enum EditorCommand {
+    SetMetadata {
+        name: String,
+        description: String,
+    },
     DeleteSelection(Vec<PartKey>),
     TransformSelection {
         parts: Vec<PartKey>,
@@ -256,6 +260,10 @@ impl EditorCommand {
         scope: Option<PartKey>,
     ) -> Result<(), CommandError> {
         match self {
+            Self::SetMetadata { name, description } => {
+                ship.name = name.clone();
+                ship.description = description.clone();
+            }
             Self::DeleteSelection(parts) => selection::delete(ship, parts)?,
             Self::TransformSelection { parts, transform } => {
                 selection::transform(ship, catalog, parts, *transform)?

@@ -1,5 +1,9 @@
 //! Difficult Rocket 的可复用数据、XML 和编辑几何核心。
 
+pub mod bounds;
+pub use bounds::{Bounds, image_bounds, image_corners, part_bounds, ship_bounds};
+pub use model::ShipScope;
+
 pub mod connections;
 pub mod edit;
 pub mod geometry;

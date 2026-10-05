@@ -33,6 +33,10 @@ pub use catalog::{catalog_from_xml, catalog_to_xml, load_catalog, save_catalog};
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawShip {
+    #[serde(rename = "@name", default)]
+    name: String,
+    #[serde(rename = "@description", default)]
+    description: String,
     #[serde(rename = "@version", default = "default_version")]
     version: i32,
     #[serde(rename = "@liftedOff", default)]
@@ -321,6 +325,8 @@ pub fn ship_from_xml(source: &str) -> Result<Ship, CoreError> {
         }
     }
     Ok(Ship {
+        name: raw.name,
+        description: raw.description,
         version: raw.version,
         lifted_off: raw.lifted_off != 0,
         touching_ground: raw.touching_ground != 0,
@@ -401,6 +407,10 @@ fn validate_ship_root(source: &str) -> Result<(), CoreError> {
 #[derive(Debug, Serialize)]
 #[serde(rename = "Ship")]
 struct OutShip<'a> {
+    #[serde(rename = "@name", skip_serializing_if = "str::is_empty")]
+    name: &'a str,
+    #[serde(rename = "@description", skip_serializing_if = "str::is_empty")]
+    description: &'a str,
     #[serde(rename = "@version")]
     version: i32,
     #[serde(rename = "@liftedOff")]
@@ -640,6 +650,8 @@ fn out_connection(connection: &Connection) -> OutConnection {
 
 pub fn ship_to_xml(ship: &Ship) -> Result<String, CoreError> {
     let data = OutShip {
+        name: &ship.name,
+        description: &ship.description,
         version: ship.version,
         lifted_off: ship.lifted_off as i8,
         touching_ground: ship.touching_ground as i8,

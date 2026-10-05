@@ -396,9 +396,19 @@ pub struct ShipGroup {
     pub connections: Vec<Connection>,
 }
 
+/// main 只统计主组；all 包括主组及每一个断开组。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShipScope {
+    Main,
+    All,
+}
+
 /// SR1 船体文档及其已断开的部件组。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Ship {
+    /// 船体级元数据，不与驾驶舱名称混用；非空时以 XML 根属性持久化。
+    pub name: String,
+    pub description: String,
     pub version: i32,
     pub lifted_off: bool,
     pub touching_ground: bool,
@@ -410,6 +420,8 @@ pub struct Ship {
 impl Default for Ship {
     fn default() -> Self {
         Self {
+            name: String::new(),
+            description: String::new(),
             version: 1,
             lifted_off: false,
             touching_ground: true,
@@ -448,6 +460,8 @@ impl Ship {
                     .sum::<usize>()
         };
         std::mem::size_of::<Self>()
+            + self.name.capacity()
+            + self.description.capacity()
             + self.disconnected.capacity() * std::mem::size_of::<ShipGroup>()
             + group_bytes(&self.parts, &self.connections)
             + self
@@ -583,11 +597,21 @@ impl Ship {
             .filter(|p| p.part_type == type_id)
             .count()
     }
+    /// 旧接口保留 all 口径，避免已有调用方的统计结果被悄悄改变。
     pub fn total_mass(&self, catalog: &PartCatalog) -> f64 {
-        self.parts
-            .iter()
-            .chain(self.disconnected.iter().flat_map(|g| g.parts.iter()))
-            .filter_map(|p| catalog.get(&p.part_type).map(|t| t.mass))
+        self.mass(catalog, ShipScope::All)
+    }
+    pub fn parts_in(&self, scope: ShipScope) -> impl Iterator<Item = &Part> {
+        self.parts.iter().chain(
+            self.disconnected
+                .iter()
+                .filter(move |_| scope == ShipScope::All)
+                .flat_map(|group| &group.parts),
+        )
+    }
+    pub fn mass(&self, catalog: &PartCatalog, scope: ShipScope) -> f64 {
+        self.parts_in(scope)
+            .filter_map(|part| catalog.get(&part.part_type).map(|kind| kind.mass))
             .sum()
     }
 }

@@ -806,9 +806,14 @@ fn update_hud(
         .unwrap_or("无可用部件");
     for mut text in &mut labels {
         let value = format!(
-            "DR Editor | 部件: {} | 质量: {:.2} | 已选: {} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存 Ctrl+Shift+S: 另存为\nShift: 增减选择 空白拖动: 框选 Ctrl+A: 全选 Ctrl+C/X/V: 复制/剪切/粘贴\nCtrl+N: 新建 Ctrl+O: 打开（也可拖入 XML）\n滚轮/中键: 视图 Home: 复位 F/Shift+F: 适配 F3: 调试 F4: 显隐 F12: 截图\n{}",
+            "DR Editor | 部件: {} | 质量 main/all: {:.2}/{:.2} | 已选: {} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存 Ctrl+Shift+S: 另存为\nShift: 增减选择 空白拖动: 框选 Ctrl+A: 全选 Ctrl+C/X/V: 复制/剪切/粘贴\nCtrl+N: 新建 Ctrl+O: 打开（也可拖入 XML）\n滚轮/中键: 视图 Home: 复位 F/Shift+F: 适配 F3: 调试 F4: 显隐 F12: 截图\n{}",
             document.ship.all_parts().count(),
-            document.ship.total_mass(&document.catalog),
+            document
+                .ship
+                .mass(&document.catalog, dr_core::ShipScope::Main),
+            document
+                .ship
+                .mass(&document.catalog, dr_core::ShipScope::All),
             document.selected_keys().len(),
             if document.dirty {
                 "未保存"

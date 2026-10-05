@@ -54,11 +54,8 @@ pub(crate) fn sprite_geometry(
 
 /// 仅供视图适配的可见四角；碰撞和命中仍独立使用 dr_core 的 Shape。
 pub(crate) fn image_corners(part: &Part, size: Vec2) -> [Vec2; 4] {
-    let anchor = pixel_anchor(size, part.flip_x, part.flip_y).as_vec();
-    let rotation = Mat2::from_angle(part.angle as f32);
-    let position = Vec2::new(part.x as f32, part.y as f32) * 60.0;
-    [Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y]
-        .map(|corner| position + rotation * ((corner - Vec2::splat(0.5) - anchor) * size))
+    dr_core::image_corners(part, (size.x as f64, size.y as f64))
+        .map(|p| Vec2::new(p.x as f32, p.y as f32))
 }
 
 #[derive(Component)]
