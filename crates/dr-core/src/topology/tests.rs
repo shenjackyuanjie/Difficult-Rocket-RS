@@ -5,11 +5,12 @@ fn ship() -> Ship {
     let catalog =
         catalog_from_xml(r#"<PartTypes><PartType id="p" width="2" height="2"/></PartTypes>"#)
             .unwrap();
-    let mut ship = Ship::default();
-    ship.parts = (1..=4)
-        .map(|id| catalog.get("p").unwrap().instantiate(id, (id as f64, 0.0)))
-        .collect();
-    ship
+    Ship {
+        parts: (1..=4)
+            .map(|id| catalog.get("p").unwrap().instantiate(id, (id as f64, 0.0)))
+            .collect(),
+        ..Ship::default()
+    }
 }
 fn edge(parent: i64, child: i64) -> Connection {
     Connection::Normal {
@@ -56,7 +57,7 @@ fn duplicate_and_dangling_references_are_reported_without_guessing() {
     assert_eq!(graph.reachable(graph.edges[0].parent, false).len(), 2);
 }
 #[test]
-fn docking_connector_is_included_in_component_and_tree() {
+fn historical_third_dock_reference_is_kept_in_component_and_tree() {
     let mut ship = ship();
     ship.connections = vec![Connection::Dock {
         parent: 1,
@@ -94,34 +95,37 @@ fn square() -> (Ship, crate::PartCatalog) {
     </AttachPoints></PartType></PartTypes>"#,
     )
     .unwrap();
-    let mut ship = Ship::default();
-    ship.parts = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
-        .into_iter()
-        .enumerate()
-        .map(|(i, pos)| catalog.get("p").unwrap().instantiate(i as i64 + 1, pos))
-        .collect();
-    ship.connections = vec![
-        Connection::Normal {
-            parent: 1,
-            child: 2,
-            parent_attach: 2,
-            child_attach: 1,
-        },
-        Connection::Normal {
-            parent: 2,
-            child: 3,
-            parent_attach: 3,
-            child_attach: 4,
-        },
-        Connection::Normal {
-            parent: 3,
-            child: 4,
-            parent_attach: 1,
-            child_attach: 2,
-        },
-    ];
+    let ship = Ship {
+        parts: [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+            .into_iter()
+            .enumerate()
+            .map(|(i, pos)| catalog.get("p").unwrap().instantiate(i as i64 + 1, pos))
+            .collect(),
+        connections: vec![
+            Connection::Normal {
+                parent: 1,
+                child: 2,
+                parent_attach: 2,
+                child_attach: 1,
+            },
+            Connection::Normal {
+                parent: 2,
+                child: 3,
+                parent_attach: 3,
+                child_attach: 4,
+            },
+            Connection::Normal {
+                parent: 3,
+                child: 4,
+                parent_attach: 1,
+                child_attach: 2,
+            },
+        ],
+        ..Ship::default()
+    };
     (ship, catalog)
 }
+
 #[test]
 fn graph_accepts_a_geometric_cycle_but_tree_rejects_it_atomically() {
     use crate::{EditorCommand, EditorHistory, LinkKind};
@@ -281,4 +285,64 @@ fn tree_reparent_does_not_silently_remove_multiple_parent_edges() {
     );
     assert_eq!(ship, before);
     assert_eq!(history.undo_len(), 0);
+}
+
+#[test]
+fn docking_role_aliases_do_not_create_fake_self_loops_or_extra_edges() {
+    for dock in [1, 2] {
+        let mut ship = ship();
+        ship.connections = vec![Connection::Dock {
+            parent: 1,
+            child: 2,
+            dock,
+        }];
+        let graph = Topology::from_ship(&ship);
+        assert_eq!(graph.reachable(0, false).len(), 2);
+        assert!(graph.forest().extra_edges.is_empty());
+        assert_eq!(graph.adjacency(true)[0].len(), 1);
+    }
+}
+#[test]
+fn docking_child_can_change_port_in_one_tree_transaction() {
+    use crate::{EditorCommand, EditorHistory, LinkKind};
+    let catalog=catalog_from_xml(r#"<PartTypes><PartType id="plug" type="dockconnector" width="2" height="2"><AttachPoints><AttachPoint location="LeftCenter" dock="true"/><AttachPoint location="RightCenter" dock="true"/></AttachPoints></PartType><PartType id="port" type="dockport" width="2" height="2"><AttachPoints><AttachPoint location="LeftCenter" dock="true"/><AttachPoint location="RightCenter" dock="true"/></AttachPoints></PartType></PartTypes>"#).unwrap();
+    let mut ship = Ship {
+        parts: vec![
+            catalog.get("plug").unwrap().instantiate(1, (0.0, 0.0)),
+            catalog.get("port").unwrap().instantiate(2, (-1.0, 0.0)),
+            catalog.get("port").unwrap().instantiate(3, (1.0, 0.0)),
+        ],
+        connections: vec![Connection::Dock {
+            parent: 2,
+            child: 1,
+            dock: 1,
+        }],
+        ..Ship::default()
+    };
+    let before = ship.clone();
+    let mut history = EditorHistory::default();
+    history
+        .execute_with_catalog(
+            &mut ship,
+            &catalog,
+            EditorCommand::Reparent {
+                parent: PartKey::new(0, 3, 0),
+                child: PartKey::new(0, 1, 0),
+                kind: LinkKind::Dock {
+                    connector: PartKey::new(0, 1, 0),
+                },
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        ship.connections,
+        vec![Connection::Dock {
+            parent: 3,
+            child: 1,
+            dock: 1
+        }]
+    );
+    assert!(Topology::from_ship(&ship).forest().extra_edges.is_empty());
+    assert!(history.undo(&mut ship));
+    assert_eq!(ship, before);
 }

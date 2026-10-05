@@ -101,7 +101,10 @@ impl Topology {
     pub fn adjacency(&self, directed: bool) -> Vec<Vec<(usize, usize)>> {
         let mut neighbors = vec![vec![]; self.nodes.len()];
         for (index, edge) in self.edges.iter().enumerate() {
-            for target in std::iter::once(edge.child).chain(edge.dock) {
+            for target in std::iter::once(edge.child).chain(
+                edge.dock
+                    .filter(|node| *node != edge.parent && *node != edge.child),
+            ) {
                 neighbors[edge.parent].push((target, index));
                 if !directed {
                     neighbors[target].push((edge.parent, index));

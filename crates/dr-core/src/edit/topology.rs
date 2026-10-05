@@ -42,7 +42,9 @@ pub fn reparent(
     let incoming: Vec<_> = graph
         .edges
         .iter()
-        .filter(|edge| edge.child == c || edge.dock == Some(c))
+        .filter(|edge| {
+            edge.child == c || (edge.dock == Some(c) && edge.parent != c && edge.child != c)
+        })
         .collect();
     if incoming.len() > 1 {
         return Err(CommandError::InvalidConnection(
@@ -57,9 +59,9 @@ pub fn reparent(
         ));
     }
     if let Some(edge) = incoming.first() {
-        if edge.dock == Some(c) {
+        if edge.dock == Some(c) && edge.parent != c && edge.child != c {
             return Err(CommandError::InvalidConnection(
-                "对接插头属于三端连接，请在图视图编辑整条对接边".into(),
+                "该历史对接边包含独立第三引用，请在图视图显式编辑整条边".into(),
             ));
         }
         unlink(ship, &edge.reference)?;
