@@ -132,6 +132,17 @@ pub struct PartType {
     pub ignore_editor_intersections: bool,
     pub disable_editor_rotation: bool,
     pub max_occurrences: Option<u32>,
+    /// 静态物理字段保留缺省与显式值的区别，不猜测运行时物理参数。
+    pub friction: Option<f64>,
+    pub can_explode: Option<bool>,
+    pub cover_height: Option<u32>,
+    pub sandbox_only: Option<bool>,
+    pub drag: Option<f64>,
+    pub buoyancy: Option<f64>,
+    pub damage: Option<DamageSpec>,
+    pub rcs: Option<RcsSpec>,
+    pub solar: Option<SolarSpec>,
+    pub lander: Option<LanderSpec>,
     pub tank: Option<TankSpec>,
     pub engine: Option<EngineSpec>,
     pub attach_points: Vec<AttachPoint>,
@@ -202,6 +213,36 @@ pub struct EngineSpec {
     pub turn: Option<f64>,
     pub fuel_type: Option<i32>,
     pub throttle_exponential: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DamageSpec {
+    pub disconnect: f64,
+    pub explode: f64,
+    pub explosion_power: Option<f64>,
+    pub explosion_size: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RcsSpec {
+    pub power: f64,
+    pub consumption: f64,
+    pub size: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SolarSpec {
+    pub charge_rate: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LanderSpec {
+    pub max_angle: f64,
+    pub min_length: f64,
+    pub max_length: f64,
+    pub angle_speed: Option<f64>,
+    pub length_speed: Option<f64>,
+    pub width: f64,
 }
 
 /// 部件实例中的燃料来源，用于区分 SR1 的 Tank 和 Engine 子节点。

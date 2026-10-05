@@ -11,8 +11,11 @@ pub use edit::{
     LinkKind, ReferenceSite, SelectionTransform, ShipFragment,
 };
 pub use geometry::{SnapCandidate, Vec2d, find_snap, intersects, part_world_attach};
-pub use io::{CoreError, load_catalog, load_ship, save_ship, ship_from_xml, ship_to_xml};
+pub use io::{
+    CoreError, catalog_from_xml, load_catalog, load_ship, save_ship, ship_from_xml, ship_to_xml,
+};
 pub use model::{
-    Activation, AttachPoint, Connection, EngineSpec, FuelKind, Part, PartCatalog, PartKey,
-    PartKind, PartType, PodState, PolygonShape, Ship, ShipGroup, StageStep, StagingState, TankSpec,
+    Activation, AttachPoint, Connection, DamageSpec, EngineSpec, FuelKind, LanderSpec, Part,
+    PartCatalog, PartKey, PartKind, PartType, PodState, PolygonShape, RcsSpec, Ship, ShipGroup,
+    SolarSpec, StageStep, StagingState, TankSpec,
 };
