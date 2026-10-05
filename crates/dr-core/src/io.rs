@@ -28,7 +28,7 @@ pub enum CoreError {
 }
 
 mod catalog;
-pub use catalog::{catalog_from_xml, load_catalog};
+pub use catalog::{catalog_from_xml, catalog_to_xml, load_catalog, save_catalog};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

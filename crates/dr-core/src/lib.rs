@@ -12,7 +12,8 @@ pub use edit::{
 };
 pub use geometry::{SnapCandidate, Vec2d, find_snap, intersects, part_world_attach};
 pub use io::{
-    CoreError, catalog_from_xml, load_catalog, load_ship, save_ship, ship_from_xml, ship_to_xml,
+    CoreError, catalog_from_xml, catalog_to_xml, load_catalog, load_ship, save_catalog, save_ship,
+    ship_from_xml, ship_to_xml,
 };
 pub use model::{
     Activation, AttachPoint, Connection, DamageSpec, EngineSpec, FuelKind, LanderSpec, Part,
