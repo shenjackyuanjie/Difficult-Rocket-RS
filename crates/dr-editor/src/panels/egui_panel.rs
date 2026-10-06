@@ -114,6 +114,7 @@ pub fn draw(
     cursor: Res<EditorCursor>,
     inspector: Res<properties::Inspector>,
     mut topology: ResMut<crate::topology_ui::ConnectionEditor>,
+    mut options: ResMut<view::ViewOptions>,
     mut state: ResMut<UiState>,
     mut actions: MessageWriter<PanelButton>,
     mut images: Local<std::collections::HashMap<String, egui::TextureId>>,
@@ -246,6 +247,23 @@ pub fn draw(
             if ui.button("连接树 / 连接图 (F6)").clicked() {
                 topology.open = true;
             }
+            ui.horizontal_wrapped(|ui| {
+                ui.label("框选按键");
+                ui.selectable_value(
+                    &mut options.box_select_button,
+                    view::BoxSelectButton::Middle,
+                    "中键",
+                );
+                ui.selectable_value(
+                    &mut options.box_select_button,
+                    view::BoxSelectButton::Left,
+                    "左键",
+                );
+            });
+            ui.small(match options.box_select_button {
+                view::BoxSelectButton::Middle => "左键拖空白：移动视角 · 中键拖动：框选",
+                view::BoxSelectButton::Left => "中键拖动：移动视角 · 左键拖空白：框选",
+            });
             let mut categories: Vec<_> = document
                 .catalog
                 .visible()
@@ -276,7 +294,7 @@ pub fn draw(
             ui.separator();
             let mut scroll = egui::ScrollArea::vertical()
                 .id_salt("part_palette_rows")
-                .max_height((ui.available_height() - 175.0).max(50.0))
+                .max_height((ui.available_height() - 215.0).max(50.0))
                 .auto_shrink([false, false]);
             if let Some(offset) = state.palette_scroll.take() {
                 scroll = scroll.vertical_scroll_offset(offset);

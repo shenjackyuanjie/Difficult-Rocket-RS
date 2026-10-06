@@ -443,6 +443,9 @@ fn camera_controls(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
     mut drag: ResMut<CameraDrag>,
+    editor_drag: Res<DragState>,
+    editor_cursor: Res<EditorCursor>,
+    options: Res<view::ViewOptions>,
     pointer: Res<panels::UiPointer>,
 ) {
     let Ok(window) = windows.single() else {
@@ -469,7 +472,11 @@ fn camera_controls(
         wheels.clear();
         return;
     };
-    if mouse.pressed(MouseButton::Middle) {
+    let can_pan = editor_drag.id.is_none()
+        && editor_drag.rectangle.is_none()
+        && !editor_cursor.placing
+        && editor_cursor.paste.is_none();
+    if can_pan && mouse.pressed(options.box_select_button.pan()) {
         if let Some(previous) = drag.0 {
             let delta = cursor - previous;
             transform.translation.x -= delta.x * projection.scale;
@@ -626,6 +633,7 @@ fn mouse_editor(
     mut drag: ResMut<DragState>,
     mut document: ResMut<EditorDocument>,
     mut cursor: ResMut<EditorCursor>,
+    options: Res<view::ViewOptions>,
     pointer: Res<panels::UiPointer>,
 ) {
     if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right) {
@@ -648,9 +656,10 @@ fn mouse_editor(
         }
         return;
     }
+    let box_button = options.box_select_button.select();
     if pointer.blocked {
         cursor.valid = false;
-        if mouse.just_released(MouseButton::Left) {
+        if mouse.just_released(MouseButton::Left) || mouse.just_released(box_button) {
             drag.cancel();
         }
         if cursor.palette_drag && !mouse.pressed(MouseButton::Left) {
@@ -685,7 +694,9 @@ fn mouse_editor(
         }
         return;
     }
-    if mouse.just_pressed(MouseButton::Left) {
+    let left_pressed = mouse.just_pressed(MouseButton::Left);
+    let box_pressed = mouse.just_pressed(box_button);
+    if left_pressed || box_pressed {
         let selected = document
             .ship
             .keyed_parts()
@@ -704,15 +715,8 @@ fn mouse_editor(
             .map(|(key, _)| key)
             .last();
         let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-        drag.cancel();
-        if selected.is_none() {
-            drag.rectangle = Some(logical);
-            drag.rect_end = logical;
-            drag.additive = shift;
-            if !shift {
-                document.clear_selection();
-            }
-        } else {
+        if left_pressed && selected.is_some() {
+            drag.cancel();
             selection::click(&mut document, selected, shift);
             if !shift && let Some(part) = selected.and_then(|key| document.ship.part_at(key)) {
                 drag.id = selected;
@@ -721,11 +725,19 @@ fn mouse_editor(
                 drag.preview = drag.origin;
                 drag.offset = (part.x - logical.0, part.y - logical.1);
             }
+        } else if box_pressed && selected.is_none() {
+            drag.cancel();
+            drag.rectangle = Some(logical);
+            drag.rect_end = logical;
+            drag.additive = shift;
+            if !shift {
+                document.clear_selection();
+            }
         }
     }
     if let Some(start) = drag.rectangle {
         drag.rect_end = logical;
-        if mouse.just_released(MouseButton::Left) {
+        if mouse.just_released(box_button) {
             selection::rectangle(&mut document, start, logical, drag.additive);
             drag.cancel();
         }
@@ -807,9 +819,10 @@ fn move_with_snap(
 fn update_hud(
     document: Res<EditorDocument>,
     cursor: Res<EditorCursor>,
+    options: Res<view::ViewOptions>,
     mut labels: Query<&mut Text, With<EditorHud>>,
 ) {
-    if !document.is_changed() && !cursor.is_changed() {
+    if !document.is_changed() && !cursor.is_changed() && !options.is_changed() {
         return;
     }
     let chosen = document
@@ -820,7 +833,7 @@ fn update_hud(
         .unwrap_or("无可用部件");
     for mut text in &mut labels {
         let value = format!(
-            "DR Editor | 部件: {} | 质量 main/all: {:.2}/{:.2} | 已选: {} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存 Ctrl+Shift+S: 另存为\nShift: 增减选择 空白拖动: 框选 Ctrl+A: 全选 Ctrl+C/X/V: 复制/剪切/粘贴\nCtrl+N: 新建 Ctrl+O: 打开（也可拖入 XML）\n滚轮/中键: 视图 Home: 复位 F/Shift+F: 适配 F3: 调试 F4: 显隐 F6: 连接树/图 F12: 截图\n{}",
+            "DR Editor | 部件: {} | 质量 main/all: {:.2}/{:.2} | 已选: {} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存 Ctrl+Shift+S: 另存为\nShift: 增减选择 {}拖动: 框选 Ctrl+A: 全选 Ctrl+C/X/V: 复制/剪切/粘贴\nCtrl+N: 新建 Ctrl+O: 打开（也可拖入 XML）\n滚轮: 缩放 {}拖动: 视图 Home: 复位 F/Shift+F: 适配 F3: 调试 F4: 显隐 F6: 连接树/图 F12: 截图\n{}",
             document.ship.all_parts().count(),
             document
                 .ship
@@ -835,6 +848,14 @@ fn update_hud(
                 "已保存"
             },
             chosen,
+            match options.box_select_button {
+                view::BoxSelectButton::Left => "左键",
+                view::BoxSelectButton::Middle => "中键",
+            },
+            match options.box_select_button {
+                view::BoxSelectButton::Left => "中键",
+                view::BoxSelectButton::Middle => "左键",
+            },
             document.status
         );
         if text.0 != value {

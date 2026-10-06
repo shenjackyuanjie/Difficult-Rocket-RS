@@ -1,10 +1,33 @@
 use super::*;
 use dr_core::geometry::{WorldShape, world_shapes};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BoxSelectButton {
+    Left,
+    Middle,
+}
+
+impl BoxSelectButton {
+    pub fn select(self) -> MouseButton {
+        match self {
+            Self::Left => MouseButton::Left,
+            Self::Middle => MouseButton::Middle,
+        }
+    }
+
+    pub fn pan(self) -> MouseButton {
+        match self {
+            Self::Left => MouseButton::Middle,
+            Self::Middle => MouseButton::Left,
+        }
+    }
+}
+
 #[derive(Resource)]
 pub(crate) struct ViewOptions {
     pub debug: bool,
     pub ship_visible: bool,
+    pub box_select_button: BoxSelectButton,
 }
 
 impl Default for ViewOptions {
@@ -12,6 +35,7 @@ impl Default for ViewOptions {
         Self {
             debug: false,
             ship_visible: true,
+            box_select_button: BoxSelectButton::Middle,
         }
     }
 }
@@ -264,6 +288,16 @@ mod tests {
             let offset = (corner - center) / scale;
             assert!(canvas(size).contains(size * 0.5 + Vec2::new(offset.x, -offset.y)));
         }
+    }
+
+    #[test]
+    fn middle_box_selection_is_default_and_leaves_left_drag_for_panning() {
+        let options = ViewOptions::default();
+        assert_eq!(options.box_select_button, BoxSelectButton::Middle);
+        assert_eq!(options.box_select_button.select(), MouseButton::Middle);
+        assert_eq!(options.box_select_button.pan(), MouseButton::Left);
+        assert_eq!(BoxSelectButton::Left.select(), MouseButton::Left);
+        assert_eq!(BoxSelectButton::Left.pan(), MouseButton::Middle);
     }
 
     #[test]

@@ -9,6 +9,7 @@ pub(crate) struct State {
     before: Option<Ship>,
     after: Option<Ship>,
     pointer: Option<Vec2>,
+    camera_before: Option<Vec2>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -19,6 +20,8 @@ pub(crate) fn run(
     cursor: Res<EditorCursor>,
     drag: Res<DragState>,
     mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
+    camera: Query<&Transform, With<Camera2d>>,
+    mut options: ResMut<view::ViewOptions>,
     visuals: Query<(&render::PartVisual, &Transform)>,
     previews: Query<(&Sprite, &Transform), With<selection::PasteVisual>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -122,14 +125,14 @@ pub(crate) fn run(
             assert_eq!(state.before.as_ref(), Some(&document.ship));
             keys.reset_all();
             point(-1.5, -0.5);
-            mouse.press(MouseButton::Left);
+            mouse.press(MouseButton::Middle);
         }
         10 => {
             assert!(drag.rectangle.is_some());
             point(1.5, 1.0);
         }
         11 => {
-            mouse.release(MouseButton::Left);
+            mouse.release(MouseButton::Middle);
         }
         12 => {
             assert_eq!(document.selected_keys().len(), 2);
@@ -285,10 +288,60 @@ pub(crate) fn run(
             assert!(drag.id.is_none());
             mouse.release(MouseButton::Left);
             keys.reset_all();
+        }
+        33 => {
+            assert_eq!(options.box_select_button, view::BoxSelectButton::Middle);
+            state.camera_before = Some(camera.single().unwrap().translation.truncate());
+            point(3.0, -3.0);
+            mouse.press(MouseButton::Left);
+        }
+        34 => {
+            assert!(drag.rectangle.is_none());
+            point(4.0, -2.0);
+        }
+        35 => {
+            assert_ne!(
+                state.camera_before,
+                Some(camera.single().unwrap().translation.truncate()),
+                "默认左键空白拖动没有移动视角"
+            );
+            assert!(drag.rectangle.is_none());
+            mouse.release(MouseButton::Left);
+            options.box_select_button = view::BoxSelectButton::Left;
+        }
+        36 => {
+            point(3.0, -3.0);
+            mouse.press(MouseButton::Left);
+        }
+        37 => {
+            assert!(drag.rectangle.is_some(), "切为左键后没有开始框选");
+            point(4.0, -2.0);
+        }
+        38 => {
+            mouse.release(MouseButton::Left);
+        }
+        39 => {
+            assert!(drag.rectangle.is_none());
+            state.camera_before = Some(camera.single().unwrap().translation.truncate());
+            point(3.0, -3.0);
+            mouse.press(MouseButton::Middle);
+        }
+        40 => {
+            assert!(drag.rectangle.is_none());
+            point(4.0, -2.0);
+        }
+        41 => {
+            assert_ne!(
+                state.camera_before,
+                Some(camera.single().unwrap().translation.truncate()),
+                "切为左键框选后中键没有移动视角"
+            );
+            assert!(drag.rectangle.is_none());
+            mouse.release(MouseButton::Middle);
             use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk("target/editor-selection-smoke.png"))
                 .observe(|_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-                    info!("多选交互自测通过：Shift 多选、框选、整体拖动、复制预览与碰撞颜色、旋转取消、粘贴吸附、全选删除、原子撤销重做、侧栏释放与失焦取消及 XML 往返");
+                    info!("多选交互自测通过：Shift 多选、中键/左键框选切换、空白左键/中键视角拖动、整体拖动、复制预览与碰撞颜色、旋转取消、粘贴吸附、全选删除、原子撤销重做、侧栏释放与失焦取消及 XML 往返");
                     exit.write(AppExit::Success);
                 });
         }
