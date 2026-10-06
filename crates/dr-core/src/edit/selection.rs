@@ -127,6 +127,50 @@ pub(super) fn transform(
     transform: SelectionTransform,
 ) -> Result<(), CommandError> {
     let proposed = preview(ship, catalog, parts, transform)?;
+    install(ship, proposed)
+}
+
+/// 刚体拖拽预览；碰撞是警告而非撤销，旋转权限与有限数值仍严格校验。
+pub fn drag_part(
+    original: &Part,
+    catalog: Option<&PartCatalog>,
+    pivot: (f64, f64),
+    turns: u8,
+    delta: (f64, f64),
+) -> Result<Part, CommandError> {
+    if !pivot.0.is_finite() || !pivot.1.is_finite() {
+        return Err(CommandError::Invalid);
+    }
+    let mut part = original.clone();
+    for _ in 0..turns % 4 {
+        SelectionTransform::Rotate { center: pivot }.apply(&mut part, catalog)?;
+    }
+    SelectionTransform::Translate {
+        dx: delta.0,
+        dy: delta.1,
+    }
+    .apply(&mut part, catalog)?;
+    Ok(part)
+}
+
+pub(super) fn drag(
+    ship: &mut Ship,
+    catalog: Option<&PartCatalog>,
+    parts: &[PartKey],
+    pivot: (f64, f64),
+    turns: u8,
+    delta: (f64, f64),
+) -> Result<(), CommandError> {
+    let keys = keys(ship, parts)?;
+    let proposed = ship
+        .keyed_parts()
+        .filter(|(key, _)| keys.contains(key))
+        .map(|(key, part)| Ok((key, drag_part(part, catalog, pivot, turns, delta)?)))
+        .collect::<Result<Vec<_>, CommandError>>()?;
+    install(ship, proposed)
+}
+
+fn install(ship: &mut Ship, proposed: Vec<(PartKey, Part)>) -> Result<(), CommandError> {
     let originals: HashMap<_, _> = ship.keyed_parts().collect();
     if proposed
         .iter()

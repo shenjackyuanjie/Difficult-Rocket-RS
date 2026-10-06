@@ -10,6 +10,7 @@ pub(crate) struct EditorPanel;
 #[derive(Resource, Default)]
 pub(crate) struct UiPointer {
     pub blocked: bool,
+    pub palette_drop: bool,
 }
 
 #[derive(Resource, Default)]
@@ -128,6 +129,14 @@ pub(crate) fn pointer_over_ui(
             || panels
                 .iter()
                 .any(|(node, transform)| node.contains_point(*transform, position))
+    });
+    pointer.palette_drop = position.is_some_and(|position| {
+        egui_state.as_ref().is_some_and(|state| {
+            let point = position / state.pixels_per_point.max(f32::EPSILON);
+            state
+                .palette_area
+                .is_some_and(|rect| rect.contains(bevy_egui::egui::pos2(point.x, point.y)))
+        })
     });
     if pointer.blocked != blocked {
         pointer.blocked = blocked;

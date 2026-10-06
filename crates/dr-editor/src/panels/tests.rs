@@ -31,7 +31,12 @@ fn collisions_include_other_instances_with_the_same_id() {
         &moving,
         Some(key)
     ));
-    assert!(move_with_snap(&document.ship, &document.catalog, key, (0.0, 0.0)).is_none());
+    let before = document.ship.clone();
+    let command = move_with_snap(&document.ship, &document.catalog, key, (0.0, 0.0)).unwrap();
+    assert!(document.execute(command));
+    assert_eq!(document.ship.part_at(key).unwrap().x, 0.0);
+    assert!(document.undo());
+    assert_eq!(document.ship, before);
     moving.x = 5.0;
     assert!(!placement::collides(
         &document.ship,
@@ -211,7 +216,7 @@ fn new_ship_includes_hidden_pod_with_staging_at_ground_level() {
 }
 
 #[test]
-fn collision_preview_rejects_placement_and_move_without_losing_redo() {
+fn collision_preview_rejects_placement_but_retains_dragged_overlap() {
     let mut document = crate::tests::document();
     document.catalog = catalog();
     document.execute(EditorCommand::SetActive(1, true));
@@ -231,15 +236,11 @@ fn collision_preview_rejects_placement_and_move_without_losing_redo() {
         .unwrap()
         .instantiate(2, (5.0, 0.0));
     document.ship.parts.push(source);
-    assert!(
-        move_with_snap(
-            &document.ship,
-            &document.catalog,
-            PartKey::new(0, 2, 0),
-            (0.0, 0.0)
-        )
-        .is_none()
-    );
+    let (_, command, clear) = selection::movement(&document, &[PartKey::new(0, 2, 0)], (-5.0, 0.0));
+    assert!(!clear);
+    assert!(document.execute(command));
+    assert_eq!(document.ship.part(2).unwrap().x, 0.0);
+    assert!(document.undo());
     assert_eq!(document.ship.part(2).unwrap().x, 5.0);
     document.catalog.types[0].ignore_editor_intersections = true;
     assert!(

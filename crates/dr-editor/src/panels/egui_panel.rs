@@ -70,6 +70,7 @@ fn part_row(
 pub struct UiState {
     pub hits: Vec<(PanelButton, egui::Rect)>,
     pub areas: Vec<egui::Rect>,
+    pub palette_area: Option<egui::Rect>,
     pub pixels_per_point: f32,
     pub scrolling: bool,
     pub browser_offset: f32,
@@ -125,6 +126,11 @@ fn panel_hint(action: &PanelButton) -> &'static str {
     }
 }
 
+fn follow_toggle(ui: &mut egui::Ui, follow: &mut bool) -> egui::Response {
+    ui.checkbox(follow, "↳ 子节点跟随")
+        .on_hover_text("开启后拖动父节点时，所有后代一起移动和旋转，保留内部连接。关闭则只拖当前选中部件。按连接方向计算，不包含父节点；本次拖拽开始时确定范围。")
+}
+
 fn hit(ui: &egui::Ui, response: &egui::Response, action: PanelButton, state: &mut UiState) {
     let rect = response.rect.intersect(ui.clip_rect());
     if response.enabled() && rect.is_positive() {
@@ -148,7 +154,7 @@ pub fn draw(
         Option<Res<help::HelpState>>,
     ),
     mut topology: ResMut<crate::topology_ui::ConnectionEditor>,
-    mut options: ResMut<view::ViewOptions>,
+    (mut options, drag): (ResMut<view::ViewOptions>, Res<DragState>),
     mut state: ResMut<UiState>,
     mut actions: MessageWriter<PanelButton>,
     mut images: Local<std::collections::HashMap<String, egui::TextureId>>,
@@ -165,6 +171,7 @@ pub fn draw(
     let ctx = ctx.clone();
     state.hits.clear();
     state.areas.clear();
+    state.palette_area = None;
     state.pixels_per_point = ctx.pixels_per_point();
     state.scrolling = ctx.input(|input| input.is_scrolling());
     let enabled = !inspector.is_open()
@@ -291,7 +298,18 @@ pub fn draw(
             if !enabled {
                 ui.disable();
             }
-            ui.heading("部件目录");
+            if drag.id.is_some() {
+                let roots: Vec<_> = drag.keys().into_iter().collect();
+                let text = match selection::connected_keys(&document.ship, &roots) {
+                    Ok(parts) => format!("× 拖入此处删除 {} 个相连部件", parts.len()),
+                    Err(_) => "× 连接引用有歧义，无法删除".into(),
+                };
+                ui.colored_label(egui::Color32::LIGHT_RED, text)
+                    .on_hover_text("拖到此列表松手删除拖拽部件及整个相连分量（包括父节点、子节点和对接连接器），Ctrl+Z 一次撤销；Esc / 右键取消。");
+                ui.disable();
+            } else {
+                ui.heading("部件目录").on_hover_text("将画布部件拖到此列表松手，可删除它及所有相连部件；Ctrl+Z 撤销。");
+            }
             if ui.button("树 / 图 · F6")
                 .on_hover_text("打开连接树 / 有向连接图；选择子树、连通部件和编辑连接（F6）。")
                 .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再编辑连接。")
@@ -315,6 +333,7 @@ pub fn draw(
                 .on_hover_text("左键拖空白框选；中键拖动移动视角。")
                 .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再切换框选按键。");
             });
+            follow_toggle(ui, &mut options.follow_children);
             let mut categories: Vec<_> = document
                 .catalog
                 .visible()
@@ -419,6 +438,9 @@ pub fn draw(
             }
         });
     state.areas.push(right.response.rect);
+    if enabled {
+        state.palette_area = Some(right.response.rect);
+    }
 }
 
 impl crate::egui_ui::UiTestInput {

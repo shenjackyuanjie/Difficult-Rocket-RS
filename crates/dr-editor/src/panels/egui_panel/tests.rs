@@ -298,3 +298,120 @@ fn disabled_directory_button_keeps_prerequisite_tooltip_and_no_hitmap() {
     }
     assert!(saw_hint, "禁用目录按钮必须解释被草稿 / 文件确认阻塞的条件");
 }
+
+#[test]
+fn follow_toggle_real_pointer_clicks_toggle_and_disabled_input_is_ignored_with_direction_hint() {
+    fn frame(
+        ctx: &egui::Context,
+        follow: &mut bool,
+        enabled: bool,
+        time: f64,
+        events: Vec<egui::Event>,
+    ) -> (egui::Rect, bool, bool) {
+        let mut rect = egui::Rect::NOTHING;
+        let mut changed = false;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(640.0, 240.0),
+                )),
+                time: Some(time),
+                focused: true,
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                ui.add_enabled_ui(enabled, |ui| {
+                    let response = follow_toggle(ui, follow);
+                    rect = response.rect;
+                    changed |= response.changed();
+                    assert_eq!(response.enabled(), enabled);
+                });
+            },
+        );
+        output.textures_delta.clear();
+        fn has_direction_hint(shape: &egui::epaint::Shape) -> bool {
+            match shape {
+                egui::epaint::Shape::Text(text) => {
+                    text.galley.job.text.contains("后代")
+                        && text.galley.job.text.contains("按连接方向")
+                }
+                egui::epaint::Shape::Vec(shapes) => shapes.iter().any(has_direction_hint),
+                _ => false,
+            }
+        }
+        let hint = output
+            .shapes
+            .iter()
+            .any(|shape| has_direction_hint(&shape.shape));
+        (rect, changed, hint)
+    }
+    fn pointer(pos: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
+        vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]
+    }
+
+    let ctx = egui::Context::default();
+    let mut follow = false;
+    let mut rect = egui::Rect::NOTHING;
+    for index in 0..3 {
+        rect = frame(&ctx, &mut follow, true, f64::from(index) * 0.016, vec![]).0;
+    }
+    for (index, expected) in [true, false].into_iter().enumerate() {
+        let time = 0.1 + index as f64 * 0.1;
+        let before = follow;
+        let pos = rect.center();
+        let (_, changed, _) = frame(&ctx, &mut follow, true, time, pointer(pos, true));
+        assert!(!changed);
+        assert_eq!(follow, before, "按下不能提前切换开关");
+        let (next_rect, changed, _) =
+            frame(&ctx, &mut follow, true, time + 0.016, pointer(pos, false));
+        rect = next_rect;
+        assert!(changed, "真实按下 / 松开应修改开关");
+        assert_eq!(follow, expected);
+    }
+    for (index, initial) in [false, true].into_iter().enumerate() {
+        follow = initial;
+        let time = 1.0 + index as f64;
+        rect = frame(&ctx, &mut follow, false, time, vec![]).0;
+        for (offset, pressed) in [(0.016, true), (0.032, false)] {
+            let (_, changed, _) = frame(
+                &ctx,
+                &mut follow,
+                false,
+                time + offset,
+                pointer(rect.center(), pressed),
+            );
+            assert!(!changed);
+            assert_eq!(follow, initial, "禁用时点击不能改变跟随设置");
+        }
+    }
+
+    // 新上下文只做真实悬停，避免点击抑制 tooltip 的时序影响。
+    let hover_ctx = egui::Context::default();
+    let mut saw_hint = false;
+    for index in 0..6 {
+        let events = if index == 2 {
+            vec![egui::Event::PointerMoved(rect.center())]
+        } else {
+            vec![]
+        };
+        let (next_rect, changed, hint) =
+            frame(&hover_ctx, &mut follow, true, f64::from(index), events);
+        rect = next_rect;
+        assert!(!changed);
+        saw_hint |= hint;
+    }
+    assert!(
+        saw_hint,
+        "跟随开关实际 tooltip 必须说明后代及按连接方向计算"
+    );
+}

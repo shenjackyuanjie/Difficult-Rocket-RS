@@ -28,6 +28,7 @@ pub(crate) struct ViewOptions {
     pub debug: bool,
     pub ship_visible: bool,
     pub box_select_button: BoxSelectButton,
+    pub follow_children: bool,
 }
 
 impl Default for ViewOptions {
@@ -36,6 +37,7 @@ impl Default for ViewOptions {
             debug: false,
             ship_visible: true,
             box_select_button: BoxSelectButton::Middle,
+            follow_children: false,
         }
     }
 }
@@ -260,17 +262,12 @@ pub(crate) fn draw_debug(
     for (key, part) in document
         .ship
         .keyed_parts()
-        .filter(|(key, _)| document.is_selected(*key))
+        .filter(|(key, _)| document.is_selected(*key) || drag.contains(*key))
     {
         let Some(kind) = document.catalog.get(&part.part_type) else {
             continue;
         };
-        let mut part = part.clone();
-        if drag.contains(key) {
-            let delta = drag.delta();
-            part.x += delta.0;
-            part.y += delta.1;
-        }
+        let part = drag.pose(key, part);
         let point = |p: Vec2d| Vec2::new(p.x as f32 * 60.0, p.y as f32 * 60.0);
         for shape in world_shapes(&part, kind) {
             match shape {

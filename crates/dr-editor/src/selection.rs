@@ -79,6 +79,17 @@ fn snaps(
     keys: &[PartKey],
     delta: (f64, f64),
 ) -> Vec<(f64, (f64, f64), EditorCommand)> {
+    snaps_pose(ship, catalog, keys, (0.0, 0.0), 0, delta)
+}
+
+fn snaps_pose(
+    ship: &Ship,
+    catalog: &PartCatalog,
+    keys: &[PartKey],
+    pivot: (f64, f64),
+    turns: u8,
+    delta: (f64, f64),
+) -> Vec<(f64, (f64, f64), EditorCommand)> {
     let selected: HashSet<_> = keys.iter().copied().collect();
     let parts: Vec<_> = ship.keyed_parts().collect();
     let targets: Vec<_> = parts
@@ -108,9 +119,11 @@ fn snaps(
         let Some(st) = catalog.get(&source.part_type) else {
             continue;
         };
-        let mut source = source.clone();
-        source.x += delta.0;
-        source.y += delta.1;
+        let Ok(source) =
+            dr_core::edit::selection::drag_part(source, Some(catalog), pivot, turns, delta)
+        else {
+            continue;
+        };
         let source_radius = dr_core::connections::attachment_radius(st);
         let reach = source_radius + max_radius + 0.350001;
         let start = by_x.partition_point(|index| targets[*index].1.x < source.x - reach);
@@ -157,81 +170,154 @@ fn snaps(
     result
 }
 
+/// 按组内唯一父子引用扩展后代；循环安全，不把对接连接器当作子节点。
+pub(crate) fn drag_keys(ship: &Ship, roots: &[PartKey], follow: bool) -> BTreeSet<PartKey> {
+    let mut result: BTreeSet<_> = roots.iter().copied().collect();
+    if !follow {
+        return result;
+    }
+    let mut pending = roots.to_vec();
+    while let Some(parent_key) = pending.pop() {
+        let Some((parts, connections)) = ship.group(parent_key.group) else {
+            continue;
+        };
+        if parts.iter().filter(|part| part.id == parent_key.id).count() != 1 {
+            continue;
+        }
+        for connection in connections {
+            let (parent, child) = match *connection {
+                Connection::Normal { parent, child, .. }
+                | Connection::Dock { parent, child, .. } => (parent, child),
+            };
+            if parent != parent_key.id || parts.iter().filter(|part| part.id == child).count() != 1
+            {
+                continue;
+            }
+            let key = PartKey::new(parent_key.group, child, 0);
+            if result.insert(key) {
+                pending.push(key);
+            }
+        }
+    }
+    result
+}
+
+/// 删除按无向连接分量扩展；同组重号引用有歧义时拒绝，不猜归属。
+pub(crate) fn connected_keys(ship: &Ship, roots: &[PartKey]) -> Result<BTreeSet<PartKey>, String> {
+    let mut result: BTreeSet<_> = roots.iter().copied().collect();
+    let mut pending = roots.to_vec();
+    while let Some(key) = pending.pop() {
+        let Some((parts, connections)) = ship.group(key.group) else {
+            return Err("拖拽部件已失效".into());
+        };
+        for connection in connections.iter().filter(|edge| edge.touches(key.id)) {
+            let ids = match *connection {
+                Connection::Normal { parent, child, .. } => vec![parent, child],
+                Connection::Dock {
+                    parent,
+                    child,
+                    dock,
+                } => vec![parent, child, dock],
+            };
+            for id in ids {
+                if parts.iter().filter(|part| part.id == id).count() != 1 {
+                    return Err("连接引用有重复编号或缺失部件，请先修复后删除".into());
+                }
+                let next = PartKey::new(key.group, id, 0);
+                if result.insert(next) {
+                    pending.push(next);
+                }
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[cfg(test)]
 pub(crate) fn movement(
     document: &EditorDocument,
     keys: &[PartKey],
     delta: (f64, f64),
 ) -> ((f64, f64), EditorCommand, bool) {
-    let translate = |delta: (f64, f64)| EditorCommand::TransformSelection {
+    movement_pose(document, keys, (0.0, 0.0), 0, delta)
+}
+
+pub(crate) fn movement_pose(
+    document: &EditorDocument,
+    keys: &[PartKey],
+    pivot: (f64, f64),
+    turns: u8,
+    delta: (f64, f64),
+) -> ((f64, f64), EditorCommand, bool) {
+    movement_for(&document.ship, &document.catalog, keys, pivot, turns, delta)
+}
+
+pub(crate) fn movement_for(
+    ship: &Ship,
+    catalog: &PartCatalog,
+    keys: &[PartKey],
+    pivot: (f64, f64),
+    turns: u8,
+    delta: (f64, f64),
+) -> ((f64, f64), EditorCommand, bool) {
+    let command = |offset| EditorCommand::DragSelection {
         parts: keys.to_vec(),
-        transform: SelectionTransform::Translate {
-            dx: delta.0,
-            dy: delta.1,
-        },
+        pivot,
+        turns,
+        delta: offset,
     };
-    if delta != (0.0, 0.0) {
-        let selected: HashSet<_> = keys.iter().copied().collect();
-        let collision_set = dr_core::geometry::CollisionSet::new(
-            document
-                .ship
-                .keyed_parts()
-                .filter(|(key, _)| !selected.contains(key))
-                .map(|(_, part)| part),
-            &document.catalog,
-        );
-        let moving: Vec<_> = document
-            .ship
-            .keyed_parts()
-            .filter(|(key, _)| selected.contains(key))
-            .filter_map(|(_, part)| {
-                document
-                    .catalog
-                    .get(&part.part_type)
-                    .map(|kind| (part, kind))
-            })
-            .collect();
-        let mut invalid_offsets = HashSet::new();
-        let candidates = snaps(&document.ship, &document.catalog, keys, delta);
-        for (_, offset, connection) in candidates {
-            let offset_key = (offset.0.to_bits(), offset.1.to_bits());
-            if invalid_offsets.contains(&offset_key) {
+    let selected: HashSet<_> = keys.iter().copied().collect();
+    let others = dr_core::geometry::CollisionSet::new(
+        ship.keyed_parts()
+            .filter(|(key, _)| !selected.contains(key))
+            .map(|(_, part)| part),
+        catalog,
+    );
+    let moving = ship
+        .keyed_parts()
+        .filter(|(key, _)| selected.contains(key))
+        .filter_map(|(_, part)| catalog.get(&part.part_type).map(|kind| (part, kind)))
+        .map(|(part, kind)| {
+            dr_core::edit::selection::drag_part(part, Some(catalog), pivot, turns, (0.0, 0.0))
+                .map(|part| (part, kind))
+        })
+        .collect::<Result<Vec<_>, _>>();
+    let Ok(moving) = moving else {
+        return (delta, command(delta), false);
+    };
+    let collides = |offset: (f64, f64)| {
+        moving.iter().any(|(part, kind)| {
+            let mut proposed = (*part).clone();
+            proposed.x += offset.0;
+            proposed.y += offset.1;
+            others.intersects(&proposed, kind)
+        })
+    };
+    if delta != (0.0, 0.0) || !turns.is_multiple_of(4) {
+        let mut invalid = HashSet::new();
+        for (_, offset, connection) in snaps_pose(ship, catalog, keys, pivot, turns, delta) {
+            let bits = (offset.0.to_bits(), offset.1.to_bits());
+            if invalid.contains(&bits) {
                 continue;
             }
-            if moving.iter().any(|(part, kind)| {
-                let mut proposed = (*part).clone();
-                proposed.x += offset.0;
-                proposed.y += offset.1;
-                collision_set.intersects(&proposed, kind)
-            }) {
-                invalid_offsets.insert(offset_key);
+            if collides(offset) {
+                invalid.insert(bits);
                 continue;
             }
-            let movement = translate(offset);
-            match movement.preview_with_catalog(&document.ship, &document.catalog) {
-                Ok(moved) => {
-                    if connection
-                        .preview_with_catalog(&moved, &document.catalog)
-                        .is_ok()
-                    {
-                        return (
-                            offset,
-                            EditorCommand::Batch(vec![movement, connection]),
-                            true,
-                        );
-                    }
-                }
-                Err(_) => {
-                    // 同一落点的整体碰撞与连接点选择无关，只校验一次。
-                    invalid_offsets.insert(offset_key);
-                }
+            let movement = command(offset);
+            if let Ok(moved) = movement.preview_with_catalog(ship, catalog)
+                && connection.preview_with_catalog(&moved, catalog).is_ok()
+            {
+                return (
+                    offset,
+                    EditorCommand::Batch(vec![movement, connection]),
+                    true,
+                );
             }
         }
     }
-    let command = translate(delta);
-    let valid = command
-        .preview_with_catalog(&document.ship, &document.catalog)
-        .is_ok();
-    (delta, command, valid)
+    // 没有合法吸附时，即使重叠也保留落点，不新增连接。
+    (delta, command(delta), !collides(delta))
 }
 
 pub(crate) fn keyboard(

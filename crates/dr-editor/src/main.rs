@@ -134,6 +134,7 @@ struct DragState {
     origin: (f64, f64),
     offset: (f64, f64),
     preview: (f64, f64),
+    turns: u8,
 }
 
 impl DragState {
@@ -143,6 +144,7 @@ impl DragState {
         self.rectangle = None;
         self.command = None;
         self.blocked = false;
+        self.turns = 0;
     }
     /// 连续跟随指针，连接面吸附另行计算，不把拖动量化为半格。
     fn follow(&mut self, logical: (f64, f64)) {
@@ -151,24 +153,22 @@ impl DragState {
 
     fn moved(&self) -> bool {
         let delta = self.delta();
-        delta.0.hypot(delta.1) > 1e-6
+        !self.turns.is_multiple_of(4) || delta.0.hypot(delta.1) > 1e-6
     }
 
     /// 松手后清理所有临时状态；单击仍保留选中，实际拖动不留下高亮。
     fn finish(&mut self, document: &mut EditorDocument) {
-        if let Some(id) = self.id
-            && self.moved()
-        {
-            let command = if self.members.len() > 1 {
-                self.command.take()
-            } else {
-                move_with_snap(&document.ship, &document.catalog, id, self.preview)
-            };
-            if let Some(command) = command {
-                document.execute(command);
-            } else {
-                document.status = "无法移动：该位置与其他部件重叠".into();
-            }
+        if self.id.is_some() && self.moved() {
+            let command = self
+                .command
+                .take()
+                .unwrap_or_else(|| EditorCommand::DragSelection {
+                    parts: self.keys().into_iter().collect(),
+                    pivot: self.origin,
+                    turns: self.turns,
+                    delta: self.delta(),
+                });
+            document.execute(command);
             document.clear_selection();
         }
         self.cancel();
@@ -182,6 +182,23 @@ impl DragState {
             BTreeSet::new()
         } else {
             self.members.iter().copied().chain(self.id).collect()
+        }
+    }
+    fn point(&self, point: Vec2) -> Vec2 {
+        let pivot = Vec2::new(self.origin.0 as f32, self.origin.1 as f32) * 60.0;
+        let mut relative = point - pivot;
+        for _ in 0..self.turns % 4 {
+            relative = Vec2::new(-relative.y, relative.x);
+        }
+        let delta = self.delta();
+        pivot + relative + Vec2::new(delta.0 as f32, delta.1 as f32) * 60.0
+    }
+    fn pose(&self, key: PartKey, part: &Part) -> Part {
+        if self.contains(key) {
+            dr_core::edit::selection::drag_part(part, None, self.origin, self.turns, self.delta())
+                .unwrap_or_else(|_| part.clone())
+        } else {
+            part.clone()
         }
     }
     fn delta(&self) -> (f64, f64) {
@@ -737,6 +754,25 @@ fn mouse_editor(
         return;
     }
     let box_button = options.box_select_button.select();
+    if pointer.palette_drop && drag.id.is_some() {
+        cursor.valid = false;
+        if !mouse.pressed(MouseButton::Left) {
+            let roots: Vec<_> = drag.keys().into_iter().collect();
+            match selection::connected_keys(&document.ship, &roots) {
+                Ok(parts) => {
+                    let count = parts.len();
+                    if document.execute(EditorCommand::DeleteSelection(parts.into_iter().collect()))
+                    {
+                        document.status = format!("已删除 {count} 个相连部件 · Ctrl+Z 撤销");
+                        document.clear_selection();
+                    }
+                }
+                Err(message) => document.status = message,
+            }
+            drag.cancel();
+        }
+        return;
+    }
     if pointer.blocked {
         cursor.valid = false;
         if (drag.id.is_some() && !mouse.pressed(MouseButton::Left))
@@ -801,7 +837,11 @@ fn mouse_editor(
             selection::click(&mut document, selected, shift);
             if !shift && let Some(part) = selected.and_then(|key| document.ship.part_at(key)) {
                 drag.id = selected;
-                drag.members = document.selected_keys().into_iter().collect();
+                drag.members = selection::drag_keys(
+                    &document.ship,
+                    &document.selected_keys(),
+                    options.follow_children,
+                );
                 drag.origin = (part.x, part.y);
                 drag.preview = drag.origin;
                 drag.offset = (part.x - logical.0, part.y - logical.1);
@@ -838,20 +878,26 @@ fn mouse_editor(
         // 保留抓取偏移和非网格坐标，小幅移动也要立即响应。
         drag.follow(logical);
     }
-    if drag.id.is_some() && drag.members.len() > 1 {
-        let keys: Vec<_> = drag.keys().into_iter().collect();
-        let (delta, command, valid) = selection::movement(&document, &keys, drag.delta());
+    if drag.id.is_some() {
+        let selected: Vec<_> = drag.keys().into_iter().collect();
+        if keys.just_pressed(KeyCode::KeyR) {
+            if selected.iter().any(|key| {
+                document
+                    .ship
+                    .part_at(*key)
+                    .and_then(|part| document.catalog.get(&part.part_type))
+                    .is_some_and(|kind| kind.disable_editor_rotation)
+            }) {
+                document.status = "所拖部件中有禁止旋转的部件".into();
+            } else {
+                drag.turns = (drag.turns + 1) % 4;
+            }
+        }
+        let (delta, command, clear) =
+            selection::movement_pose(&document, &selected, drag.origin, drag.turns, drag.delta());
         drag.preview = (drag.origin.0 + delta.0, drag.origin.1 + delta.1);
         drag.command = Some(command);
-        drag.blocked = !valid;
-    } else if let Some(id) = drag.id
-        && drag.moved()
-        && let Some(mut part) = document.ship.part_at(id).cloned()
-    {
-        part.x = drag.preview.0;
-        part.y = drag.preview.1;
-        placement::snap(&document.ship, &document.catalog, &mut part, Some(id));
-        drag.preview = (part.x, part.y);
+        drag.blocked = !clear;
     }
     if drag.id.is_some() && !mouse.pressed(MouseButton::Left) {
         drag.finish(&mut document);
@@ -859,34 +905,17 @@ fn mouse_editor(
 }
 
 /// 将预览落点、断开旧连接和新吸附作为一个可撤销操作。
+#[cfg(test)]
 fn move_with_snap(
     ship: &Ship,
     catalog: &PartCatalog,
     id: PartKey,
     position: (f64, f64),
 ) -> Option<EditorCommand> {
-    let mut source = ship.part_at(id)?.clone();
+    let source = ship.part_at(id)?;
     let origin = (source.x, source.y);
-    source.x = position.0;
-    source.y = position.1;
-    let connection = placement::snap(ship, catalog, &mut source, Some(id));
-    if placement::collides(ship, catalog, &source, Some(id)) {
-        return None;
-    }
-    let to = (source.x, source.y);
-    let mut commands = vec![
-        EditorCommand::Disconnect(id.id).at(id),
-        EditorCommand::Move {
-            id: id.id,
-            from: origin,
-            to,
-        }
-        .at(id),
-    ];
-    if let Some(connection) = connection {
-        commands.push(connection);
-    }
-    Some(EditorCommand::Batch(commands))
+    let delta = (position.0 - origin.0, position.1 - origin.1);
+    Some(selection::movement_for(ship, catalog, &[id], origin, 0, delta).1)
 }
 
 fn update_hud(document: Res<EditorDocument>, mut labels: Query<&mut Text, With<EditorHud>>) {

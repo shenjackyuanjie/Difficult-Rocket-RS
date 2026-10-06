@@ -301,3 +301,161 @@ fn spatial_snap_candidates_match_full_scan_and_preserve_equal_distance_order() {
         }
     }
 }
+
+#[test]
+fn overlapping_rigid_drag_preserves_internal_edges_detaches_external_and_undoes_once() {
+    let mut document = document();
+    let kind = document.catalog.get("pod").unwrap();
+    document.ship.parts.push(kind.instantiate(4, (-5.0, 0.0)));
+    document.ship.connections.push(Connection::Normal {
+        parent: 4,
+        child: 1,
+        parent_attach: 1,
+        child_attach: 1,
+    });
+    let before = document.ship.clone();
+    let (delta, command, clear) =
+        movement_pose(&document, &[key(1), key(2)], (0.0, 0.0), 1, (5.0, 0.0));
+    assert!(!clear);
+    assert_eq!(delta, (5.0, 0.0));
+    assert_eq!(document.ship, before);
+    assert!(document.execute(command));
+    assert_eq!(
+        (document.ship.parts[0].x, document.ship.parts[0].y),
+        (5.0, 0.0)
+    );
+    assert_eq!(
+        (document.ship.parts[1].x, document.ship.parts[1].y),
+        (5.0, 1.0)
+    );
+    assert_eq!(document.ship.connections, before.connections[..1]);
+    assert!(document.undo());
+    assert_eq!(document.ship, before);
+    assert!(!document.history.can_undo());
+}
+
+#[test]
+fn drag_scope_is_exact_and_ambiguous_references_are_atomic_errors() {
+    let mut document = document();
+    let kind = document.catalog.get("pod").unwrap();
+    document.ship.disconnected.push(dr_core::ShipGroup {
+        parts: vec![kind.instantiate(1, (9.0, 0.0))],
+        connections: vec![],
+    });
+    let before = document.ship.clone();
+    let command = EditorCommand::DragSelection {
+        parts: vec![PartKey::new(1, 1, 0)],
+        pivot: (9.0, 0.0),
+        turns: 1,
+        delta: (-9.0, 0.0),
+    };
+    assert!(document.execute(command));
+    assert_eq!(document.ship.parts, before.parts);
+    assert_eq!(document.ship.connections, before.connections);
+    assert_eq!(document.ship.disconnected[0].parts[0].editor_angle, 1);
+    assert!(document.undo());
+    document.ship.parts.push(document.ship.parts[0].clone());
+    let before = document.ship.clone();
+    let command = EditorCommand::DragSelection {
+        parts: vec![key(1)],
+        pivot: (0.0, 0.0),
+        turns: 1,
+        delta: (2.0, 0.0),
+    };
+    assert!(!document.execute(command));
+    assert_eq!(document.ship, before);
+}
+
+#[test]
+fn drag_permissions_and_finite_values_are_checked_without_weakening_normal_transforms() {
+    let mut document = document();
+    let before = document.ship.clone();
+    assert!(!document.execute(EditorCommand::TransformSelection {
+        parts: vec![key(1)],
+        transform: SelectionTransform::Translate { dx: 5.0, dy: 0.0 }
+    }));
+    assert_eq!(document.ship, before);
+    for (pivot, delta) in [
+        ((f64::NAN, 0.0), (0.0, 0.0)),
+        ((0.0, 0.0), (f64::INFINITY, 0.0)),
+    ] {
+        assert!(!document.execute(EditorCommand::DragSelection {
+            parts: vec![key(1)],
+            pivot,
+            turns: 0,
+            delta
+        }));
+        assert_eq!(document.ship, before);
+    }
+    document.ship.parts[0] = document
+        .catalog
+        .get("tank")
+        .unwrap()
+        .instantiate(1, (0.0, 0.0));
+    let before = document.ship.clone();
+    assert!(!document.execute(EditorCommand::DragSelection {
+        parts: vec![key(1)],
+        pivot: (0.0, 0.0),
+        turns: 1,
+        delta: (0.0, 0.0)
+    }));
+    assert_eq!(document.ship, before);
+}
+
+#[test]
+fn descendant_scope_is_directional_scoped_cycle_safe_and_dock_aware() {
+    let mut document = document();
+    document.ship.connections.push(Connection::Dock {
+        parent: 2,
+        child: 3,
+        dock: 1,
+    });
+    assert_eq!(
+        drag_keys(&document.ship, &[key(2)], false),
+        [key(2)].into_iter().collect()
+    );
+    assert_eq!(
+        drag_keys(&document.ship, &[key(2)], true),
+        [key(2), key(3)].into_iter().collect()
+    );
+    document.ship.connections.push(Connection::Normal {
+        parent: 3,
+        child: 1,
+        parent_attach: 1,
+        child_attach: 1,
+    });
+    assert_eq!(drag_keys(&document.ship, &[key(2)], true).len(), 3);
+    let kind = document.catalog.get("pod").unwrap();
+    document.ship.disconnected.push(dr_core::ShipGroup {
+        parts: vec![
+            kind.instantiate(1, (8.0, 0.0)),
+            kind.instantiate(2, (9.0, 0.0)),
+        ],
+        connections: vec![Connection::Normal {
+            parent: 1,
+            child: 2,
+            parent_attach: 1,
+            child_attach: 1,
+        }],
+    });
+    assert_eq!(
+        drag_keys(&document.ship, &[PartKey::new(1, 1, 0)], true),
+        [PartKey::new(1, 1, 0), PartKey::new(1, 2, 0)]
+            .into_iter()
+            .collect()
+    );
+}
+
+#[test]
+fn delete_connected_component_includes_parents_children_and_dock_but_not_other_groups() {
+    let mut document = document();
+    document.ship.connections.push(Connection::Dock {
+        parent: 2,
+        child: 3,
+        dock: 1,
+    });
+    let keys = connected_keys(&document.ship, &[key(2)]).unwrap();
+    assert_eq!(keys, [key(1), key(2), key(3)].into_iter().collect());
+    document.ship.parts.push(document.ship.parts[0].clone());
+    assert!(connected_keys(&document.ship, &[key(2)]).is_err());
+}

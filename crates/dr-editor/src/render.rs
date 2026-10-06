@@ -144,18 +144,8 @@ fn appearance(
     part: &Part,
     linked: bool,
 ) -> (Color, Transform) {
-    let collision = if drag.contains(key) {
-        if drag.members.len() > 1 {
-            drag.blocked
-        } else {
-            let mut preview = part.clone();
-            preview.x = drag.preview.0;
-            preview.y = drag.preview.1;
-            placement::collides(&document.ship, &document.catalog, &preview, Some(key))
-        }
-    } else {
-        false
-    };
+    let preview = drag.pose(key, part);
+    let collision = drag.contains(key) && drag.blocked;
     let color = if collision {
         Color::srgb(1.0, 0.2, 0.2)
     } else if document.is_selected(key) {
@@ -163,17 +153,12 @@ fn appearance(
     } else {
         Color::WHITE
     };
-    let (x, y) = if drag.contains(key) {
-        let delta = drag.delta();
-        (part.x + delta.0, part.y + delta.1)
-    } else {
-        (part.x, part.y)
-    };
+    let (x, y) = (preview.x, preview.y);
     (
         color.with_alpha(if linked { 1.0 } else { UNLINKED_ALPHA }),
         Transform {
             translation: Vec3::new(x as f32 * 60.0, y as f32 * 60.0, 0.0),
-            rotation: Quat::from_rotation_z(part.angle as f32),
+            rotation: Quat::from_rotation_z(preview.angle as f32),
             ..default()
         },
     )
@@ -407,9 +392,7 @@ pub(crate) fn connections(
         if count == 0 {
             gizmos.line_2d(*a, *b, Color::srgb(0.25, 0.9, 0.55));
         } else if count == refs.len() {
-            let delta = drag.delta();
-            let offset = Vec2::new(delta.0 as f32 * 60.0, delta.1 as f32 * 60.0);
-            gizmos.line_2d(*a + offset, *b + offset, Color::srgb(0.25, 0.9, 0.55));
+            gizmos.line_2d(drag.point(*a), drag.point(*b), Color::srgb(0.25, 0.9, 0.55));
         }
     }
 }

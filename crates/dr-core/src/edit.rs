@@ -48,6 +48,13 @@ pub enum EditorCommand {
         parts: Vec<PartKey>,
         transform: SelectionTransform,
     },
+    /// 现有部件拖拽：允许重叠，保留内部边并断开外部边。
+    DragSelection {
+        parts: Vec<PartKey>,
+        pivot: (f64, f64),
+        turns: u8,
+        delta: (f64, f64),
+    },
     Paste {
         fragment: Box<ShipFragment>,
         offset: (f64, f64),
@@ -282,6 +289,12 @@ impl EditorCommand {
             Self::TransformSelection { parts, transform } => {
                 selection::transform(ship, catalog, parts, *transform)?
             }
+            Self::DragSelection {
+                parts,
+                pivot,
+                turns,
+                delta,
+            } => selection::drag(ship, catalog, parts, *pivot, *turns, *delta)?,
             Self::Paste { fragment, offset } => selection::paste(ship, catalog, fragment, *offset)?,
             Self::RepairDuplicates(repair) => repair.apply_inner(ship)?,
             Self::Scoped { part, command } => {

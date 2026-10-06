@@ -118,13 +118,8 @@ fn group_hints(document: &EditorDocument, drag: &DragState, command: &EditorComm
             ) else {
                 return vec![];
             };
-            let delta = drag.delta();
-            for (key, part) in [(*parent, &mut a), (*child, &mut b)] {
-                if drag.contains(key) {
-                    part.x += delta.0;
-                    part.y += delta.1;
-                }
-            }
+            a = drag.pose(*parent, &a);
+            b = drag.pose(*child, &b);
             let (Some(st), Some(tt)) = (
                 document.catalog.get(&b.part_type),
                 document.catalog.get(&a.part_type),
@@ -191,12 +186,9 @@ pub(crate) fn draw(
         .unwrap_or(4.0);
     let mut sources = vec![];
     if drag.id.is_some() {
-        let delta = drag.delta();
         for key in drag.keys() {
-            if let Some(mut part) = document.ship.part_at(key).cloned() {
-                part.x += delta.0;
-                part.y += delta.1;
-                sources.push((Some(key), part));
+            if let Some(part) = document.ship.part_at(key) {
+                sources.push((Some(key), drag.pose(key, part)));
             }
         }
     } else if cursor.placing
