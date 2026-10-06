@@ -160,3 +160,15 @@ fn keyboard_place_during_palette_drag_clears_the_ghost_before_mouse_release() {
     assert_eq!(document.ship.parts.len(), 2);
     assert_eq!(document.ship.connections.len(), 1);
 }
+
+#[test]
+fn palette_preview_follows_small_motion_without_grid_quantization_and_release_clears_selection() {
+    let mut document = document();
+    let mut cursor = dragged((4.13, 3.17));
+    let (part, connection, allowed) = preview(&document, &cursor).unwrap();
+    assert_eq!((part.x, part.y), cursor.world);
+    assert!(allowed && connection.is_none());
+    assert!(finish_palette_drag(&mut document, &mut cursor, true));
+    assert!(document.selected_keys().is_empty());
+    assert!(!cursor.placing && !cursor.palette_drag);
+}

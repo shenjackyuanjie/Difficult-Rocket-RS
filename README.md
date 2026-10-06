@@ -13,7 +13,7 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 | 操作 | 按键 |
 | --- | --- |
 | 选择、移动并吸附部件 | 左键点击、拖动 |
-| 增减选择、框选、全选 | Shift+左键；空白处拖动，Shift 框选追加；Ctrl+A |
+| 增减选择、框选、全选 | Shift+左键；默认中键拖动框选，侧栏可切换为左键；Shift 框选追加；Ctrl+A |
 | 复制、剪切、粘贴 | Ctrl+C/X/V；预览中 R/X/Y 变换、左键/P 提交、Esc/右键取消 |
 | 从目录拖出新部件 | 列表任一行左键按住拖到画布，松手放置并吸附连接 |
 | 取消拖动预览 | Esc、右键；窗口失焦时自动取消 |
@@ -24,7 +24,7 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 | 属性与分级编辑 | F2 或顶部“属性 / 分级”；未选部件时打开驾驶舱 |
 | 新建、打开 | Ctrl+N、Ctrl+O；支持单个 XML 文件拖入 |
 | 保存、另存为 | Ctrl+S、Ctrl+Shift+S；首次保存选择目标文件 |
-| 鼠标位置缩放、平移、视图复位 | 滚轮、中键拖动、Home |
+| 鼠标位置缩放、平移、视图复位 | 滚轮；默认左键拖动空白平移（左键框选模式下改用中键）；Home |
 | 适配整船、适配选区 | F、Shift+F；视图居中到两侧目录之间 |
 | 调试显示、船体显隐 | F3 显示坐标、原点和选中轮廓/连接面；F4 隐藏或恢复贴图 |
 | 截图 | F12，输出到当前目录 |
@@ -37,11 +37,13 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 
 编辑历史默认最多 256 步、快照容量预算 64 MiB，超出时移除最旧记录；若单步本身超过预算，仍保留最近一步。每步只保存一份快照，撤销/重做交换快照；预算不包含当前文档、保存点、渲染及分配器开销。
 
+单击部件保留选中；实际拖动或目录拖放结束会取消选中高亮，左键点击画布空白也可取消（Shift 保留选区）。拖动连续跟随指针和抓取偏移，不再量化为半格，靠近有效连接面时仍会吸附。
+
 多选后拖动任一已选部件可整体移动，R/X/Y 围绕所选部件中心整体旋转或镜像，Delete 一次删除。内部连接保持，移动或变换时断开与未选部件的连接；吸附和碰撞按完整选择验证。复制保留内部连接、分组和内部的分级引用，粘贴分配新编号，并检查数量限制。剪贴板在切换文件时保留；预览和取消不改变文档，每次提交可一次撤销。
 
 命中与碰撞支持目录中的凸多边形及多个 Shape 的组合、圆形车轮和默认矩形，随部件旋转与镜像。传感器不作为实体轮廓；相邻边界接触允许，实体内部重叠会阻止放置、移动、旋转和镜像，拖动时显示红色。目录的 `ignoreEditorIntersections` 仍允许着陆架等指定部件重叠。自定义 Shape 的非有限坐标、退化、自交或凹多边形会明确报错；凹轮廓需拆分成多个凸 Shape。
 
-吸附区分固定中心点与 `Top/Bottom/Left/Right`、`*Side` 连接面；连接面允许沿边滑动，同边不同位置可以分别连接。固定点和共享 `group` 独占，吸附会跳过已占用、方向不兼容或产生碰撞的候选，拖动时忽略即将断开的旧连接。新建连接在原子提交时再次检查编号、实际接触及占用；机械连接不因燃料类型不同而禁止。显式标记 `dock="true"` 的自定义连接点只允许插头与端口配对，原版 XML 中的历史对接记录仍原样保留。
+吸附区分固定中心点与 `Top/Bottom/Left/Right`、`*Side` 连接面；连接面允许沿边滑动，同边不同位置可以分别连接。固定点和共享 `group` 独占，吸附会跳过已占用、方向不兼容或产生碰撞的候选，拖动时忽略即将断开的旧连接。拖动/放置时灰紫色标记表示源部件连接点或连接面，淡紫色表示附近可提交的连接候选，亮紫色表示已贴合的吸附点；标记绘制在贴图前方，圆圈保持屏幕大小。多选只高亮通过整体校验的实际吸附连接，避免显示单件可连但整体碰撞的假候选。新建连接在原子提交时再次检查编号、实际接触及占用；机械连接不因燃料类型不同而禁止。显式标记 `dock="true"` 的自定义连接点只允许插头与端口配对，原版 XML 中的历史对接记录仍原样保留。
 
 属性面板使用 egui 内置 `Modal`、`TextEdit`、`ScrollArea` 和复选框，支持激活状态、燃料，以及驾驶舱中的船体名称、油门和分级。可增删、排序分级步骤，按 ID、下拉列表或上一/下一部件选择激活目标，增删动作并编辑移动标记。点击字段定位光标，Ctrl+A 全选后可替换原值；文本光标、选区、剪贴板和中文输入法由 egui 管理。点击“应用”提交整份草稿并支持一次撤销；“取消”或 Esc 放弃草稿，点击遮罩保留草稿，输入法事件同帧的 Esc 不关闭草稿。草稿打开时不处理画布快捷键，关闭窗口或拖入文件也不会丢弃草稿；需先应用或取消再继续文件操作。燃料不能为负或超过目录容量，油门范围为 0～1，分级目标必须存在且不能在同一级重复。
 
@@ -83,13 +85,13 @@ python -X utf8 scripts/check_native_dialogs.py
 
 `--native-ime-test` 仅适用于 Windows：在窗口创建线程通过已加载的简体中文 IMM 输入法生成真实预编辑/提交消息，经 Winit/Bevy/bevy_egui 进入 TextEdit，检查候选窗定位、草稿隔离、应用、撤销重做及 XML 往返。输出 `target/editor-native-ime.png` 和 `target/native-ime-smoke.xml`；此专项不代表所有第三方输入法或候选列表操作。
 
-`--connection-smoke-test` 从默认新建船体开始，用原版长梁和两个分离器验证沿边吸附、同边多点连接、原子撤销/重做及保存往返，输出 `target/editor-connections-smoke.png` 和 `target/connections-smoke.xml`；运行时不要传 `--ship`。
+`--connection-smoke-test` 从默认新建船体开始，用原版长梁和两个分离器验证沿边吸附、同边多点连接、原子撤销/重做及保存往返，并捕获前景连接提示预览，输出 `target/editor-connection-hints.png`、`target/editor-connections-smoke.png` 和 `target/connections-smoke.xml`；运行时不要传 `--ship`。
 
 `--scoped-smoke-test` 使用原版分离器构造三个复用 ID 的组，通过真实窗口的鼠标及快捷键输入验证选择、拖动预览、删除、跨组吸附、撤销重做及 XML 保存往返，输出 `target/editor-scoped-smoke.png` 和 `target/scoped-smoke.xml`。`verify_scoped_edits` 在真实重复 ID 样本中每组抽取一个实例，并额外覆盖同组重复实例，检查属性编辑、撤销重做和往返；原版库目前覆盖 34 个样本、282 个实例，另 5 个异常输入使程序如实返回非零状态，不修改样本。
 
 `--repair-smoke-test` 使用真实 `Heronb.xml` 的发动机/油箱重复编号，通过实际 UI 按钮分配三条连接及一条分级引用，验证未分配拒绝、草稿隔离、一次撤销重做、修复后的独立删除和 XML 往返，输出 `target/editor-repair-draft.png`、`target/editor-repair-smoke.png` 及 `target/repair-smoke.xml`，不写回源样本。
 
-`--selection-smoke-test` 验证 Shift 多选及取消选择、真实轮廓框选、整体拖动与内部连接、复制粘贴的红色碰撞/绿色吸附预览、预览旋转取消、全选删除、一次撤销重做、侧栏释放与失焦取消，以及 XML 往返。输出 `target/editor-selection-preview.png`、`target/editor-selection-smoke.png` 和 `target/selection-smoke.xml`，截图捕获完成后才提交预览。
+`--selection-smoke-test` 验证 Shift 多选及取消选择、中键/左键切换与真实轮廓框选、小幅连续跟随、松手高亮清理、空白取消选择、视角平移、整体拖动与内部连接、复制粘贴的红色碰撞/绿色吸附预览、预览旋转取消、全选删除、一次撤销重做、侧栏释放与失焦取消，以及 XML 往返。输出 `target/editor-selection-preview.png`、`target/editor-selection-smoke.png` 和 `target/selection-smoke.xml`，截图捕获完成后才提交预览。
 
 `--view-smoke-test` 验证整船与选区适配、窗口缩小到 960×640 后重新适配、F3 调试标签和 F4 船体显隐，以及文档和历史不变；输出 `target/editor-view-smoke.png`。
 
@@ -108,6 +110,8 @@ uv run --no-project --python 3.12 python -X utf8 scripts/check_native_input.py
 ```
 
 该脚本只操作自己启动的编辑器和失焦辅助窗口，验证真正的系统前台句柄，再通过系统鼠标和 `SendInput` 运行多选拖动、目录虚影、空白放置/吸附连接、原子撤销重做及侧栏/Esc/真实失焦取消。应用侧只观察，不伪造焦点或直接注入 Bevy/egui 输入；虚影截图捕获完成后才松手，并检查 XML 往返和源样本未改动。输入法/系统文字专项按当前要求跳过，报告明确记为未运行。
+
+窗口驱动可用 `--editor-bin <编辑器程序路径>` 指定独立构建产物，避免覆盖正在运行的默认程序；例如 `cargo rustc -p dr-editor --bin dr-editor -- -o target/drag-editor.exe` 后以 `--editor-bin target/drag-editor.exe` 验收，不强制关闭已有编辑器窗口。
 
 置前/失焦干扰最多自动重试三次，连续失败时尝试通过本机 noticer 的 `sr1` 房间提醒；程序断言和数据错误直接失败，不作为焦点失败重试。测试时会短暂置前窗口，不永久置顶、不向其他应用发送快捷键。产物位于 `target/foreground-*`，最近成功路径记录在 `target/foreground-last.txt`。可用 `--window-case keys` 运行真实系统快捷键验收，使用 `--window-case panels|connections|scoped|selection|view|topology` 在受控前台运行已有注入式窗口回归，或 `--window-case performance --selection-count 1000` 测量拖动；前台受控不意味着这些旧回归已改为系统输入。
 

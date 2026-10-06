@@ -166,3 +166,173 @@ fn snapped_connections_use_one_based_sr1_indices() {
     assert!(document.undo());
     assert_eq!(document.ship, before);
 }
+
+/// 使用实际 mouse_editor 系统，测试相机固定为 1 世界像素/逻辑像素。
+fn mouse_app() -> App {
+    use bevy::camera::{ComputedCameraValues, RenderTargetInfo};
+    let mut document = document();
+    document.catalog = panels::tests::catalog();
+    let mut app = App::new();
+    app.insert_resource(document)
+        .init_resource::<DragState>()
+        .init_resource::<EditorCursor>()
+        .init_resource::<view::ViewOptions>()
+        .init_resource::<panels::UiPointer>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .add_systems(Update, mouse_editor);
+    app.world_mut().spawn((
+        Window {
+            resolution: WindowResolution::new(1440, 900),
+            focused: true,
+            ..default()
+        },
+        bevy::window::PrimaryWindow,
+    ));
+    app.world_mut().spawn((
+        Camera {
+            computed: ComputedCameraValues {
+                clip_from_view: Mat4::from_scale(Vec3::new(1.0 / 720.0, 1.0 / 450.0, 1.0)),
+                target_info: Some(RenderTargetInfo {
+                    physical_size: UVec2::new(1440, 900),
+                    scale_factor: 1.0,
+                }),
+                ..default()
+            },
+            ..default()
+        },
+        GlobalTransform::IDENTITY,
+    ));
+    app
+}
+
+fn pointer(app: &mut App, logical: (f64, f64)) {
+    let mut windows = app.world_mut().query::<&mut Window>();
+    let mut window = windows.single_mut(app.world_mut()).unwrap();
+    window.set_cursor_position(Some(Vec2::new(
+        720.0 + logical.0 as f32 * 60.0,
+        450.0 - logical.1 as f32 * 60.0,
+    )));
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .clear();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .clear();
+}
+
+#[test]
+fn actual_mouse_drag_follows_sub_grid_motion_and_release_cleans_highlight_and_history() {
+    let mut app = mouse_app();
+    let before = app.world().resource::<EditorDocument>().ship.clone();
+    pointer(&mut app, (0.0, 0.0));
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.update();
+    pointer(&mut app, (0.1, 0.13));
+    app.update();
+    let drag = app.world().resource::<DragState>();
+    assert!((drag.preview.0 - 0.1).abs() < 1e-5);
+    assert!((drag.preview.1 - 0.13).abs() < 1e-5);
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    pointer(&mut app, (0.1, 0.13));
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .release(MouseButton::Left);
+    app.update();
+    let drag = app.world().resource::<DragState>();
+    assert!(
+        drag.id.is_none() && drag.members.is_empty() && drag.command.is_none() && !drag.blocked
+    );
+    let document = app.world().resource::<EditorDocument>();
+    assert!(document.selected_keys().is_empty());
+    assert!((document.ship.parts[0].x - 0.1).abs() < 1e-5);
+    app.update();
+    assert!(app.world_mut().resource_mut::<EditorDocument>().undo());
+    let document = app.world().resource::<EditorDocument>();
+    assert_eq!(document.ship, before);
+    assert!(!document.history.can_undo());
+}
+
+#[test]
+fn background_left_click_clears_selection_for_both_box_button_settings() {
+    for button in [view::BoxSelectButton::Left, view::BoxSelectButton::Middle] {
+        let mut app = mouse_app();
+        app.world_mut()
+            .resource_mut::<view::ViewOptions>()
+            .box_select_button = button;
+        app.world_mut()
+            .resource_mut::<EditorDocument>()
+            .select_only(Some(PartKey::new(0, 1, 0)));
+        pointer(&mut app, (3.0, 3.0));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        assert!(
+            app.world()
+                .resource::<EditorDocument>()
+                .selected_keys()
+                .is_empty()
+        );
+        assert_eq!(
+            app.world().resource::<DragState>().rectangle.is_some(),
+            button == view::BoxSelectButton::Left
+        );
+        assert!(!app.world().resource::<EditorDocument>().history.can_undo());
+    }
+}
+
+#[test]
+fn clicking_non_grid_part_keeps_its_pose_connections_and_selection() {
+    let mut app = mouse_app();
+    {
+        let mut document = app.world_mut().resource_mut::<EditorDocument>();
+        document.ship.parts[0].x = 0.13;
+        document.ship.parts[0].y = 0.17;
+    }
+    let before = app.world().resource::<EditorDocument>().ship.clone();
+    pointer(&mut app, (0.13, 0.17));
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.update();
+    pointer(&mut app, (0.13, 0.17));
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .release(MouseButton::Left);
+    app.update();
+    let document = app.world().resource::<EditorDocument>();
+    assert_eq!(document.ship, before);
+    assert_eq!(document.selected, Some(PartKey::new(0, 1, 0)));
+    assert!(!document.history.can_undo());
+    assert!(app.world().resource::<DragState>().members.is_empty());
+}
+
+#[test]
+fn missed_release_event_still_finishes_drag_and_sidebar_release_cancels() {
+    for sidebar in [false, true] {
+        let mut app = mouse_app();
+        let before = app.world().resource::<EditorDocument>().ship.clone();
+        pointer(&mut app, (0.0, 0.0));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        pointer(&mut app, (0.1, 0.1));
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        app.world_mut().resource_mut::<panels::UiPointer>().blocked = sidebar;
+        app.update();
+        assert!(app.world().resource::<DragState>().id.is_none());
+        assert!(app.world().resource::<DragState>().members.is_empty());
+        if sidebar {
+            assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+        } else {
+            assert_ne!(app.world().resource::<EditorDocument>().ship, before);
+        }
+    }
+}

@@ -45,6 +45,35 @@ pub(crate) fn transform(document: &mut EditorDocument, id: PartKey, command: Edi
     ]));
 }
 
+/// 连接提示与实际吸附共用占用、歧义和碰撞判断，不显示无法提交的候选。
+pub(crate) fn candidate_allowed(
+    ship: &Ship,
+    catalog: &PartCatalog,
+    proposed: &Part,
+    source_key: Option<PartKey>,
+    target: &Part,
+    target_key: PartKey,
+    candidate: &dr_core::SnapCandidate,
+) -> bool {
+    let (Some(source_type), Some(target_type)) = (
+        catalog.get(&proposed.part_type),
+        catalog.get(&target.part_type),
+    ) else {
+        return false;
+    };
+    dr_core::connections::available_scoped(
+        ship,
+        catalog,
+        proposed,
+        source_type,
+        source_key,
+        target,
+        target_type,
+        target_key,
+        candidate,
+    ) && !collides(ship, catalog, proposed, source_key)
+}
+
 /// 预览和落点提交共用的吸附计算，不改变文档。
 pub(crate) fn snap(
     ship: &Ship,
@@ -73,18 +102,9 @@ pub(crate) fn snap(
             let mut proposed = source.clone();
             proposed.x = candidate.position.x;
             proposed.y = candidate.position.y;
-            if !dr_core::connections::available_scoped(
-                ship,
-                catalog,
-                &proposed,
-                source_type,
-                source_key,
-                target,
-                target_type,
-                target_key,
-                &candidate,
-            ) || collides(ship, catalog, &proposed, source_key)
-            {
+            if !candidate_allowed(
+                ship, catalog, &proposed, source_key, target, target_key, &candidate,
+            ) {
                 continue;
             }
             let child = source_key.unwrap_or_else(|| PartKey::new(0, source.id, 0));
@@ -122,13 +142,7 @@ pub(crate) fn preview(
     cursor: &EditorCursor,
 ) -> Option<(Part, Option<EditorCommand>, bool)> {
     let kind = document.catalog.visible().nth(cursor.catalog_index)?;
-    let mut part = kind.instantiate(
-        document.ship.next_part_id(),
-        (
-            (cursor.world.0 * 2.0).round() / 2.0,
-            (cursor.world.1 * 2.0).round() / 2.0,
-        ),
-    );
+    let mut part = kind.instantiate(document.ship.next_part_id(), cursor.world);
     part.editor_angle = if kind.disable_editor_rotation {
         0
     } else {
@@ -177,6 +191,9 @@ pub fn finish_palette_drag(
     }
     let placed = canvas && cursor.placing && cursor.valid && place(document, cursor);
     cursor.cancel_placement();
+    if placed {
+        document.clear_selection();
+    }
     placed
 }
 

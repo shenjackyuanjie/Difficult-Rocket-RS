@@ -5,7 +5,11 @@ pub(crate) struct State {
     phase: u8,
     beam: i64,
     after: Option<Ship>,
+    capturing: bool,
 }
+
+#[derive(Resource)]
+pub(crate) struct HintsCaptured;
 
 /// 使用原版目录验证长梁边缘的两个独立连接，不依赖桌面鼠标焦点。
 #[allow(clippy::too_many_arguments)]
@@ -13,6 +17,8 @@ pub(crate) fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     document: Res<EditorDocument>,
+    cursor: Res<EditorCursor>,
+    captured: Option<Res<HintsCaptured>>,
     mut buttons: MessageWriter<panels::PanelButton>,
     mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -128,6 +134,48 @@ pub(crate) fn run(
             );
         }
         9 => {
+            keys.reset_all();
+            choose("detacher-1");
+            window.focused = true;
+            let position = Vec2::new(window.width() / 2.0 + 150.0, window.height() / 2.0 - 15.0);
+            window.set_cursor_position(Some(position));
+        }
+        10 => {
+            window.focused = true;
+            let position = Vec2::new(window.width() / 2.0 + 150.0, window.height() / 2.0 - 15.0);
+            window.set_cursor_position(Some(position));
+            assert!(cursor.placing && cursor.valid);
+            let (part, connection, allowed) = placement::preview(&document, &cursor).unwrap();
+            assert!(
+                connection.is_some() && allowed,
+                "连接提示预览无合法吸附：world={:?}, part=({:?}, {:?}), connected={}, allowed={}",
+                cursor.world,
+                part.x,
+                part.y,
+                connection.is_some(),
+                allowed
+            );
+            if !state.capturing {
+                use bevy::render::view::screenshot::{
+                    Screenshot, ScreenshotCaptured, save_to_disk,
+                };
+                commands
+                    .spawn(Screenshot::primary_window())
+                    .observe(save_to_disk("target/editor-connection-hints.png"))
+                    .observe(|_: On<ScreenshotCaptured>, mut commands: Commands| {
+                        commands.insert_resource(HintsCaptured);
+                    });
+                state.capturing = true;
+            }
+            assert!(part.x.is_finite());
+            if captured.is_none() {
+                return;
+            }
+            keys.press(KeyCode::Escape);
+        }
+        11 => {
+            assert!(!cursor.placing);
+            assert_eq!(state.after.as_ref(), Some(&document.ship));
             keys.reset_all();
             use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
             commands.spawn(Screenshot::primary_window())

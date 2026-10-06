@@ -10,6 +10,7 @@ pub(crate) struct State {
     after: Option<Ship>,
     pointer: Option<Vec2>,
     camera_before: Option<Vec2>,
+    small_motion: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -103,20 +104,34 @@ pub(crate) fn run(
         }
         6 => {
             assert_eq!(drag.members.len(), 2);
+            if !state.small_motion {
+                point(0.1, 0.13);
+                state.small_motion = true;
+                state.pointer = pointer;
+                return;
+            }
+            assert!((drag.delta().0 - 0.1).abs() < 1e-5);
+            assert!((drag.delta().1 - 0.13).abs() < 1e-5);
             point(1.0, 1.0);
         }
         7 => {
             assert_eq!(state.before.as_ref(), Some(&document.ship));
             for (visual, transform) in &visuals {
                 if visual.id < 3 {
-                    assert_eq!(transform.translation.x, 60.0);
+                    assert!((transform.translation.x - 60.0).abs() < 1e-3);
                 }
             }
             mouse.release(MouseButton::Left);
         }
         8 => {
-            assert_eq!(document.ship.parts[0].x, 1.0, "{}", document.status);
-            assert_eq!(document.ship.parts[1].x, 1.0);
+            assert!(document.selected_keys().is_empty());
+            assert!(drag.id.is_none() && drag.members.is_empty() && drag.command.is_none());
+            assert!(
+                (document.ship.parts[0].x - 1.0).abs() < 1e-5,
+                "{}",
+                document.status
+            );
+            assert!((document.ship.parts[1].x - 1.0).abs() < 1e-5);
             assert_eq!(document.ship.connections.len(), 1);
             keys.press(KeyCode::ControlLeft);
             keys.press(KeyCode::KeyZ);
@@ -292,10 +307,13 @@ pub(crate) fn run(
         33 => {
             assert_eq!(options.box_select_button, view::BoxSelectButton::Middle);
             state.camera_before = Some(camera.single().unwrap().translation.truncate());
+            let first_key = document.ship.keyed_parts().next().map(|(key, _)| key);
+            document.select_only(first_key);
             point(3.0, -3.0);
             mouse.press(MouseButton::Left);
         }
         34 => {
+            assert!(document.selected_keys().is_empty(), "空白左键没有取消选择");
             assert!(drag.rectangle.is_none());
             point(4.0, -2.0);
         }

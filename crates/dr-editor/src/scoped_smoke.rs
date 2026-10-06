@@ -104,8 +104,12 @@ pub(crate) fn run(
             mouse.release(MouseButton::Left);
         }
         4 => {
-            assert_eq!(document.ship.part_at(key).unwrap().y, 2.0);
+            assert!((document.ship.part_at(key).unwrap().y - 2.0).abs() < 1e-5);
             assert_eq!(document.ship.parts, state.before.as_ref().unwrap().parts);
+            assert!(document.selected_keys().is_empty(), "拖动后仍保持高亮");
+            assert!(drag.id.is_none() && drag.members.is_empty());
+            // 实际拖动结束已取消选择；明确重新选中目标后再验收删除。
+            document.select_only(Some(key));
             keys.press(KeyCode::Delete);
         }
         5 => {
@@ -120,7 +124,7 @@ pub(crate) fn run(
             keys.press(KeyCode::KeyZ);
         }
         6 => {
-            assert_eq!(document.ship.part_at(key).unwrap().y, 2.0);
+            assert!((document.ship.part_at(key).unwrap().y - 2.0).abs() < 1e-5);
             keys.reset_all();
         }
         7 => {

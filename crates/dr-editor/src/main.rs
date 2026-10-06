@@ -1,3 +1,4 @@
+mod attachment_hints;
 mod connection_smoke;
 mod egui_ui;
 mod files;
@@ -140,6 +141,36 @@ impl DragState {
         self.command = None;
         self.blocked = false;
     }
+    /// 连续跟随指针，连接面吸附另行计算，不把拖动量化为半格。
+    fn follow(&mut self, logical: (f64, f64)) {
+        self.preview = (logical.0 + self.offset.0, logical.1 + self.offset.1);
+    }
+
+    fn moved(&self) -> bool {
+        let delta = self.delta();
+        delta.0.hypot(delta.1) > 1e-6
+    }
+
+    /// 松手后清理所有临时状态；单击仍保留选中，实际拖动不留下高亮。
+    fn finish(&mut self, document: &mut EditorDocument) {
+        if let Some(id) = self.id
+            && self.moved()
+        {
+            let command = if self.members.len() > 1 {
+                self.command.take()
+            } else {
+                move_with_snap(&document.ship, &document.catalog, id, self.preview)
+            };
+            if let Some(command) = command {
+                document.execute(command);
+            } else {
+                document.status = "无法移动：该位置与其他部件重叠".into();
+            }
+            document.clear_selection();
+        }
+        self.cancel();
+    }
+
     fn contains(&self, key: PartKey) -> bool {
         self.id.is_some() && (self.id == Some(key) || self.members.contains(&key))
     }
@@ -352,6 +383,7 @@ fn main() -> anyhow::Result<()> {
                 placement::draw_preview,
                 selection::draw_preview,
                 render::connections,
+                attachment_hints::draw,
                 view::draw_debug,
                 update_hud,
                 files::update_window_title,
@@ -659,7 +691,9 @@ fn mouse_editor(
     let box_button = options.box_select_button.select();
     if pointer.blocked {
         cursor.valid = false;
-        if mouse.just_released(MouseButton::Left) || mouse.just_released(box_button) {
+        if (drag.id.is_some() && !mouse.pressed(MouseButton::Left))
+            || (drag.rectangle.is_some() && !mouse.pressed(box_button))
+        {
             drag.cancel();
         }
         if cursor.palette_drag && !mouse.pressed(MouseButton::Left) {
@@ -725,6 +759,14 @@ fn mouse_editor(
                 drag.preview = drag.origin;
                 drag.offset = (part.x - logical.0, part.y - logical.1);
             }
+        } else if left_pressed && selected.is_none() {
+            drag.cancel();
+            selection::click(&mut document, None, shift);
+            if box_pressed {
+                drag.rectangle = Some(logical);
+                drag.rect_end = logical;
+                drag.additive = shift;
+            }
         } else if box_pressed && selected.is_none() {
             drag.cancel();
             drag.rectangle = Some(logical);
@@ -746,13 +788,8 @@ fn mouse_editor(
     if drag.id.is_some()
         && (mouse.pressed(MouseButton::Left) || mouse.just_released(MouseButton::Left))
     {
-        // 以按下位置为锚点，单击不会把原有非网格坐标改写。
-        let dx = (logical.0 + drag.offset.0 - drag.origin.0) * 2.0;
-        let dy = (logical.1 + drag.offset.1 - drag.origin.1) * 2.0;
-        drag.preview = (
-            drag.origin.0 + dx.round() / 2.0,
-            drag.origin.1 + dy.round() / 2.0,
-        );
+        // 保留抓取偏移和非网格坐标，小幅移动也要立即响应。
+        drag.follow(logical);
     }
     if drag.id.is_some() && drag.members.len() > 1 {
         let keys: Vec<_> = drag.keys().into_iter().collect();
@@ -761,6 +798,7 @@ fn mouse_editor(
         drag.command = Some(command);
         drag.blocked = !valid;
     } else if let Some(id) = drag.id
+        && drag.moved()
         && let Some(mut part) = document.ship.part_at(id).cloned()
     {
         part.x = drag.preview.0;
@@ -768,20 +806,8 @@ fn mouse_editor(
         placement::snap(&document.ship, &document.catalog, &mut part, Some(id));
         drag.preview = (part.x, part.y);
     }
-    if mouse.just_released(MouseButton::Left)
-        && let Some(id) = drag.id.take()
-        && drag.preview != drag.origin
-    {
-        let command = if drag.members.len() > 1 {
-            drag.command.take()
-        } else {
-            move_with_snap(&document.ship, &document.catalog, id, drag.preview)
-        };
-        if let Some(command) = command {
-            document.execute(command);
-        } else {
-            document.status = "无法移动：该位置与其他部件重叠".into();
-        }
+    if drag.id.is_some() && !mouse.pressed(MouseButton::Left) {
+        drag.finish(&mut document);
     }
 }
 

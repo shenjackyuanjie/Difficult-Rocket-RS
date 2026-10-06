@@ -141,14 +141,17 @@ pub fn run(
                     && drag.id.is_none()
             }
             2 => {
-                if document.ship.parts[0].x == 2.0
-                    && document.ship.parts[1].x == 2.0
+                if (document.ship.parts[0].x - 2.0).abs() < 1e-5
+                    && (document.ship.parts[1].x - 2.0).abs() < 1e-5
                     && drag.id.is_none()
                 {
                     let mut expected = state.original.as_ref().unwrap().clone();
-                    expected.parts[0].x = 2.0;
-                    expected.parts[1].x = 2.0;
+                    // 连续拖动保留真实指针坐标，容许 f32 投影的亚像素误差。
+                    expected.parts[0].x = document.ship.parts[0].x;
+                    expected.parts[1].x = document.ship.parts[1].x;
                     assert_eq!(document.ship, expected);
+                    assert!(document.selected_keys().is_empty());
+                    assert!(drag.members.is_empty() && drag.command.is_none());
                     state.moved = Some(expected);
                     true
                 } else {
@@ -182,7 +185,12 @@ pub fn run(
                     } else {
                         (5.0, 4.0)
                     };
-                    assert_eq!((part.x, part.y), expected);
+                    assert!(
+                        (part.x - expected.0).abs() < 1e-5 && (part.y - expected.1).abs() < 1e-5,
+                        "连续预览坐标不符：{:?} != {:?}",
+                        (part.x, part.y),
+                        expected
+                    );
                     if transform
                         .translation
                         .truncate()
@@ -212,7 +220,15 @@ pub fn run(
                         .get("detacher-1")
                         .expect("自测需要原版分离器");
                     let mut expected = state.moved.as_ref().unwrap().clone();
-                    expected.parts.push(kind.instantiate(4, (5.0, 4.0)));
+                    let placed = document.ship.part(4).unwrap();
+                    let position = (placed.x, placed.y);
+                    let target = (5.0, 4.0);
+                    assert!(
+                        (position.0 - target.0).abs() < 1e-5
+                            && (position.1 - target.1).abs() < 1e-5
+                    );
+                    expected.parts.push(kind.instantiate(4, position));
+                    assert!(document.selected_keys().is_empty());
                     assert_eq!(document.ship, expected);
                     true
                 } else {
@@ -223,7 +239,15 @@ pub fn run(
                 if !cursor.placing && !cursor.palette_drag && document.ship.parts.len() == 4 {
                     let kind = document.catalog.get("detacher-1").unwrap();
                     let mut expected = state.moved.as_ref().unwrap().clone();
-                    expected.parts.push(kind.instantiate(4, (2.0, 1.0)));
+                    let placed = document.ship.part(4).unwrap();
+                    let position = (placed.x, placed.y);
+                    let target = (2.0, 1.0);
+                    assert!(
+                        (position.0 - target.0).abs() < 1e-5
+                            && (position.1 - target.1).abs() < 1e-5
+                    );
+                    expected.parts.push(kind.instantiate(4, position));
+                    assert!(document.selected_keys().is_empty());
                     expected.connections.push(Connection::Normal {
                         parent: 1,
                         child: 4,

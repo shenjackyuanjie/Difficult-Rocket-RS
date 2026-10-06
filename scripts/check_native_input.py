@@ -64,6 +64,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--window-case", choices=["native", "performance", "panels", "browser", "egui", "staging", "repair", "native-ime", "connections", "scoped", "selection", "view", "topology", "keys"], default="native")
     parser.add_argument("--selection-count", type=int, default=1)
+    parser.add_argument("--editor-bin", type=Path, help="指定独立编辑器产物，避免覆盖正在运行的默认程序")
     options = parser.parse_args()
     if sys.platform != "win32":
         raise SystemExit("此自测仅适用于 Windows")
@@ -101,7 +102,7 @@ def main():
     user.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
     samples = [root / "../Difficult-Rocket/assets/ships/Test.xml", root / "../Difficult-Rocket/assets/ships/Heronb.xml"]
     hashes = [hashlib.sha256(path.read_bytes()).digest() for path in samples]
-    args = [str(root / "target/debug/dr-editor.exe")]
+    args = [str(options.editor_bin.resolve() if options.editor_bin else root / "target/debug/dr-editor.exe")]
     if options.window_case in ["native", "keys"]:
         args += ["--native-input-test" if options.window_case == "native" else "--native-keys-test", str(run)]
     elif options.window_case == "performance":
