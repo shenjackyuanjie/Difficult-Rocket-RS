@@ -209,14 +209,14 @@ pub fn setup(mut commands: Commands, assets: Res<AssetServer>) {
             Node {
                 position_type: PositionType::Absolute,
                 top: px(12),
-                left: px(390),
+                left: px(500),
                 padding: UiRect::axes(px(12), px(7)),
                 ..default()
             },
             panels::EditorPanel,
         ))
         .with_children(|root| {
-            root.spawn(label("属性 / 分级  F2", &font, 16.0));
+            root.spawn(label("≡ 属性 / 分级 · F2", &font, 16.0));
         });
 }
 
@@ -427,8 +427,11 @@ pub fn actions(
     mut drag: ResMut<DragState>,
     mut cursor: ResMut<EditorCursor>,
     pending: Option<Res<files::PendingFileAction>>,
+    help: Option<Res<help::HelpState>>,
 ) {
-    if pending.is_some_and(|state| state.is_blocked()) {
+    if help.is_some_and(|state| state.open || state.suppress_frame)
+        || pending.is_some_and(|state| state.is_blocked())
+    {
         return;
     }
     for (interaction, action) in &buttons {

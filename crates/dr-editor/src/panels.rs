@@ -144,8 +144,11 @@ pub(crate) fn panel_actions(
     document: Res<EditorDocument>,
     mut files: MessageWriter<files::FileAction>,
     pending: Option<Res<files::PendingFileAction>>,
+    help: Option<Res<help::HelpState>>,
 ) {
-    if pending.is_some_and(|state| state.is_blocked()) {
+    if help.is_some_and(|state| state.open || state.suppress_frame)
+        || pending.is_some_and(|state| state.is_blocked())
+    {
         buttons.clear();
         return;
     }

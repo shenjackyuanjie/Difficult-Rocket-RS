@@ -3,6 +3,7 @@ mod connection_smoke;
 mod demo;
 mod egui_ui;
 mod files;
+mod help;
 mod interaction_smoke;
 mod native_input;
 mod native_keys;
@@ -359,6 +360,7 @@ fn main() -> anyhow::Result<()> {
             setup_camera,
             setup_hud,
             files::setup_file_toolbar,
+            help::setup,
             properties::setup,
         ),
     )
@@ -390,6 +392,7 @@ fn main() -> anyhow::Result<()> {
                     .run_if(demo::advance_ready),
                 demo::animate,
                 panels::pointer_over_ui,
+                help::input,
                 properties::actions,
                 egui_ui::prepare_input,
                 panels::panel_actions.run_if(properties::closed),
@@ -886,50 +889,34 @@ fn move_with_snap(
     Some(EditorCommand::Batch(commands))
 }
 
-fn update_hud(
-    document: Res<EditorDocument>,
-    cursor: Res<EditorCursor>,
-    options: Res<view::ViewOptions>,
-    mut labels: Query<&mut Text, With<EditorHud>>,
-) {
-    if !document.is_changed() && !cursor.is_changed() && !options.is_changed() {
+fn update_hud(document: Res<EditorDocument>, mut labels: Query<&mut Text, With<EditorHud>>) {
+    if !document.is_changed() {
         return;
     }
-    let chosen = document
-        .catalog
-        .visible()
-        .nth(cursor.catalog_index)
-        .map(|ty| ty.name.as_str())
-        .unwrap_or("无可用部件");
+    let value = format!(
+        "部件 {} · 已选 {} · {}\n质量 主/全 {:.2}/{:.2}{}",
+        document.ship.all_parts().count(),
+        document.selected_keys().len(),
+        if document.dirty {
+            "● 未保存"
+        } else {
+            "✓ 已保存"
+        },
+        document
+            .ship
+            .mass(&document.catalog, dr_core::ShipScope::Main),
+        document
+            .ship
+            .mass(&document.catalog, dr_core::ShipScope::All),
+        if document.status.is_empty() {
+            String::new()
+        } else {
+            format!("\n! {}", document.status)
+        },
+    );
     for mut text in &mut labels {
-        let value = format!(
-            "DR Editor | 部件: {} | 质量 main/all: {:.2}/{:.2} | 已选: {} | {}\nTab: 切换部件（{}） P: 放置 | 拖动: 移动并吸附 | Esc/右键: 取消\nDelete: 删除 R: 旋转 X/Y: 镜像 | Ctrl+Z/Y: 撤销/重做 Ctrl+S: 保存 Ctrl+Shift+S: 另存为\nShift: 增减选择 {}拖动: 框选 Ctrl+A: 全选 Ctrl+C/X/V: 复制/剪切/粘贴\nCtrl+N: 新建 Ctrl+O: 打开（也可拖入 XML）\n滚轮: 缩放 {}拖动: 视图 Home: 复位 F/Shift+F: 适配 F3: 调试 F4: 显隐 F6: 连接树/图 F12: 截图\n{}",
-            document.ship.all_parts().count(),
-            document
-                .ship
-                .mass(&document.catalog, dr_core::ShipScope::Main),
-            document
-                .ship
-                .mass(&document.catalog, dr_core::ShipScope::All),
-            document.selected_keys().len(),
-            if document.dirty {
-                "未保存"
-            } else {
-                "已保存"
-            },
-            chosen,
-            match options.box_select_button {
-                view::BoxSelectButton::Left => "左键",
-                view::BoxSelectButton::Middle => "中键",
-            },
-            match options.box_select_button {
-                view::BoxSelectButton::Left => "中键",
-                view::BoxSelectButton::Middle => "左键",
-            },
-            document.status
-        );
         if text.0 != value {
-            text.0 = value;
+            text.0.clone_from(&value);
         }
     }
 }

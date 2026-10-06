@@ -35,11 +35,14 @@ pub fn show(
     let modal = egui::Modal::new(egui::Id::new("part_properties_modal")).show(ctx, |ui| {
         ui.set_width(width);
         ui.heading(title);
-        ui.label(if inspector.repair.is_some() {
-            "逐条指定引用归属；应用后可一次撤销。"
+        ui.small(if inspector.repair.is_some() {
+            "引用归属 · 草稿"
         } else {
-            "修改暂存于草稿；应用后可一次撤销，取消不改动文档。"
-        });
+            "属性 / 分级 · 草稿"
+        })
+        .on_hover_text(
+            "修改仅暂存于草稿；应用后可一次撤销，取消不改动文档。引用修复需逐条指定归属。",
+        );
         ui.separator();
         egui::ScrollArea::vertical()
             .id_salt(if inspector.repair.is_some() {
@@ -111,10 +114,36 @@ fn action_button(
     hits: &mut Vec<(Action, egui::Rect)>,
     pending: &mut Option<Action>,
 ) {
-    let response = ui.button(text);
+    // 身份来自语义动作，不随短标签或引用归属文本变化。
+    let response = ui
+        .push_id(("property_action", format!("{action:?}")), |ui| {
+            ui.button(text)
+        })
+        .inner;
+    let hint = action_hint(&action);
+    let response = response.on_hover_text(hint).on_disabled_hover_text(hint);
     record_hit(ui, &response, action.clone(), hits);
     if response.clicked() {
         *pending = Some(action);
+    }
+}
+
+fn action_hint(action: &Action) -> &'static str {
+    match action {
+        Action::Apply => "应用草稿到文档；整个修改可一次撤销。",
+        Action::Cancel => "取消并丢弃草稿，不修改文档（Esc）。",
+        Action::CycleTarget(false) => "选择本组上一个具有唯一编号的目标部件。",
+        Action::CycleTarget(true) => "选择本组下一个具有唯一编号的目标部件。",
+        Action::AddStep => "在末尾新增分级步骤，仅修改草稿。",
+        Action::MoveStep(_, false) => "将此级上移一位；首级不可上移。",
+        Action::MoveStep(_, true) => "将此级下移一位；末级不可下移。",
+        Action::RemoveStep(_) => "删除此级及其中的激活动作，仅修改草稿。",
+        Action::AddActivation(_) => "将上方选定的目标加入此级；目标须为本组唯一编号。",
+        Action::RemoveActivation(_, _) => "从此级移除这条激活动作，不删除部件。",
+        Action::OpenRepair => "本组存在重复编号：逐条指定连接和分级引用的归属。",
+        Action::RepairTarget(_) => "依次切换此条引用所属实例；应用前必须指定所有引用。",
+        Action::BackToProperties => "返回属性草稿，丢弃本次引用归属分配；不修改文档。",
+        _ => "编辑属性草稿；应用后才写入文档。",
     }
 }
 
@@ -127,7 +156,15 @@ fn text_field(
     edited: &mut bool,
     focused: &mut Option<Field>,
 ) {
-    ui.label(title);
+    ui.label(title).on_hover_text(match field {
+        Field::Target => {
+            "新增激活动作的目标部件 ID；仅接受本组唯一编号，也可用下方列表或 ↑↓ 选择。"
+        }
+        Field::CurrentStage => "当前执行级序号，从 0 起。",
+        Field::Fuel => "燃料数量不能小于零或超过部件容量。",
+        Field::Throttle => "驾驶舱油门，范围 0～1。",
+        Field::Name => "驾驶舱记录的船体名称。",
+    });
     let response = ui.add(
         egui::TextEdit::singleline(draft.field(field))
             .id(egui::Id::new(format!("part_properties_{field:?}")))
@@ -202,15 +239,7 @@ fn properties_body(
             focused,
         );
     }
-    text_field(
-        ui,
-        draft,
-        Field::Target,
-        "新增激活动作的目标部件 ID",
-        hits,
-        edited,
-        focused,
-    );
+    text_field(ui, draft, Field::Target, "目标 ID", hits, edited, focused);
     let mut counts = std::collections::HashMap::<i64, usize>::new();
     for part in group_parts {
         *counts.entry(part.id).or_default() += 1;
@@ -221,8 +250,8 @@ fn properties_body(
         .map(|part| part_description(document, part))
         .unwrap_or_else(|| "未选目标（本组唯一编号）".into());
     ui.horizontal_wrapped(|ui| {
-        action_button(ui, "上一部件", Action::CycleTarget(false), hits, pending);
-        action_button(ui, "下一部件", Action::CycleTarget(true), hits, pending);
+        action_button(ui, "↑ 目标", Action::CycleTarget(false), hits, pending);
+        action_button(ui, "↓ 目标", Action::CycleTarget(true), hits, pending);
         egui::ComboBox::from_id_salt("part_activation_target")
             .selected_text(target_name)
             .height(240.0)
@@ -239,9 +268,9 @@ fn properties_body(
             });
     });
     ui.separator();
-    action_button(ui, "添加分级步骤", Action::AddStep, hits, pending);
+    action_button(ui, "+ 分级", Action::AddStep, hits, pending);
     let Some(staging) = &draft.staging else {
-        ui.label("此驾驶舱尚无分级数据；添加步骤不会立即写入文档。");
+        ui.label("暂无分级 · 点击 + 分级");
         return;
     };
     for (stage, step) in staging.steps.iter().enumerate() {
@@ -250,13 +279,13 @@ fn properties_body(
             ui.horizontal_wrapped(|ui| {
                 ui.strong(format!("第 {stage} 级"));
                 ui.add_enabled_ui(stage > 0, |ui| {
-                    action_button(ui, "上移", Action::MoveStep(stage, false), hits, pending);
+                    action_button(ui, "↑ 上移", Action::MoveStep(stage, false), hits, pending);
                 });
                 ui.add_enabled_ui(stage + 1 < staging.steps.len(), |ui| {
-                    action_button(ui, "下移", Action::MoveStep(stage, true), hits, pending);
+                    action_button(ui, "↓ 下移", Action::MoveStep(stage, true), hits, pending);
                 });
-                action_button(ui, "删除级", Action::RemoveStep(stage), hits, pending);
-                action_button(ui, "添加目标", Action::AddActivation(stage), hits, pending);
+                action_button(ui, "× 删级", Action::RemoveStep(stage), hits, pending);
+                action_button(ui, "+ 目标", Action::AddActivation(stage), hits, pending);
             });
             for (index, activation) in step.activations.iter().enumerate() {
                 ui.push_id(index, |ui| {
@@ -275,7 +304,7 @@ fn properties_body(
                         }
                         action_button(
                             ui,
-                            "移除",
+                            "− 移除",
                             Action::RemoveActivation(stage, index),
                             hits,
                             pending,

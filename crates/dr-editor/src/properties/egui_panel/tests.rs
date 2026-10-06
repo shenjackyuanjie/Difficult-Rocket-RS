@@ -215,3 +215,106 @@ fn invalid_throttle_keeps_visible_apply_cancel_and_document_at_minimum_size() {
     panel.click(Action::Cancel);
     assert_eq!(panel.document.ship, before);
 }
+
+#[test]
+fn compact_staging_buttons_keep_boundary_hits_and_draft_transaction() {
+    let mut panel = Panel::new();
+    let before = panel.document.ship.clone();
+    panel.click(Action::AddStep);
+    panel.click(Action::CycleTarget(true));
+    panel.click(Action::AddActivation(0));
+    panel.click(Action::AddStep);
+    assert!(
+        !panel
+            .hits
+            .iter()
+            .any(|(a, _)| *a == Action::MoveStep(0, false))
+    );
+    assert!(
+        !panel
+            .hits
+            .iter()
+            .any(|(a, _)| *a == Action::MoveStep(1, true))
+    );
+    panel.click(Action::MoveStep(0, true));
+    let staging = panel
+        .inspector
+        .draft
+        .as_ref()
+        .unwrap()
+        .staging
+        .as_ref()
+        .unwrap();
+    assert!(staging.steps[0].activations.is_empty());
+    assert_eq!(staging.steps[1].activations[0].id, 1);
+    panel.click(Action::RemoveStep(0));
+    assert_eq!(panel.document.ship, before, "结构按钮只能修改草稿");
+    panel.click(Action::Apply);
+    assert_eq!(
+        panel.document.ship.parts[0]
+            .pod
+            .as_ref()
+            .unwrap()
+            .staging
+            .as_ref()
+            .unwrap()
+            .steps
+            .len(),
+        1
+    );
+    assert_eq!(panel.document.history.undo_len(), 1);
+    assert!(panel.document.undo());
+    assert_eq!(panel.document.ship, before);
+}
+
+#[test]
+fn disabled_stage_arrow_explains_boundary_without_exposing_hit() {
+    let ctx = egui::Context::default();
+    let mut rect = egui::Rect::NOTHING;
+    let mut saw_hint = false;
+    for frame in 0..6 {
+        let mut hits = vec![];
+        let mut pending = None;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(600.0, 240.0),
+                )),
+                time: Some(f64::from(frame)),
+                // 移入一次后推进静止帧；重复 Move 会重置 egui 的悬停等待。
+                events: if frame == 2 {
+                    vec![egui::Event::PointerMoved(rect.center())]
+                } else {
+                    vec![]
+                },
+                ..Default::default()
+            },
+            |ui| {
+                ui.add_enabled_ui(false, |ui| {
+                    action_button(
+                        ui,
+                        "↑ 上移",
+                        Action::MoveStep(0, false),
+                        &mut hits,
+                        &mut pending,
+                    );
+                });
+                // 唯一控件的矩形来自 egui 实际布局，不是硬编码坐标。
+                rect = ui.min_rect();
+            },
+        );
+        output.textures_delta.clear();
+        assert!(hits.is_empty());
+        assert!(pending.is_none());
+        fn has_hint(shape: &egui::epaint::Shape) -> bool {
+            match shape {
+                egui::epaint::Shape::Text(text) => text.galley.job.text.contains("首级不可上移"),
+                egui::epaint::Shape::Vec(shapes) => shapes.iter().any(has_hint),
+                _ => false,
+            }
+        }
+        saw_hint |= output.shapes.iter().any(|shape| has_hint(&shape.shape));
+    }
+    assert!(saw_hint, "禁用的首级上移按钮必须实际生成可用条件 tooltip");
+}

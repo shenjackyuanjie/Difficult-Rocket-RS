@@ -237,3 +237,64 @@ fn dragging_from_the_name_column_starts_a_palette_gesture_without_a_click() {
     );
     assert!(!row.clicked);
 }
+
+#[test]
+fn disabled_directory_button_keeps_prerequisite_tooltip_and_no_hitmap() {
+    let ctx = egui::Context::default();
+    let mut rect = egui::Rect::NOTHING;
+    let mut saw_hint = false;
+    let mut stable_id = None;
+    for frame in 0..6 {
+        let mut state = UiState::default();
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(600.0, 240.0),
+                )),
+                time: Some(f64::from(frame)),
+                // 移入一次后推进静止帧；重复 Move 会重置 egui 的悬停等待。
+                events: if frame == 2 {
+                    vec![egui::Event::PointerMoved(rect.center())]
+                } else {
+                    vec![]
+                },
+                ..Default::default()
+            },
+            |ui| {
+                ui.disable();
+                // 同一动作改短标签不应改变 egui 控件身份。
+                let response = directory_button(
+                    ui,
+                    &PanelButton::Refresh,
+                    false,
+                    if frame % 2 == 0 {
+                        "刷新"
+                    } else {
+                        "重新扫描"
+                    },
+                );
+                if let Some(id) = stable_id {
+                    assert_eq!(id, response.id);
+                }
+                stable_id = Some(response.id);
+                rect = response.rect;
+                assert!(!response.clicked());
+                hit(ui, &response, PanelButton::Refresh, &mut state);
+            },
+        );
+        output.textures_delta.clear();
+        assert!(state.hits.is_empty());
+        fn has_hint(shape: &egui::epaint::Shape) -> bool {
+            match shape {
+                egui::epaint::Shape::Text(text) => {
+                    text.galley.job.text.contains("请先应用或取消属性草稿")
+                }
+                egui::epaint::Shape::Vec(shapes) => shapes.iter().any(has_hint),
+                _ => false,
+            }
+        }
+        saw_hint |= output.shapes.iter().any(|shape| has_hint(&shape.shape));
+    }
+    assert!(saw_hint, "禁用目录按钮必须解释被草稿 / 文件确认阻塞的条件");
+}

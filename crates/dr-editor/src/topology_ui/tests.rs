@@ -240,3 +240,65 @@ fn structural_change_clears_cached_endpoint_identity() {
     assert!(!state.positions.contains_key(&PartKey::new(0, 1, 0)));
     assert!(!state.graph.unresolved.is_empty());
 }
+
+#[test]
+fn docking_connect_requires_connector_and_disabled_controls_have_no_hits() {
+    let mut panel = Panel::new();
+    assert!(!panel.state.hits.iter().any(|(a, _)| *a == Action::Undo));
+    assert!(!panel.state.hits.iter().any(|(a, _)| *a == Action::Connect));
+    panel.state.parent = Some(PartKey::new(0, 1, 0));
+    panel.state.child = Some(PartKey::new(0, 2, 0));
+    panel.state.docking = true;
+    panel.frame(vec![]);
+    assert!(!panel.state.hits.iter().any(|(a, _)| *a == Action::Connect));
+    panel.state.connector = panel.state.parent;
+    panel.frame(vec![]);
+    assert!(panel.state.hits.iter().any(|(a, _)| *a == Action::Connect));
+    panel.state.connector = Some(PartKey::new(0, 3, 0));
+    panel.frame(vec![]);
+    assert!(panel.state.connector.is_none());
+    assert!(!panel.state.hits.iter().any(|(a, _)| *a == Action::Connect));
+}
+
+#[test]
+fn disabled_unlink_shows_prerequisite_and_cannot_dispatch() {
+    let ctx = egui::Context::default();
+    let mut rect = egui::Rect::NOTHING;
+    let mut saw_hint = false;
+    for frame in 0..6 {
+        let mut hits = vec![];
+        let mut result = None;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(600.0, 240.0),
+                )),
+                time: Some(f64::from(frame)),
+                // 移入一次后推进静止帧；重复 Move 会重置 egui 的悬停等待。
+                events: if frame == 2 {
+                    vec![egui::Event::PointerMoved(rect.center())]
+                } else {
+                    vec![]
+                },
+                ..Default::default()
+            },
+            |ui| {
+                result = control(ui, &mut hits, Action::Unlink, "− 断开", false);
+                rect = ui.min_rect();
+            },
+        );
+        output.textures_delta.clear();
+        assert!(hits.is_empty());
+        assert!(result.is_none());
+        fn has_hint(shape: &egui::epaint::Shape) -> bool {
+            match shape {
+                egui::epaint::Shape::Text(text) => text.galley.job.text.contains("请先选边"),
+                egui::epaint::Shape::Vec(shapes) => shapes.iter().any(has_hint),
+                _ => false,
+            }
+        }
+        saw_hint |= output.shapes.iter().any(|shape| has_hint(&shape.shape));
+    }
+    assert!(saw_hint, "无所选边时仍应解释断开按钮的可用条件");
+}

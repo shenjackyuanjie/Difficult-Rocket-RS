@@ -27,6 +27,9 @@ fn part_row(
             .selected(selected)
             .sense(egui::Sense::click_and_drag()),
     );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &name)
+    });
     let rect = response.rect;
     let image_size = size / size.max_element().max(1.0) * 40.0;
     let image_rect = egui::Rect::from_center_size(
@@ -87,11 +90,38 @@ fn button(
     state: &mut UiState,
     actions: &mut MessageWriter<PanelButton>,
 ) {
-    let response = ui.add(egui::Button::new(text).selected(selected));
+    let response = directory_button(ui, &action, selected, text);
     hit(ui, &response, action.clone(), state);
     if response.clicked() {
         response.surrender_focus();
         actions.write(action);
+    }
+}
+
+fn directory_button(
+    ui: &mut egui::Ui,
+    action: &PanelButton,
+    selected: bool,
+    text: impl Into<egui::WidgetText>,
+) -> egui::Response {
+    let hint = panel_hint(action);
+    ui.push_id(("directory_action", format!("{action:?}")), |ui| {
+        ui.add(egui::Button::new(text).selected(selected))
+    })
+    .inner
+    .on_hover_text(hint)
+    .on_disabled_hover_text(
+        "请先应用或取消属性草稿，或处理文件确认，再操作目录。 ".to_owned() + hint,
+    )
+}
+
+fn panel_hint(action: &PanelButton) -> &'static str {
+    match action {
+        PanelButton::Folder => "选择并切换船体目录。",
+        PanelButton::Refresh => "重新扫描当前目录的船体 XML 文件。",
+        PanelButton::Category(_) => "筛选部件类别；全部显示所有可用部件。",
+        PanelButton::CancelPlacement => "取消待放置部件，不修改文档（Esc / 右键）。",
+        _ => "选择船体或部件；部件可拖到画布放置。",
     }
 }
 
@@ -113,7 +143,10 @@ pub fn draw(
     mut browser: ResMut<ShipBrowser>,
     cursor: Res<EditorCursor>,
     inspector: Res<properties::Inspector>,
-    pending: Option<Res<files::PendingFileAction>>,
+    (pending, help): (
+        Option<Res<files::PendingFileAction>>,
+        Option<Res<help::HelpState>>,
+    ),
     mut topology: ResMut<crate::topology_ui::ConnectionEditor>,
     mut options: ResMut<view::ViewOptions>,
     mut state: ResMut<UiState>,
@@ -134,7 +167,9 @@ pub fn draw(
     state.areas.clear();
     state.pixels_per_point = ctx.pixels_per_point();
     state.scrolling = ctx.input(|input| input.is_scrolling());
-    let enabled = !inspector.is_open() && !pending.is_some_and(|state| state.is_blocked());
+    let enabled = !inspector.is_open()
+        && !pending.is_some_and(|state| state.is_blocked())
+        && !help.is_some_and(|state| state.open || state.suppress_frame);
     if document.is_changed() {
         counts.clear();
         for part in document.ship.all_parts() {
@@ -181,13 +216,18 @@ pub fn draw(
                 .file_name()
                 .unwrap_or(browser.folder.as_os_str())
                 .to_string_lossy();
-            ui.label(format!("{folder} · {} 个船体", browser.files.len()));
+            ui.label(format!("{folder} · {}", browser.files.len()))
+                .on_hover_text(format!(
+                    "{}\n{} 个船体",
+                    browser.folder.display(),
+                    browser.files.len()
+                ));
             ui.horizontal(|ui| {
                 button(
                     ui,
                     PanelButton::Folder,
                     false,
-                    "切换目录",
+                    "目录…",
                     &mut state,
                     &mut actions,
                 );
@@ -204,7 +244,8 @@ pub fn draw(
                 ui.colored_label(egui::Color32::LIGHT_RED, error);
             }
             if browser.rejected > 0 {
-                ui.label(format!("已跳过 {} 个异常 XML", browser.rejected));
+                ui.label(format!("异常 XML · {}", browser.rejected))
+                    .on_hover_text("扫描时跳过了无法解析的 XML，未修改这些文件。");
             }
             ui.separator();
             let mut scroll = egui::ScrollArea::vertical()
@@ -220,13 +261,19 @@ pub fn draw(
                     let path = &browser.files[index];
                     let text = path.file_stem().unwrap_or_default().to_string_lossy();
                     let response = ui
-                        .add_sized(
-                            [ui.available_width(), row_height],
-                            egui::Button::new(text.as_ref())
-                                .selected(current.as_ref() == Some(path))
-                                .truncate(),
-                        )
-                        .on_hover_text(path.display().to_string());
+                        .push_id(("ship_file", path), |ui| {
+                            ui.add_sized(
+                                [ui.available_width(), row_height],
+                                egui::Button::new(text.as_ref())
+                                    .selected(current.as_ref() == Some(path))
+                                    .truncate(),
+                            )
+                        })
+                        .inner
+                        .on_hover_text(path.display().to_string())
+                        .on_disabled_hover_text(
+                            "请先应用或取消属性草稿，或处理文件确认，再打开船体。",
+                        );
                     hit(ui, &response, PanelButton::Open(path.clone()), &mut state);
                     if response.clicked() {
                         response.surrender_focus();
@@ -245,25 +292,28 @@ pub fn draw(
                 ui.disable();
             }
             ui.heading("部件目录");
-            if ui.button("连接树 / 连接图 (F6)").clicked() {
+            if ui.button("树 / 图 · F6")
+                .on_hover_text("打开连接树 / 有向连接图；选择子树、连通部件和编辑连接（F6）。")
+                .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再编辑连接。")
+                .clicked() {
                 topology.open = true;
             }
             ui.horizontal_wrapped(|ui| {
-                ui.label("框选按键");
+                ui.label("框选").on_hover_text("框选多个部件；选择左键框选时，中键用于移动视角。默认中键框选、左键拖空白移动视角。");
                 ui.selectable_value(
                     &mut options.box_select_button,
                     view::BoxSelectButton::Middle,
                     "中键",
-                );
+                )
+                .on_hover_text("中键拖动框选；左键拖空白移动视角。")
+                .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再切换框选按键。");
                 ui.selectable_value(
                     &mut options.box_select_button,
                     view::BoxSelectButton::Left,
                     "左键",
-                );
-            });
-            ui.small(match options.box_select_button {
-                view::BoxSelectButton::Middle => "左键拖空白：移动视角 · 中键拖动：框选",
-                view::BoxSelectButton::Left => "中键拖动：移动视角 · 左键拖空白：框选",
+                )
+                .on_hover_text("左键拖空白框选；中键拖动移动视角。")
+                .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再切换框选按键。");
             });
             let mut categories: Vec<_> = document
                 .catalog
@@ -295,7 +345,7 @@ pub fn draw(
             ui.separator();
             let mut scroll = egui::ScrollArea::vertical()
                 .id_salt("part_palette_rows")
-                .max_height((ui.available_height() - 215.0).max(50.0))
+                .max_height((ui.available_height() - 125.0).max(50.0))
                 .auto_shrink([false, false]);
             if let Some(offset) = state.palette_scroll.take() {
                 scroll = scroll.vertical_scroll_offset(offset);
@@ -322,15 +372,18 @@ pub fn draw(
                         .map(|limit| format!(" {count}/{limit}"))
                         .unwrap_or_default();
                     let width = ui.available_width();
-                    let response = part_row(
-                        ui,
-                        texture,
-                        size,
-                        format!("{}{limit}", kind.name),
-                        index == cursor.catalog_index,
-                        width,
-                    )
-                    .on_hover_text(&kind.description);
+                    let response = ui.push_id(("palette_part", &kind.id), |ui| {
+                        part_row(
+                            ui,
+                            texture,
+                            size,
+                            format!("{}{limit}", kind.name),
+                            index == cursor.catalog_index,
+                            width,
+                        )
+                    }).inner
+                    .on_hover_text(format!("{}\n点击选择，再点击画布放置；也可直接拖到画布。\n{}", kind.name, kind.description))
+                    .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再选择部件。");
                     hit(ui, &response, PanelButton::Part(index), &mut state);
                     if selection_changed && index == cursor.catalog_index {
                         response.scroll_to_me(Some(egui::Align::Center));
@@ -352,7 +405,8 @@ pub fn draw(
                 ui.add(egui::Label::new(&kind.description).truncate())
                     .on_hover_text(&kind.description);
             }
-            ui.label("选部件后点击画布放置\nR 旋转 · X/Y 镜像\nTab 切换 · Esc/右键取消");
+            ui.small("R 旋转 · X/Y 镜像")
+                .on_hover_text("选部件后点击画布放置，或将目录部件拖到画布。R 旋转；X/Y 镜像；Tab 切换部件；Esc / 右键取消放置。");
             if cursor.placing {
                 button(
                     ui,

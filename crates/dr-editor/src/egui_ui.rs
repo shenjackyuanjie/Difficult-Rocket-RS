@@ -18,12 +18,19 @@ impl Plugin for EditorEguiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin::default())
             .init_resource::<UiHits>()
+            .init_resource::<help::HelpState>()
             .init_resource::<files::PendingFileAction>()
             .init_resource::<topology_ui::ConnectionEditor>()
             .init_resource::<panels::egui_panel::UiState>()
             .add_systems(
                 EguiPrimaryContextPass,
-                (panels::egui_panel::draw, draw, topology_ui::draw).chain(),
+                (
+                    panels::egui_panel::draw,
+                    draw,
+                    topology_ui::draw,
+                    help::draw,
+                )
+                    .chain(),
             );
     }
 }
@@ -34,10 +41,12 @@ pub fn canvas_input_available(
     inspector: Option<Res<properties::Inspector>>,
     topology: Option<Res<topology_ui::ConnectionEditor>>,
     pending: Option<Res<files::PendingFileAction>>,
+    help: Option<Res<help::HelpState>>,
 ) -> bool {
     !inspector.is_some_and(|inspector| inspector.is_open())
         && !topology.is_some_and(|state| state.open)
         && !pending.is_some_and(|state| state.is_blocked())
+        && !help.is_some_and(|state| state.open || state.suppress_frame)
 }
 
 /// 放在 pointer_over_ui、properties::actions 之后，画布输入系统之前。
@@ -53,7 +62,11 @@ pub fn prepare_input(
     mut cursor: ResMut<EditorCursor>,
     mut camera_drag: ResMut<CameraDrag>,
     pending: Option<Res<files::PendingFileAction>>,
+    help: Option<Res<help::HelpState>>,
 ) {
+    if help.is_some_and(|state| state.open || state.suppress_frame) {
+        return;
+    }
     if pending.is_some_and(|state| state.is_blocked()) {
         drag.cancel();
         cursor.cancel_placement();

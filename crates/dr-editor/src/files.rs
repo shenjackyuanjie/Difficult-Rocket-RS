@@ -334,6 +334,7 @@ fn replace_document(document: &mut EditorDocument, ship: Ship) {
     document.refresh();
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn file_inputs(
     keys: Res<ButtonInput<KeyCode>>,
     mut drops: MessageReader<FileDragAndDrop>,
@@ -342,6 +343,7 @@ pub(crate) fn file_inputs(
     mut document: ResMut<EditorDocument>,
     mut inspector: Option<ResMut<properties::Inspector>>,
     pending: Option<Res<PendingFileAction>>,
+    help: Option<Res<crate::help::HelpState>>,
 ) {
     if pending.is_some_and(|state| state.is_waiting()) {
         closes.clear();
@@ -362,6 +364,10 @@ pub(crate) fn file_inputs(
     if closes.read().next().is_some() {
         closes.clear();
         actions.write(FileAction::Exit);
+        return;
+    }
+    if help.is_some_and(|state| state.open || state.suppress_frame) {
+        drops.clear();
         return;
     }
     let dropped: Vec<_> = drops
@@ -529,11 +535,11 @@ pub(crate) fn setup_file_toolbar(mut commands: Commands, assets: Res<AssetServer
         ))
         .with_children(|root| {
             for (label, action) in [
-                ("新建", FileAction::New),
-                ("打开", FileAction::OpenDialog),
-                ("保存", FileAction::Save),
-                ("另存为", FileAction::SaveAs),
-                ("退出", FileAction::Exit),
+                ("+ 新建", FileAction::New),
+                ("↗ 打开", FileAction::OpenDialog),
+                ("↓ 保存", FileAction::Save),
+                ("↓+ 另存为", FileAction::SaveAs),
+                ("× 退出", FileAction::Exit),
             ] {
                 root.spawn((
                     Button,
@@ -563,8 +569,11 @@ pub(crate) fn toolbar_actions(
     mut buttons: Query<(&Interaction, &FileButton, &mut BackgroundColor), Changed<Interaction>>,
     mut actions: MessageWriter<FileAction>,
     pending: Option<Res<PendingFileAction>>,
+    help: Option<Res<crate::help::HelpState>>,
 ) {
-    if pending.is_some_and(|state| state.is_waiting()) {
+    if help.is_some_and(|state| state.open || state.suppress_frame)
+        || pending.is_some_and(|state| state.is_waiting())
+    {
         return;
     }
     for (interaction, button, mut color) in &mut buttons {

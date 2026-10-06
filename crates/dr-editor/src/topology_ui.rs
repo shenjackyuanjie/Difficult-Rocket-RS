@@ -152,13 +152,38 @@ fn control(
     text: &str,
     enabled: bool,
 ) -> Option<Action> {
-    let response = ui.add_enabled(enabled, egui::Button::new(text));
+    let hint = control_hint(&action);
+    let response = ui
+        .push_id(("topology_action", format!("{action:?}")), |ui| {
+            ui.add_enabled(enabled, egui::Button::new(text))
+        })
+        .inner
+        .on_hover_text(hint)
+        .on_disabled_hover_text(hint);
     let rect = response.rect.intersect(ui.clip_rect());
     if enabled && rect.is_positive() {
         hits.push((action.clone(), rect));
     }
     response.clicked().then_some(action)
 }
+fn control_hint(action: &Action) -> &'static str {
+    match action {
+        Action::Undo => "撤销上一次文档修改；需有可撤销的记录。",
+        Action::Redo => "重做已撤销的修改；需有可重做的记录。",
+        Action::Subtree => "选择此节点及森林中的所有后代；请先选中节点。",
+        Action::Component => "选择与此节点连通的全部部件（忽略连接方向）；请先选中节点。",
+        Action::UseParent => "将当前选中节点设为连接的父端；请先选中节点。",
+        Action::UseChild => "将当前选中节点设为连接的子端；请先选中节点。",
+        Action::Delete => "删除所选部件及其引用，可一次撤销；请先选择部件。",
+        Action::Connect => {
+            "连接父端 → 子端；请先选择两个端点，对接边还需选插头。校验实际连接面和占用，不接触时需先在画布移动部件。树视图换父拒绝环与多父歧义。"
+        }
+        Action::Unlink => "仅断开所选连接，不删除部件，可撤销；请先选边，也可点击图中连线。",
+        Action::Layout => "重新排列图中节点，不改变船体位置或连接。",
+        _ => "选择连接树 / 图中的部件或连接。",
+    }
+}
+
 fn choose(
     ui: &mut egui::Ui,
     id: &str,
@@ -322,48 +347,55 @@ fn tree(
             for i in range {
                 let (node, depth) = rows[i];
                 let key = state.graph.nodes[node];
-                ui.horizontal(|ui| {
-                    ui.add_space(depth.min(18) as f32 * 13.0);
-                    if !state.forest.children[node].is_empty() {
-                        if ui
-                            .small_button(if state.collapsed.contains(&key) {
-                                "▶"
-                            } else {
-                                "▼"
-                            })
-                            .clicked()
-                            && !state.collapsed.remove(&key)
-                        {
-                            state.collapsed.insert(key);
+                ui.push_id(("tree_node", key), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add_space(depth.min(18) as f32 * 13.0);
+                        if !state.forest.children[node].is_empty() {
+                            if ui
+                                .small_button(if state.collapsed.contains(&key) {
+                                    ">"
+                                } else {
+                                    "v"
+                                })
+                                .on_hover_text("展开 / 折叠此节点的后代，不改变连接。")
+                                .clicked()
+                                && !state.collapsed.remove(&key)
+                            {
+                                state.collapsed.insert(key);
+                            }
+                        } else {
+                            ui.add_space(20.0);
                         }
-                    } else {
-                        ui.add_space(20.0);
-                    }
-                    let response = ui.add(
-                        egui::Button::new(label(document, key))
-                            .selected(document.is_selected(key))
-                            .truncate(),
-                    );
-                    let rect = response.rect.intersect(ui.clip_rect());
-                    if rect.is_positive() {
-                        state.hits.push((Action::Node(key), rect));
-                    }
-                    if response.clicked() {
-                        *action = Some(Action::Node(key));
-                    }
-                    if let Some(edge) = state.forest.parent_edge[node]
-                        && ui.small_button("父边").clicked()
-                    {
-                        *action = Some(Action::Edge(state.graph.edges[edge].reference.clone()));
-                    }
+                        let response = ui.add(
+                            egui::Button::new(label(document, key))
+                                .selected(document.is_selected(key))
+                                .truncate(),
+                        );
+                        let rect = response.rect.intersect(ui.clip_rect());
+                        if rect.is_positive() {
+                            state.hits.push((Action::Node(key), rect));
+                        }
+                        if response.clicked() {
+                            *action = Some(Action::Node(key));
+                        }
+                        if let Some(edge) = state.forest.parent_edge[node]
+                            && ui
+                                .small_button("↑ 父边")
+                                .on_hover_text("选中通向此节点的父连接；可在下方断开该边。")
+                                .clicked()
+                        {
+                            *action = Some(Action::Edge(state.graph.edges[edge].reference.clone()));
+                        }
+                    });
                 });
             }
         });
-    ui.label(format!(
-        "生成森林：{} 个根；{} 条额外边（环/多父）仍完整保留，可在图视图编辑。",
+    ui.small(format!(
+        "根 {} · 额外边 {}",
         state.forest.roots.len(),
         state.forest.extra_edges.len()
-    ));
+    ))
+    .on_hover_text("树视图为连接图的生成森林；环 / 多父产生的额外边仍完整保留，可在图视图编辑。");
 }
 
 /// 连线在节点边缘止步；环/反向边绕开节点，不能把箭头和环藏在卡片下面。
@@ -406,10 +438,10 @@ fn graph(
 ) {
     ui.horizontal(|ui| {
         ui.add(egui::Slider::new(&mut state.zoom, 0.4..=1.5).text("图缩放"));
-        if let Some(a) = control(ui, &mut state.hits, Action::Layout, "重新排版", true) {
+        if let Some(a) = control(ui, &mut state.hits, Action::Layout, "排版", true) {
             *action = Some(a);
         }
-        ui.label("拖节点仅调整图布局，不移动船体");
+        ui.small("拖动 = 排版").on_hover_text("拖节点仅调整图布局，不移动船体。箭头：父 → 子；紫色：对接；橙色：环 / 多父的额外边；黄色：所选边。");
     });
     egui::ScrollArea::both()
         .id_salt("link_graph")
@@ -507,15 +539,23 @@ fn graph(
                 if !ui.clip_rect().intersects(rect) {
                     continue;
                 }
-                let response = ui.put(
-                    rect,
-                    egui::Button::new(
-                        egui::RichText::new(label(document, *key)).size(12.0 * state.zoom),
-                    )
-                    .selected(document.is_selected(*key))
-                    .sense(egui::Sense::click_and_drag())
-                    .truncate(),
-                );
+                let response = ui
+                    .push_id(("graph_node", key), |ui| {
+                        ui.put(
+                            rect,
+                            egui::Button::new(
+                                egui::RichText::new(label(document, *key)).size(12.0 * state.zoom),
+                            )
+                            .selected(document.is_selected(*key))
+                            .sense(egui::Sense::click_and_drag())
+                            .truncate(),
+                        )
+                    })
+                    .inner
+                    .on_hover_text(format!(
+                        "{}\n点击选中；拖动仅改变图布局。",
+                        label(document, *key)
+                    ));
                 state
                     .hits
                     .push((Action::Node(*key), response.rect.intersect(ui.clip_rect())));
@@ -570,7 +610,7 @@ pub fn show(
                     ui,
                     &mut state.hits,
                     Action::Undo,
-                    "撤销",
+                    "< 撤销",
                     document.history.can_undo(),
                 ) {
                     action = Some(a);
@@ -579,7 +619,7 @@ pub fn show(
                     ui,
                     &mut state.hits,
                     Action::Redo,
-                    "重做",
+                    "> 重做",
                     document.history.can_redo(),
                 ) {
                     action = Some(a);
@@ -588,13 +628,13 @@ pub fn show(
             ui.horizontal_wrapped(|ui| {
                 let selected = document.selected.is_some();
                 for (a, name, enabled) in [
-                    (Action::Subtree, "选择子树", selected),
-                    (Action::Component, "选择连通分量", selected),
-                    (Action::UseParent, "选中设为父", selected),
-                    (Action::UseChild, "选中设为子", selected),
+                    (Action::Subtree, "子树", selected),
+                    (Action::Component, "连通", selected),
+                    (Action::UseParent, "→ 父", selected),
+                    (Action::UseChild, "→ 子", selected),
                     (
                         Action::Delete,
-                        "删除所选",
+                        "× 删除",
                         !document.selected_keys().is_empty(),
                     ),
                 ] {
@@ -659,23 +699,24 @@ pub fn show(
                     );
                 }
                 let name = if state.mode == Mode::Tree {
-                    "设置父节点"
+                    "→ 换父"
                 } else {
-                    "添加连接"
+                    "+ 连接"
                 };
                 if let Some(a) = control(
                     ui,
                     &mut state.hits,
                     Action::Connect,
                     name,
-                    state.parent.is_some() && state.child.is_some(),
+                    state.parent.is_some()
+                        && state.child.is_some()
+                        && (!state.docking || state.connector.is_some()),
                 ) {
                     action = Some(a);
                 }
             });
-            ui.label(
-                "连接仍校验实际连接面和占用；不接触时请先在画布移动部件。树换父拒绝环与多父歧义。",
-            );
+            ui.small("父 → 子 · 校验连接面")
+                .on_hover_text(control_hint(&Action::Connect));
             ui.horizontal_wrapped(|ui| {
                 egui::ComboBox::from_id_salt("edge_picker")
                     .width(420.0)
@@ -684,7 +725,7 @@ pub fn show(
                             .edge
                             .as_ref()
                             .map(|r| format!("组 {} / 边 {}", r.group, r.index + 1))
-                            .unwrap_or_else(|| "选择要断开的边（也可点击图中连线）".into()),
+                            .unwrap_or_else(|| "选择边…".into()),
                     )
                     .show_ui(ui, |ui| {
                         let refs: Vec<_> = state
@@ -721,7 +762,7 @@ pub fn show(
                     ui,
                     &mut state.hits,
                     Action::Unlink,
-                    "断开所选边",
+                    "− 断开",
                     state.edge.is_some(),
                 ) {
                     action = Some(a);
