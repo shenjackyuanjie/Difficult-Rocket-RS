@@ -284,6 +284,7 @@ fn main() -> anyhow::Result<()> {
         .to_string_lossy()
         .into_owned();
     let showcase = demo::Showcase::from_args(&args)?;
+    let presentation = showcase.is_some() && args.iter().any(|arg| arg == "--demo-presentation");
     let mut app = App::new();
     if let Some(showcase) = showcase {
         app.insert_resource(showcase);
@@ -354,7 +355,13 @@ fn main() -> anyhow::Result<()> {
                 close_when_requested: false,
                 primary_window: Some(Window {
                     title: "Difficult Rocket Editor".into(),
-                    resolution: WindowResolution::new(1440, 900),
+                    // 录制使用固定物理像素和无边框窗口，不随桌面 DPI 改变成片尺寸。
+                    resolution: if presentation {
+                        WindowResolution::new(1920, 1080).with_scale_factor_override(1.)
+                    } else {
+                        WindowResolution::new(1440, 900)
+                    },
+                    decorations: !presentation,
                     resize_constraints: bevy::window::WindowResizeConstraints {
                         min_width: 960.0,
                         min_height: 640.0,

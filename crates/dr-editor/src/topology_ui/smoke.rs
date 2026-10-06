@@ -37,6 +37,29 @@ fn capture(commands: &mut Commands, path: &'static str, phase: u8) {
         });
 }
 
+fn target_viewport(presentation: bool) -> Vec2 {
+    if presentation {
+        Vec2::new(1920., 1080.)
+    } else {
+        Vec2::new(960., 640.)
+    }
+}
+
+fn resize_for_smoke(window: &mut Window, presentation: bool) {
+    if !presentation {
+        let size = target_viewport(false);
+        window.resolution.set(size.x, size.y);
+    }
+}
+
+fn smoke_report(presentation: bool) -> serde_json::Value {
+    let mut report = serde_json::json!({"steps":27, "input":"egui_injected", "ime_tested":false, "atomic_undo":true, "presentation":presentation, "minimum_window_tested":!presentation, "window":if presentation { "1920x1080" } else { "960x640" }});
+    if !presentation {
+        report["minimum_window"] = "960x640".into();
+    }
+    report
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run(
     mode: Res<SmokeTest>,
@@ -48,6 +71,7 @@ pub fn run(
     mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
     captured: Option<Res<Captured>>,
     mut commands: Commands,
+    showcase: Option<Res<crate::demo::Showcase>>,
 ) {
     if !mode.topology || mode.started.elapsed().as_secs() < 3 {
         return;
@@ -60,6 +84,7 @@ pub fn run(
     let Ok(mut input) = input.single_mut() else {
         return;
     };
+    let presentation = showcase.is_some_and(|showcase| showcase.presentation);
     keys.reset_all();
     if state.driver.tick(&mut input) {
         return;
@@ -227,15 +252,22 @@ pub fn run(
         }
         24 => {
             assert_eq!(Some(&document.ship), state.before.as_ref());
-            windows.single_mut().unwrap().resolution.set(960.0, 640.0);
+            resize_for_smoke(&mut windows.single_mut().unwrap(), presentation);
             state.delay = 5;
         }
         25 => {
+            let expected = target_viewport(presentation);
+            let window = windows.single().unwrap();
+            assert_eq!(window.width(), expected.x);
+            assert_eq!(window.height(), expected.y);
             assert!(
                 panel
                     .hits
                     .iter()
-                    .any(|(action, rect)| *action == Action::Connect && rect.max.y < 640.0)
+                    .any(|(action, rect)| *action == Action::Connect
+                        && rect.is_positive()
+                        && rect.min.y >= 0.
+                        && rect.max.y < expected.y)
             );
             press!(Action::Mode(Mode::Tree));
         }
@@ -245,10 +277,69 @@ pub fn run(
             let path = "target/topology-smoke.xml";
             dr_core::save_ship(path, &document.ship).unwrap();
             assert_eq!(dr_core::load_ship(path).unwrap(), document.ship);
-            std::fs::write("target/topology-smoke.json",r#"{"steps":27,"input":"egui_injected","ime_tested":false,"minimum_window":"960x640","atomic_undo":true}"#).unwrap();
-            commands.spawn(Screenshot::primary_window()).observe(save_to_disk("target/editor-topology-smoke.png")).observe(|_:On<ScreenshotCaptured>,mut exit:MessageWriter<AppExit>| {info!("连接树/图窗口自测通过：真实控件选择、子树删除、换父、拒绝树环、图环、分量选择、精确断边、撤销重做及最小窗口/XML 往返");exit.write(AppExit::Success);});
+            std::fs::write(
+                "target/topology-smoke.json",
+                serde_json::to_vec(&smoke_report(presentation)).unwrap(),
+            )
+            .unwrap();
+            commands.spawn(Screenshot::primary_window()).observe(save_to_disk("target/editor-topology-smoke.png")).observe(move |_:On<ScreenshotCaptured>,mut exit:MessageWriter<AppExit>| {info!("连接树/图窗口自测通过：真实控件选择、子树删除、换父、拒绝树环、图环、分量选择、精确断边、撤销重做及{} / XML 往返", if presentation { "1920×1080 演示窗口" } else { "960×640 最小窗口" });exit.write(AppExit::Success);});
         }
         _ => return,
     }
     state.phase += 1;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn smoke_presentation_preserves_native_1080p_and_scale_factor() {
+        let mut window = Window {
+            resolution: bevy::window::WindowResolution::new(1920, 1080)
+                .with_scale_factor_override(1.),
+            ..default()
+        };
+        resize_for_smoke(&mut window, true);
+        assert_eq!(window.physical_size(), UVec2::new(1920, 1080));
+        assert_eq!(window.scale_factor(), 1.);
+        assert_eq!(
+            Vec2::new(window.width(), window.height()),
+            target_viewport(true)
+        );
+    }
+
+    #[test]
+    fn smoke_ordinary_mode_still_resizes_to_minimum_window() {
+        let mut window = Window {
+            resolution: bevy::window::WindowResolution::new(1920, 1080)
+                .with_scale_factor_override(1.),
+            ..default()
+        };
+        resize_for_smoke(&mut window, false);
+        assert_eq!(window.physical_size(), UVec2::new(960, 640));
+        assert_eq!(
+            Vec2::new(window.width(), window.height()),
+            target_viewport(false)
+        );
+    }
+
+    #[test]
+    fn smoke_reports_only_claim_minimum_window_when_it_was_tested() {
+        let report = smoke_report(true);
+        assert_eq!(report["window"], "1920x1080");
+        assert_eq!(report["minimum_window_tested"], false);
+        assert!(report.get("minimum_window").is_none());
+        let report = smoke_report(false);
+        assert_eq!(report["window"], "960x640");
+        assert_eq!(report["minimum_window"], "960x640");
+        assert_eq!(report["minimum_window_tested"], true);
+        for presentation in [true, false] {
+            let report = smoke_report(presentation);
+            assert_eq!(report["steps"], 27);
+            assert_eq!(report["input"], "egui_injected");
+            assert_eq!(report["ime_tested"], false);
+            assert_eq!(report["atomic_undo"], true);
+        }
+    }
 }

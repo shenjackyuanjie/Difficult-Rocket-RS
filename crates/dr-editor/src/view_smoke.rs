@@ -12,6 +12,17 @@ pub(crate) struct State {
     help_started: Option<std::time::Instant>,
 }
 
+fn view_description(phase: u8) -> &'static str {
+    match phase {
+        0..=2 => "F 适配整船到可用画布，保留贴图真实尺寸；窗口适配不修改船体。",
+        3 => "Shift+F 适配选区；F3 开启调试文字，船体仍保持可见。",
+        4 => "F3 调试文字已显示；独立按 F4 隐藏船体显示，不改变数据。",
+        5 => "F4 已隐藏船体但调试文字仍在；再按 F4 恢复船体。",
+        6 => "F4 已恢复全部船体贴图；F1 打开真实快捷键与鼠标操作帮助。",
+        _ => "F1 帮助期间不会穿透快捷键；Esc 关闭帮助，船体仍保持原样。",
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
     mode: Res<SmokeTest>,
@@ -33,6 +44,7 @@ pub(crate) fn run(
     mut commands: Commands,
     help: Res<help::HelpState>,
     help_captured: Option<Res<HelpCaptured>>,
+    mut showcase: Option<ResMut<demo::Showcase>>,
 ) {
     if !mode.view || mode.started.elapsed().as_secs() < 3 {
         return;
@@ -45,6 +57,15 @@ pub(crate) fn run(
         return;
     };
     window.focused = true;
+    let presentation = showcase
+        .as_ref()
+        .is_some_and(|showcase| showcase.presentation);
+    demo::describe(&mut showcase, view_description(state.phase));
+    let fitted_size = if presentation {
+        Vec2::new(1920., 1080.)
+    } else {
+        Vec2::new(960., 640.)
+    };
     match state.phase {
         0 => {
             let kind = document.catalog.get("detacher-1").unwrap();
@@ -114,23 +135,24 @@ pub(crate) fn run(
             assert!(camera.translation.truncate().abs_diff_eq(center, 1e-4));
             assert!((projection.scale - scale).abs() < 1e-4);
             keys.reset_all();
-            window.resolution.set(960.0, 640.0);
+            if !presentation {
+                window.resolution.set(960.0, 640.0);
+            }
         }
         2 => {
             state.delay += 1;
             if state.delay < 15 {
                 return;
             }
-            assert_eq!(window.width(), 960.0);
-            assert_eq!(window.height(), 640.0);
+            assert_eq!(window.width(), fitted_size.x);
+            assert_eq!(window.height(), fitted_size.y);
             keys.press(KeyCode::KeyF);
         }
         3 => {
-            let (center, scale) =
-                view::fitted(&document, Vec2::new(960.0, 640.0), false, |texture| {
-                    render::image_size(texture, &assets, &images)
-                })
-                .unwrap();
+            let (center, scale) = view::fitted(&document, fitted_size, false, |texture| {
+                render::image_size(texture, &assets, &images)
+            })
+            .unwrap();
             assert!(camera.translation.truncate().abs_diff_eq(center, 1e-4));
             assert!((projection.scale - scale).abs() < 1e-4);
             state.previous_scale = scale;
@@ -144,18 +166,28 @@ pub(crate) fn run(
             keys.press(KeyCode::ShiftLeft);
             keys.press(KeyCode::KeyF);
             keys.press(KeyCode::F3);
-            keys.press(KeyCode::F4);
         }
         4 => {
             assert!(projection.scale < state.previous_scale);
             assert!(options.debug);
-            assert!(!options.ship_visible);
-            assert!(visuals.iter().all(|(v, _, _, _)| *v == Visibility::Hidden));
+            assert!(options.ship_visible);
+            assert!(
+                visuals
+                    .iter()
+                    .all(|(v, _, _, _)| *v == Visibility::Inherited)
+            );
             assert_eq!(labels.iter().len(), 1);
             keys.reset_all();
             keys.press(KeyCode::F4);
         }
         5 => {
+            assert!(options.debug);
+            assert!(!options.ship_visible, "F4 应独立隐藏船体显示");
+            assert!(visuals.iter().all(|(v, _, _, _)| *v == Visibility::Hidden));
+            keys.reset_all();
+            keys.press(KeyCode::F4);
+        }
+        6 => {
             assert!(
                 visuals
                     .iter()
@@ -208,7 +240,7 @@ pub(crate) fn run(
             keys.press(KeyCode::F1);
             state.help_started = Some(std::time::Instant::now());
         }
-        6 => {
+        7 => {
             assert!(help.open, "F1 应打开可见帮助窗口");
             keys.reset_all();
             // 等待 egui 窗口淡入完成，截图不能只证明资源已打开。
@@ -225,7 +257,7 @@ pub(crate) fn run(
                     commands.insert_resource(HelpCaptured);
                 });
         }
-        7 => {
+        8 => {
             assert!(help.open);
             assert!(options.ship_visible, "帮助期间 F4 不应穿透");
             assert_eq!(
@@ -239,15 +271,16 @@ pub(crate) fn run(
             }
             keys.press(KeyCode::Escape);
         }
-        8 => {
+        9 => {
             assert!(!help.open, "Esc 应关闭帮助窗口");
             assert_eq!(state.before.as_ref(), Some(&document.ship));
             assert!(!document.history.can_undo());
             keys.reset_all();
             use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk("target/editor-view-smoke.png"))
-                .observe(|_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-                    info!("视图交互自测通过：原尺寸着陆腿与对接器、奇数像素镜像锚点、断开组透明度、整船与选区适配、960×640 窗口缩放、调试显隐、文档及历史不变");
+                .observe(move |_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+                    let size = if presentation { "固定 1920×1080 演示窗口" } else { "960×640 窗口缩放" };
+                    info!("视图交互自测通过：原尺寸着陆腿与对接器、奇数像素镜像锚点、断开组透明度、整船与选区适配、{size}、调试显隐、文档及历史不变");
                     exit.write(AppExit::Success);
                 });
         }

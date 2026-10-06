@@ -1,8 +1,9 @@
 //! 单窗口章节编排：复用有断言的 UI 自测，延迟的是注入步骤而非编辑器帧循环。
 use super::*;
 use std::{
+    io::Write,
     path::PathBuf,
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 struct Chapter {
@@ -15,7 +16,7 @@ const CHAPTERS: &[Chapter] = &[
     Chapter {
         id: "panels",
         title: "部件目录与放置",
-        description: "目录选择 → 旋转/镜像预览 → 碰撞拒绝 → 放置及撤销",
+        description: "目录选择 → 旋转/镜像预览 → 碰撞拒绝 → 放置及撤销 → 分类筛选",
         artifacts: &[
             "editor-placement-preview.png",
             "editor-collision-preview.png",
@@ -35,7 +36,7 @@ const CHAPTERS: &[Chapter] = &[
     Chapter {
         id: "selection",
         title: "选择与编辑",
-        description: "框选/复制 → 拖拽 R 旋转 → 重叠保留 → 子孙跟随 → 列表删除与撤销",
+        description: "左键选取/拖动，中键框选，右键取消 → 切换框选按键 → 后代跟随 → 删除及撤销",
         artifacts: &[
             "editor-selection-preview.png",
             "editor-selection-smoke.png",
@@ -46,7 +47,7 @@ const CHAPTERS: &[Chapter] = &[
     Chapter {
         id: "view",
         title: "视角与显示",
-        description: "平移/缩放 → 适配 → 960×640 窗口 → 调试显隐 → F1 帮助",
+        description: "F 整船 / Shift+F 选区适配 → F3 调试文字 → F4 船体显隐 → F1 帮助",
         artifacts: &["editor-view-smoke.png", "editor-help.png"],
     },
     Chapter {
@@ -172,7 +173,7 @@ impl KeyHints {
         keys: &ButtonInput<KeyCode>,
         events: &[bevy_egui::egui::Event],
         now: Instant,
-    ) {
+    ) -> Vec<String> {
         use bevy_egui::egui;
         let mut labels = BTreeSet::new();
         let mut event_keys = BTreeSet::new();
@@ -209,17 +210,108 @@ impl KeyHints {
                 labels.insert(key_combination(&name, modifiers));
             }
         }
+        let labels: Vec<_> = labels.into_iter().collect();
         if !labels.is_empty() {
             self.latest = Some(KeyHint {
-                text: labels.into_iter().collect::<Vec<_>>().join(" · "),
+                text: labels.join(" · "),
                 applied: now,
             });
         }
+        labels
+    }
+}
+
+#[derive(Default)]
+struct MouseHints {
+    latest: Option<KeyHint>,
+    seen_edges: std::collections::HashSet<MouseButton>,
+}
+
+fn mouse_label(button: MouseButton) -> Option<(&'static str, &'static str)> {
+    match button {
+        MouseButton::Left => Some(("left", "左键")),
+        MouseButton::Middle => Some(("middle", "中键")),
+        MouseButton::Right => Some(("right", "右键")),
+        _ => None,
+    }
+}
+
+impl MouseHints {
+    fn collect(
+        &mut self,
+        mouse: &ButtonInput<MouseButton>,
+        events: &[bevy_egui::egui::Event],
+        now: Instant,
+    ) -> Vec<(&'static str, String)> {
+        use bevy_egui::egui;
+        let mut presses = BTreeSet::new();
+        let mut event_buttons = BTreeSet::new();
+        let mut actions = Vec::new();
+        for event in events {
+            match event {
+                egui::Event::PointerButton {
+                    button, pressed, ..
+                } => {
+                    let mapped = match button {
+                        egui::PointerButton::Primary => Some(MouseButton::Left),
+                        egui::PointerButton::Middle => Some(MouseButton::Middle),
+                        egui::PointerButton::Secondary => Some(MouseButton::Right),
+                        _ => None,
+                    };
+                    if let Some((kind, label)) = mapped.and_then(mouse_label) {
+                        event_buttons.insert(kind);
+                        if *pressed {
+                            presses.insert((kind, label));
+                        }
+                    }
+                }
+                egui::Event::MouseWheel { delta, .. } if delta.length_sq() > 0. => {
+                    actions.push(("scroll", format!("滚轮 ({:.0}, {:.0})", delta.x, delta.y)));
+                }
+                _ => {}
+            }
+        }
+        self.seen_edges.retain(|button| mouse.just_pressed(*button));
+        for button in mouse.get_just_pressed() {
+            let fresh = self.seen_edges.insert(*button);
+            if let Some((kind, label)) = mouse_label(*button)
+                && fresh
+                && !event_buttons.contains(kind)
+            {
+                presses.insert((kind, label));
+            }
+        }
+        actions.extend(
+            presses
+                .into_iter()
+                .map(|(kind, label)| (kind, label.to_owned())),
+        );
+        if !actions.is_empty() {
+            self.latest = Some(KeyHint {
+                text: actions
+                    .iter()
+                    .map(|(_, label)| label.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" · "),
+                applied: now,
+            });
+        }
+        actions
     }
 }
 
 /// 仅向 egui pass 的图层添加形状，不创建 Area/控件，也不请求焦点或捕获输入。
 fn paint_key_hint(ctx: &bevy_egui::egui::Context, hint: &KeyHint, now: Instant, below_help: bool) {
+    paint_input_hint(ctx, hint, now, below_help, false);
+}
+
+fn paint_input_hint(
+    ctx: &bevy_egui::egui::Context,
+    hint: &KeyHint,
+    now: Instant,
+    below_help: bool,
+    mouse: bool,
+) {
     use bevy_egui::egui;
     let opacity = hint.opacity(now);
     if opacity <= 0. {
@@ -227,16 +319,23 @@ fn paint_key_hint(ctx: &bevy_egui::egui::Context, hint: &KeyHint, now: Instant, 
     }
     let painter = ctx.layer_painter(egui::LayerId::new(
         egui::Order::Tooltip,
-        egui::Id::new("demo-key-hint"),
+        egui::Id::new(if mouse {
+            "demo-mouse-hint"
+        } else {
+            "demo-key-hint"
+        }),
     ));
     let color = egui::Color32::from_rgb(239, 226, 255).gamma_multiply(opacity);
     let galley = painter.layout_no_wrap(hint.text.clone(), egui::FontId::proportional(24.), color);
     let center = egui::pos2(
         ctx.content_rect().center().x,
         if below_help {
-            ctx.content_rect().bottom() - 12. - (galley.size().y + 16.) / 2.
+            ctx.content_rect().bottom()
+                - 12.
+                - (galley.size().y + 16.) / 2.
+                - if mouse { 50. } else { 0. }
         } else {
-            ctx.content_rect().top() + 72.
+            ctx.content_rect().top() + if mouse { 122. } else { 72. }
         },
     );
     let rect = egui::Rect::from_center_size(center, galley.size() + egui::vec2(28., 16.));
@@ -249,12 +348,174 @@ fn paint_key_hint(ctx: &bevy_egui::egui::Context, hint: &KeyHint, now: Instant, 
     ctx.request_repaint();
 }
 
+/// 节拍只给真实动作留阅读时间，轮询/截图等技术等待不冒充重要操作。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Action {
+    Technical,
+    Navigation,
+    Click,
+    Key,
+    Drag,
+}
+
+fn fast(step: Duration) -> bool {
+    step <= Duration::from_millis(60)
+}
+
+fn action_pause(step: Duration, action: Action) -> Duration {
+    if fast(step) {
+        return step;
+    }
+    let (base_ms, min_ms, max_ms) = match action {
+        Action::Technical => (80., 20., 160.),
+        Action::Navigation => (120., 60., 240.),
+        Action::Click => (650., 500., 900.),
+        Action::Key => (700., 500., 900.),
+        Action::Drag => (200., 100., 400.),
+    };
+    // 450ms 为观看基准，CLI 调节相对节奏，但重要操作仍保证可读范围。
+    Duration::from_millis(
+        (base_ms * step.as_secs_f64() / 0.45)
+            .clamp(min_ms, max_ms)
+            .round() as u64,
+    )
+}
+
+fn input_hold(step: Duration) -> Duration {
+    if fast(step) {
+        step / 2
+    } else {
+        Duration::from_millis(45)
+    }
+}
+
+fn chapter_pause(step: Duration, intro: bool) -> Duration {
+    if fast(step) {
+        step
+    } else {
+        Duration::from_millis(if intro { 1200 } else { 900 })
+    }
+}
+
+fn movement_duration(step: Duration, distance: f32) -> Duration {
+    if fast(step) {
+        Duration::ZERO
+    } else {
+        let millis = distance as f64 / 1.3 * step.as_secs_f64() / 0.45;
+        Duration::from_millis(millis.clamp(200., 800.).round() as u64)
+    }
+}
+
+fn classify_action(
+    moved: bool,
+    before_mouse: &ButtonInput<MouseButton>,
+    mouse: &ButtonInput<MouseButton>,
+    keys: &ButtonInput<KeyCode>,
+    events: &[bevy_egui::egui::Event],
+) -> Action {
+    use bevy_egui::egui;
+    if keys
+        .get_just_pressed()
+        .any(|key| !is_modifier(&format!("{key:?}")))
+        || events.iter().any(|event| {
+            matches!(
+                event,
+                egui::Event::Key {
+                    pressed: true,
+                    repeat: false,
+                    ..
+                } | egui::Event::Text(_)
+            )
+        })
+    {
+        Action::Key
+    } else if before_mouse.get_pressed().next().is_some() && moved {
+        Action::Drag
+    } else if mouse.get_just_pressed().next().is_some()
+        || mouse.get_just_released().next().is_some()
+        || events
+            .iter()
+            .any(|event| matches!(event, egui::Event::PointerButton { pressed: true, .. }))
+    {
+        Action::Click
+    } else if moved
+        || events
+            .iter()
+            .any(|event| matches!(event, egui::Event::MouseWheel { .. }))
+    {
+        Action::Navigation
+    } else {
+        Action::Technical
+    }
+}
+
+fn unix_ms(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .expect("系统时间早于 UNIX_EPOCH")
+        .as_millis()
+        .try_into()
+        .expect("时间戳溢出")
+}
+
+fn append_timeline(output: &std::path::Path, event: &str, chapter: &Chapter, time: SystemTime) {
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(output.join("demo-timeline.jsonl"))
+        .expect("无法打开演示时间线");
+    serde_json::to_writer(&mut file, &serde_json::json!({"event": event, "id": chapter.id, "title": chapter.title, "unix_ms": unix_ms(time)})).expect("无法写演示时间线");
+    file.write_all(b"\n").expect("无法结束时间线记录");
+    file.flush().expect("无法刷新演示时间线");
+}
+
+/// 只在边沿真正应用后写入；与章节时间线分离，移动帧和松手不制造音效点。
+fn append_actions(
+    output: &std::path::Path,
+    chapter: &Chapter,
+    actions: &[(&str, String)],
+    time: SystemTime,
+) {
+    if actions.is_empty() {
+        return;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(output.join("demo-actions.jsonl"))
+        .expect("无法打开演示动作日志");
+    let timestamp = unix_ms(time);
+    for (kind, detail) in actions
+        .iter()
+        .filter(|(kind, _)| matches!(*kind, "left" | "middle" | "right" | "key" | "scroll"))
+    {
+        serde_json::to_writer(&mut file, &serde_json::json!({
+            "event": "action", "id": chapter.id, "chapter_id": chapter.id, "title": chapter.title,
+            "unix_ms": timestamp, "kind": kind, "detail": detail,
+        })).expect("无法写演示动作日志");
+        file.write_all(
+            b"
+",
+        )
+        .expect("无法结束动作记录");
+    }
+    file.flush().expect("无法刷新演示动作日志");
+}
+
+/// 各章节复用已有步骤的说明，不增加虚构设置或重复操作。
+pub(crate) fn describe(showcase: &mut Option<ResMut<Showcase>>, text: &'static str) {
+    if let Some(showcase) = showcase
+        && showcase.description != Some(text)
+    {
+        showcase.description = Some(text);
+        showcase.description_changed = true;
+    }
+}
+
 struct Motion {
     from: Vec2,
     to: Vec2,
     started: Instant,
     duration: Duration,
     ui: bool,
+    action: Action,
     events: Vec<bevy_egui::egui::Event>,
     mouse: ButtonInput<MouseButton>,
     keys: ButtonInput<KeyCode>,
@@ -265,6 +526,10 @@ pub(crate) struct Showcase {
     output: PathBuf,
     step: Duration,
     exit_on_complete: bool,
+    pub(crate) presentation: bool,
+    chapter_start_unix_ms: u64,
+    finishing: Option<Instant>,
+    key_release: Option<(Instant, Vec<KeyCode>)>,
     index: usize,
     initialize: bool,
     next_tick: Instant,
@@ -280,6 +545,9 @@ pub(crate) struct Showcase {
     display_pointer: Option<Vec2>,
     click_release: Option<(Instant, bevy_egui::egui::Pos2)>,
     key_hints: KeyHints,
+    mouse_hints: MouseHints,
+    description: Option<&'static str>,
+    description_changed: bool,
 }
 
 impl Showcase {
@@ -300,10 +568,17 @@ impl Showcase {
             !output.join("demo-report.json").exists(),
             "演示目录已有报告，请使用新目录"
         );
+        // 启动时就发布文件，父录制进程可在第一章初始化完成之前订阅。
+        std::fs::File::create(output.join("demo-timeline.jsonl"))?;
+        std::fs::File::create(output.join("demo-actions.jsonl"))?;
         Ok(Some(Self {
             output,
             step: Duration::from_millis(step_ms),
             exit_on_complete: args.iter().any(|arg| arg == "--demo-exit-on-complete"),
+            presentation: args.iter().any(|arg| arg == "--demo-presentation"),
+            chapter_start_unix_ms: 0,
+            finishing: None,
+            key_release: None,
             index: 0,
             initialize: true,
             next_tick: Instant::now(),
@@ -319,6 +594,9 @@ impl Showcase {
             display_pointer: None,
             click_release: None,
             key_hints: KeyHints::default(),
+            mouse_hints: MouseHints::default(),
+            description: None,
+            description_changed: false,
         }))
     }
 }
@@ -328,8 +606,10 @@ pub(crate) fn advance_ready(showcase: Option<Res<Showcase>>) -> bool {
     showcase.is_none_or(|showcase| {
         !showcase.completed
             && !showcase.initialize
+            && showcase.finishing.is_none()
             && showcase.motion.is_none()
             && showcase.click_release.is_none()
+            && showcase.key_release.is_none()
             && Instant::now() >= showcase.next_tick
     })
 }
@@ -341,7 +621,24 @@ pub(crate) fn begin(world: &mut World) {
     if showcase.completed || !showcase.initialize {
         return;
     }
+    if Instant::now() < showcase.next_tick {
+        return;
+    }
     let index = showcase.index;
+    let presentation = showcase.presentation;
+    let started = SystemTime::now();
+    append_timeline(
+        &showcase.output,
+        "chapter_started",
+        &CHAPTERS[index],
+        started,
+    );
+    {
+        let mut showcase = world.resource_mut::<Showcase>();
+        showcase.chapter_started = Instant::now();
+        showcase.chapter_start_unix_ms = unix_ms(started);
+        showcase.artifact_since = started;
+    }
     let paths = world.resource::<EditorPaths>().clone();
     let sample = match CHAPTERS[index].id {
         "panels" | "unsaved" => Some("Test.xml"),
@@ -408,8 +705,11 @@ pub(crate) fn begin(world: &mut World) {
             projection.scale = 1.;
         }
     }
-    for mut window in world.query::<&mut Window>().iter_mut(world) {
-        window.resolution.set(1440., 900.);
+    // presentation 的物理 1080p 与 scale factor 由 main 启动窗口负责。
+    if !presentation {
+        for mut window in world.query::<&mut Window>().iter_mut(world) {
+            window.resolution.set(1440., 900.);
+        }
     }
     {
         let mut mode = world.resource_mut::<SmokeTest>();
@@ -431,9 +731,11 @@ pub(crate) fn begin(world: &mut World) {
     showcase.motion = None;
     showcase.click_release = None;
     showcase.key_hints = KeyHints::default();
-    showcase.chapter_started = Instant::now();
-    showcase.artifact_since = SystemTime::now();
-    showcase.next_tick = Instant::now();
+    showcase.mouse_hints = MouseHints::default();
+    showcase.description = None;
+    showcase.description_changed = false;
+    showcase.key_release = None;
+    showcase.next_tick = Instant::now() + chapter_pause(showcase.step, true);
     info!(
         "演示 {}/{}：{}",
         index + 1,
@@ -459,9 +761,13 @@ pub(crate) fn pace(
         }
     }
     if let Some(showcase) = showcase.as_mut()
+        && !showcase.initialize
+        && showcase.finishing.is_none()
+        && showcase.motion.is_none()
         && Instant::now() >= showcase.next_tick
     {
-        showcase.next_tick = Instant::now() + showcase.step;
+        // animate 已为实际动作或到达设置停顿；这里只消费无输入的技术步骤。
+        showcase.next_tick = Instant::now() + action_pause(showcase.step, Action::Technical);
     }
 }
 
@@ -517,28 +823,38 @@ pub(crate) fn animate(
     };
     let now = Instant::now();
     let mut events = std::mem::take(&mut input.0.events);
+    let mut applied_action = None;
+    if let Some((deadline, held)) = &showcase.key_release
+        && now >= *deadline
+    {
+        for key in held {
+            keys.release(*key);
+        }
+        showcase.key_release = None;
+    }
     if showcase.motion.is_none() {
         let ui_target = events.iter().rev().find_map(|event| match event {
             egui::Event::PointerMoved(point) => Some(Vec2::new(point.x, point.y)),
             _ => None,
         });
-        let ui = ui_target.is_some_and(|point| Some(point) != showcase.display_pointer);
-        let target = if ui {
-            ui_target
-        } else {
-            window.cursor_position()
-        };
+        // 显式 egui 坐标始终优先，包括在原位置释放的 PointerMoved。
+        // smoke 保存的窗口坐标可能仍在画布/滚轮处，不能在短按期间回退过去。
+        let ui = ui_target.is_some();
+        let target = ui_target.or_else(|| window.cursor_position());
         if let Some(to) = target {
             let from = showcase
                 .display_pointer
                 .unwrap_or(Vec2::new(window.width() / 2., window.height() / 2.));
-            if showcase.step > Duration::from_millis(60) && from.distance(to) > 1. {
+            let moved = from.distance(to) > 1.;
+            let action = classify_action(moved, &showcase.before_mouse, &mouse, &keys, &events);
+            if moved && !fast(showcase.step) {
                 showcase.motion = Some(Motion {
                     from,
                     to,
                     started: now,
-                    duration: showcase.step.mul_f32(0.65),
+                    duration: movement_duration(showcase.step, from.distance(to)),
                     ui,
+                    action,
                     events: std::mem::take(&mut events),
                     mouse: mouse.clone(),
                     keys: keys.clone(),
@@ -546,8 +862,21 @@ pub(crate) fn animate(
                 *mouse = showcase.before_mouse.clone();
                 *keys = showcase.before_keys.clone();
             } else {
+                // fast/原位点击也必须同步实际窗口指针，pace 才不会保存旧画布坐标。
+                window.set_cursor_position(Some(to));
                 showcase.display_pointer = Some(to);
+                if now >= showcase.next_tick {
+                    applied_action = Some(action);
+                }
             }
+        } else if now >= showcase.next_tick {
+            applied_action = Some(classify_action(
+                false,
+                &showcase.before_mouse,
+                &mouse,
+                &keys,
+                &events,
+            ));
         }
     }
     if let Some(motion) = showcase.motion.as_ref() {
@@ -561,6 +890,7 @@ pub(crate) fn animate(
             events.extend(motion.events);
             *mouse = motion.mouse;
             *keys = motion.keys;
+            applied_action = Some(motion.action);
             if motion.ui {
                 showcase.ui_pointer = Some(egui::pos2(point.x, point.y));
             }
@@ -594,10 +924,36 @@ pub(crate) fn animate(
             ..
         } = event
         {
-            showcase.click_release = Some((now + Duration::from_millis(45), *pos));
+            showcase.click_release = Some((now + input_hold(showcase.step), *pos));
         }
     }
-    showcase.key_hints.collect(&keys, &events, now);
+    if let Some(action) = applied_action {
+        // 停顿从边沿实际重播/指针抵达后开始，而不是从注入帧开始。
+        let pause_action = if action == Action::Technical && showcase.description_changed {
+            Action::Key
+        } else {
+            action
+        };
+        showcase.next_tick = now + action_pause(showcase.step, pause_action);
+        showcase.description_changed = false;
+        let held: Vec<_> = keys
+            .get_just_pressed()
+            .copied()
+            .filter(|key| !is_modifier(&format!("{key:?}")))
+            .collect();
+        if !held.is_empty() {
+            showcase.key_release = Some((now + input_hold(showcase.step), held));
+        }
+    }
+    let key_actions = showcase.key_hints.collect(&keys, &events, now);
+    let mut actions = showcase.mouse_hints.collect(&mouse, &events, now);
+    actions.extend(key_actions.into_iter().map(|label| ("key", label)));
+    append_actions(
+        &showcase.output,
+        &CHAPTERS[showcase.index],
+        &actions,
+        SystemTime::now(),
+    );
     input.0.events.extend(events);
 }
 
@@ -617,39 +973,61 @@ pub(crate) fn finish(world: &mut World) {
     if showcase.completed || showcase.initialize {
         return;
     }
-    let exits: Vec<_> = world
+    // 成果停留期间出现的失败也不得发布 finished 成功事件。
+    if world
         .resource::<Messages<AppExit>>()
         .iter_current_update_messages()
-        .cloned()
-        .collect();
-    if exits.is_empty() || exits.iter().any(|exit| !matches!(exit, AppExit::Success)) {
+        .any(|exit| !matches!(exit, AppExit::Success))
+    {
         return;
     }
-    // 用户关闭窗口也会产生 Success，只有本章所有新鲜证据齐全才接受章节完成。
+    if showcase.finishing.is_none() {
+        let exits: Vec<_> = world
+            .resource::<Messages<AppExit>>()
+            .iter_current_update_messages()
+            .cloned()
+            .collect();
+        if exits.is_empty() || exits.iter().any(|exit| !matches!(exit, AppExit::Success)) {
+            return;
+        }
+        // 用户关闭窗口也产生 Success，只有本章所有新鲜证据齐全才接受。
+        let chapter = &CHAPTERS[showcase.index];
+        let fresh = chapter.artifacts.iter().all(|name| {
+            std::fs::metadata(format!("target/{name}")).is_ok_and(|metadata| {
+                metadata.len() > 0
+                    && metadata
+                        .modified()
+                        .is_ok_and(|mtime| mtime >= showcase.artifact_since)
+            })
+        });
+        if !fresh {
+            return;
+        }
+        let output = showcase.output.clone();
+        for name in chapter.artifacts {
+            std::fs::copy(format!("target/{name}"), output.join(name)).expect("无法复制演示证据");
+        }
+        world.resource_mut::<Messages<AppExit>>().clear();
+        let mut showcase = world.resource_mut::<Showcase>();
+        showcase.finishing = Some(Instant::now() + chapter_pause(showcase.step, false));
+        return;
+    }
+    if Instant::now() < showcase.finishing.unwrap() {
+        return;
+    }
     let chapter = &CHAPTERS[showcase.index];
-    let fresh = chapter.artifacts.iter().all(|name| {
-        std::fs::metadata(format!("target/{name}")).is_ok_and(|metadata| {
-            metadata.len() > 0
-                && metadata
-                    .modified()
-                    .is_ok_and(|mtime| mtime >= showcase.artifact_since)
-        })
-    });
-    if !fresh {
-        return;
-    }
+    let ended = SystemTime::now();
+    append_timeline(&showcase.output, "chapter_finished", chapter, ended);
     let output = showcase.output.clone();
     let elapsed = showcase.chapter_started.elapsed().as_secs_f64();
-    for name in chapter.artifacts {
-        std::fs::copy(format!("target/{name}"), output.join(name)).expect("无法复制演示证据");
-    }
-    let report = serde_json::json!({"id":chapter.id, "title":chapter.title, "status":"passed", "elapsed_seconds":elapsed, "artifacts":chapter.artifacts});
-    world.resource_mut::<Messages<AppExit>>().clear();
+    let report = serde_json::json!({"id":chapter.id, "title":chapter.title, "status":"passed", "elapsed_seconds":elapsed, "artifacts":chapter.artifacts, "start_unix_ms":showcase.chapter_start_unix_ms, "end_unix_ms":unix_ms(ended)});
     let mut showcase = world.resource_mut::<Showcase>();
+    showcase.finishing = None;
     showcase.reports.push(report);
     showcase.index += 1;
     if showcase.index < CHAPTERS.len() {
         showcase.initialize = true;
+        showcase.next_tick = Instant::now();
         return;
     }
     let report = serde_json::json!({"completed":true, "input_mode":"内部 UI/画布输入注入；不是系统键鼠验收", "chapters":showcase.reports});
@@ -679,6 +1057,7 @@ pub(crate) fn overlay(
     topology: Res<topology_ui::ConnectionEditor>,
     pending: Res<files::PendingFileAction>,
     help: Res<help::HelpState>,
+    mouse: Res<ButtonInput<MouseButton>>,
 ) {
     use bevy_egui::egui;
     let Some(showcase) = showcase else {
@@ -689,6 +1068,27 @@ pub(crate) fn overlay(
     };
     if let Some(hint) = &showcase.key_hints.latest {
         paint_key_hint(ctx, hint, Instant::now(), help.open);
+    }
+    let held: Vec<_> = [MouseButton::Left, MouseButton::Middle, MouseButton::Right]
+        .into_iter()
+        .filter(|button| mouse.pressed(*button))
+        .filter_map(mouse_label)
+        .map(|(_, label)| label)
+        .collect();
+    if !held.is_empty() {
+        let now = Instant::now();
+        paint_input_hint(
+            ctx,
+            &KeyHint {
+                text: format!("{} · 按住", held.join(" · ")),
+                applied: now,
+            },
+            now,
+            help.open,
+            true,
+        );
+    } else if let Some(hint) = &showcase.mouse_hints.latest {
+        paint_input_hint(ctx, hint, Instant::now(), help.open, true);
     }
     if !showcase.completed {
         let pointer = if inspector.is_open() || topology.open || pending.is_blocked() {
@@ -716,6 +1116,28 @@ pub(crate) fn overlay(
     if help.open {
         return;
     }
+    if showcase.presentation {
+        // 录制模式额外提供顶部短章名；下方仍保留九章说明框，字幕在视频独立底栏。
+        let title = if showcase.completed {
+            "演示完成"
+        } else {
+            CHAPTERS[showcase.index].title
+        };
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Tooltip,
+            egui::Id::new("demo-chapter"),
+        ));
+        painter.text(
+            egui::pos2(
+                ctx.content_rect().center().x,
+                ctx.content_rect().top() + 14.,
+            ),
+            egui::Align2::CENTER_TOP,
+            title,
+            egui::FontId::proportional(20.),
+            egui::Color32::from_rgb(221, 203, 255),
+        );
+    }
     let (title, description) = if showcase.completed {
         (
             "演示完成：9/9 章节通过".to_owned(),
@@ -725,7 +1147,7 @@ pub(crate) fn overlay(
         let chapter = &CHAPTERS[showcase.index];
         (
             format!("功能演示 {}/9 · {}", showcase.index + 1, chapter.title),
-            chapter.description,
+            showcase.description.unwrap_or(chapter.description),
         )
     };
     egui::Area::new(egui::Id::new("demo-caption"))
@@ -751,7 +1173,7 @@ pub(crate) fn overlay(
                     ui.label(description);
                     ui.label(
                         egui::RichText::new(format!(
-                            "动作间隔 {}ms · 内部输入注入 · 窗口单次启动",
+                            "节奏基准 {}ms · 内部输入注入 · 窗口单次启动",
                             showcase.step.as_millis()
                         ))
                         .size(12.)
@@ -760,6 +1182,10 @@ pub(crate) fn overlay(
                 });
         });
 }
+
+#[cfg(test)]
+#[path = "demo_pacing_tests.rs"]
+mod pacing_tests;
 
 #[cfg(test)]
 mod tests {
@@ -806,6 +1232,11 @@ mod tests {
                 Some(&exit)
             );
             assert!(!folder.path().join("demo-report.json").exists());
+            assert!(
+                std::fs::read_to_string(folder.path().join("demo-timeline.jsonl"))
+                    .unwrap()
+                    .is_empty()
+            );
         }
     }
 
@@ -953,7 +1384,7 @@ mod tests {
         }
     }
 
-    fn animation_app(step_ms: u64, target: Vec2) -> (App, Entity, tempfile::TempDir) {
+    pub(super) fn animation_app(step_ms: u64, target: Vec2) -> (App, Entity, tempfile::TempDir) {
         let folder = tempfile::tempdir().unwrap();
         let args = vec![
             "editor".into(),

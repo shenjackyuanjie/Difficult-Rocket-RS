@@ -71,6 +71,10 @@ pub struct UiState {
     pub hits: Vec<(PanelButton, egui::Rect)>,
     pub areas: Vec<egui::Rect>,
     pub palette_area: Option<egui::Rect>,
+    /// 已有配置控件的可交互矩形；供窗口回归注入真实点击，不另造配置路径。
+    pub box_middle: Option<egui::Rect>,
+    pub box_left: Option<egui::Rect>,
+    pub follow_children: Option<egui::Rect>,
     pub pixels_per_point: f32,
     pub scrolling: bool,
     pub browser_offset: f32,
@@ -81,6 +85,7 @@ pub struct UiState {
     folder: PathBuf,
     category: Option<String>,
     selection: Option<usize>,
+    demo_trace: bool,
 }
 
 fn button(
@@ -93,6 +98,21 @@ fn button(
 ) {
     let response = directory_button(ui, &action, selected, text);
     hit(ui, &response, action.clone(), state);
+    if state.demo_trace && matches!(action, PanelButton::Category(_)) {
+        let (pressed, released, down, position) = ui.input(|input| {
+            (
+                input.pointer.button_pressed(egui::PointerButton::Primary),
+                input.pointer.button_released(egui::PointerButton::Primary),
+                input.pointer.primary_down(),
+                input.pointer.interact_pos(),
+            )
+        });
+        if pressed || released {
+            info!(?action, ?position, ?pressed, ?released, ?down, rect = ?response.rect,
+                hovered = response.hovered(), clicked = response.clicked(),
+                "演示分类控件实际 egui 输入");
+        }
+    }
     if response.clicked() {
         response.surrender_focus();
         actions.write(action);
@@ -131,6 +151,11 @@ fn follow_toggle(ui: &mut egui::Ui, follow: &mut bool) -> egui::Response {
         .on_hover_text("开启后拖动父节点时，所有后代一起移动和旋转，保留内部连接。关闭则只拖当前选中部件。按连接方向计算，不包含父节点；本次拖拽开始时确定范围。")
 }
 
+fn config_rect(ui: &egui::Ui, response: &egui::Response) -> Option<egui::Rect> {
+    let rect = response.rect.intersect(ui.clip_rect());
+    (response.enabled() && rect.is_positive()).then_some(rect)
+}
+
 fn hit(ui: &egui::Ui, response: &egui::Response, action: PanelButton, state: &mut UiState) {
     let rect = response.rect.intersect(ui.clip_rect());
     if response.enabled() && rect.is_positive() {
@@ -138,7 +163,8 @@ fn hit(ui: &egui::Ui, response: &egui::Response, action: PanelButton, state: &mu
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+// 将可选资源合并为一个参数，保持在 Bevy 系统参数数量限制内。
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn draw(
     mut contexts: EguiContexts,
     assets: Res<AssetServer>,
@@ -149,9 +175,10 @@ pub fn draw(
     mut browser: ResMut<ShipBrowser>,
     cursor: Res<EditorCursor>,
     inspector: Res<properties::Inspector>,
-    (pending, help): (
+    (pending, help, showcase): (
         Option<Res<files::PendingFileAction>>,
         Option<Res<help::HelpState>>,
+        Option<Res<demo::Showcase>>,
     ),
     mut topology: ResMut<crate::topology_ui::ConnectionEditor>,
     (mut options, drag): (ResMut<view::ViewOptions>, Res<DragState>),
@@ -170,6 +197,10 @@ pub fn draw(
     );
     let ctx = ctx.clone();
     state.hits.clear();
+    state.demo_trace = showcase.is_some();
+    state.box_middle = None;
+    state.box_left = None;
+    state.follow_children = None;
     state.areas.clear();
     state.palette_area = None;
     state.pixels_per_point = ctx.pixels_per_point();
@@ -318,22 +349,25 @@ pub fn draw(
             }
             ui.horizontal_wrapped(|ui| {
                 ui.label("框选").on_hover_text("框选多个部件；选择左键框选时，中键用于移动视角。默认中键框选、左键拖空白移动视角。");
-                ui.selectable_value(
+                let middle = ui.selectable_value(
                     &mut options.box_select_button,
                     view::BoxSelectButton::Middle,
                     "中键",
                 )
                 .on_hover_text("中键拖动框选；左键拖空白移动视角。")
                 .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再切换框选按键。");
-                ui.selectable_value(
+                state.box_middle = config_rect(ui, &middle);
+                let left = ui.selectable_value(
                     &mut options.box_select_button,
                     view::BoxSelectButton::Left,
                     "左键",
                 )
                 .on_hover_text("左键拖空白框选；中键拖动移动视角。")
                 .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再切换框选按键。");
+                state.box_left = config_rect(ui, &left);
             });
-            follow_toggle(ui, &mut options.follow_children);
+            let follow = follow_toggle(ui, &mut options.follow_children);
+            state.follow_children = config_rect(ui, &follow);
             let mut categories: Vec<_> = document
                 .catalog
                 .visible()

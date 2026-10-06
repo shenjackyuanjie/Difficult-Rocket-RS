@@ -13,10 +13,38 @@ pub(crate) struct State {
     after: Option<Ship>,
     pointer: Option<Vec2>,
     camera_before: Option<Vec2>,
+    camera_reset_started: bool,
     small_motion: bool,
+    input: egui_ui::UiTestInput,
 }
 
-#[allow(clippy::too_many_arguments)]
+/// 用现有回归阶段讲清鼠标分工，不添加重复的拖拽长流程。
+fn selection_description(phase: u8) -> &'static str {
+    match phase {
+        0..=4 => "默认：左键点选部件；Shift + 左键追加选择。",
+        5..=8 => "左键按住部件拖动，松手提交；Ctrl+Z 一次撤销。",
+        9..=11 => "默认中键框选：中键按住拖出矩形，松手选中框内多个部件。",
+        12..=14 => "Ctrl+C / Ctrl+V 复制粘贴；R 旋转待放置预览。",
+        15..=16 => "右键取消粘贴预览：原船体不变，不产生编辑提交。",
+        17..=25 => "左键确认粘贴；重叠落点保留，删除后仍可整步撤销重做。",
+        26..=32 => "拖拽预览可取消，失焦不提交；放置与选择使用真实输入路径。",
+        33..=34 => "默认左键拖空白：取消选择并平移视角，不是框选。",
+        35 => "右侧已有配置：将框选按键从中键切为左键。",
+        36..=38 => "左键框选模式：左键拖空白画矩形，不再平移视角。",
+        39..=41 => "左键框选模式下，中键拖动负责平移视角。",
+        42 => "恢复默认中键框选；后代跟随默认关闭。",
+        43..=54 => "左键拖部件时按 R 旋转：预览不改文档，松手提交且仅产生一步历史。",
+        55 => "开启右侧「子节点跟随」：下次拖父节点将带上全部后代。",
+        56..=60 => "后代跟随已开启：父、子、孙一起移动，保留内部连接但不带外部父节点。",
+        61 => "关闭「子节点跟随」，对比同一船体的拖动范围。",
+        62..=67 => "后代跟随已关闭：只拖选中的父节点，后代留在原处。",
+        68..=70 => "左侧船体目录不是删除落区：拖入后松手不会删除部件。",
+        _ => "右侧部件目录是删除落区：拖入松手删除整个相连分量，可一次撤销重做。",
+    }
+}
+
+// 将 UI 资源与输入查询打包，保持 Bevy 系统参数数量在支持范围内。
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
@@ -25,7 +53,7 @@ pub(crate) fn run(
     drag: Res<DragState>,
     mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
     camera: Query<&Transform, With<Camera2d>>,
-    mut options: ResMut<view::ViewOptions>,
+    options: Res<view::ViewOptions>,
     visuals: Query<(&render::PartVisual, &Transform)>,
     previews: Query<(&Sprite, &Transform), With<selection::PasteVisual>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -33,7 +61,12 @@ pub(crate) fn run(
     mut commands: Commands,
     captured: Option<Res<PreviewCaptured>>,
     rotation_captured: Option<Res<DragRotationCaptured>>,
-    ui: (Res<panels::egui_panel::UiState>, Res<panels::UiPointer>),
+    mut ui: (
+        Res<panels::egui_panel::UiState>,
+        Res<panels::UiPointer>,
+        Option<ResMut<demo::Showcase>>,
+        Query<&mut bevy_egui::EguiInput, With<bevy_egui::PrimaryEguiContext>>,
+    ),
 ) {
     if !mode.selection || mode.started.elapsed().as_secs() < 3 {
         return;
@@ -45,6 +78,13 @@ pub(crate) fn run(
     // 系统桌面焦点/鼠标消息不应覆盖注入的输入；第 30 阶段单独测试失焦。
     if state.phase != 31 {
         window.focused = true;
+    }
+    demo::describe(&mut ui.2, selection_description(state.phase));
+    let Ok(mut input) = ui.3.single_mut() else {
+        return;
+    };
+    if state.input.tick(&mut input) {
+        return;
     }
     let mut pointer = state.pointer;
     if let Some(point) = pointer {
@@ -186,10 +226,11 @@ pub(crate) fn run(
                     .all(|(_, transform)| transform.rotation != Quat::IDENTITY)
             );
             keys.reset_all();
-            keys.press(KeyCode::Escape);
+            mouse.press(MouseButton::Right);
         }
         16 => {
-            assert!(cursor.paste.is_none());
+            mouse.release(MouseButton::Right);
+            assert!(cursor.paste.is_none(), "右键必须取消粘贴预览");
             assert!(previews.is_empty());
             assert_eq!(state.before.as_ref(), Some(&document.ship));
             keys.reset_all();
@@ -329,10 +370,23 @@ pub(crate) fn run(
                 "默认左键空白拖动没有移动视角"
             );
             assert!(drag.rectangle.is_none());
-            mouse.release(MouseButton::Left);
-            options.box_select_button = view::BoxSelectButton::Left;
+            // 先在原位置松开平移，再移动到配置控件，避免拖着左键穿过画布。
+            if mouse.pressed(MouseButton::Left) {
+                mouse.release(MouseButton::Left);
+                return;
+            }
+            assert_eq!(options.box_select_button, view::BoxSelectButton::Middle);
+            let Some(rect) = ui.0.box_left else {
+                return;
+            };
+            state.input.click_rect(rect, &mut input);
         }
         36 => {
+            assert_eq!(
+                options.box_select_button,
+                view::BoxSelectButton::Left,
+                "真实控件点击应切换为左键框选"
+            );
             point(3.0, -3.0);
             mouse.press(MouseButton::Left);
         }
@@ -370,12 +424,25 @@ pub(crate) fn run(
         42 => {
             keys.reset_all();
             mouse.reset_all();
-            options.box_select_button = view::BoxSelectButton::Middle;
-            options.follow_children = false;
-            point(0.0, -2.0);
-            keys.press(KeyCode::Home);
+            assert_eq!(options.box_select_button, view::BoxSelectButton::Left);
+            assert!(!options.follow_children);
+            let Some(rect) = ui.0.box_middle else {
+                return;
+            };
+            // 配置点击与 Home 必须分步：实际点击抵达 UI 时，相机快捷键会被隔离。
+            state.input.click_rect(rect, &mut input);
         }
         43 => {
+            assert_eq!(
+                options.box_select_button,
+                view::BoxSelectButton::Middle,
+                "真实控件点击应恢复中键框选"
+            );
+            if !state.camera_reset_started {
+                state.pointer = Some(reset_camera_on_canvas(&mut window, &mut mouse, &mut keys));
+                state.camera_reset_started = true;
+                return;
+            }
             assert!(camera.single().unwrap().translation.truncate().length() < 1e-4);
             keys.reset_all();
             let kind = document.catalog.get("detacher-1").unwrap();
@@ -494,9 +561,14 @@ pub(crate) fn run(
             assert_redone_once(&document, state.after.as_ref().unwrap());
             keys.reset_all();
             reset_drag_fixture(&mut document, state.before.as_ref().unwrap());
-            options.follow_children = true;
+            assert!(!options.follow_children);
+            let Some(rect) = ui.0.follow_children else {
+                return;
+            };
+            state.input.click_rect(rect, &mut input);
         }
         56 => {
+            assert!(options.follow_children, "真实复选框点击应开启后代跟随");
             point(0.0, 0.0);
             mouse.press(MouseButton::Left);
         }
@@ -543,9 +615,14 @@ pub(crate) fn run(
             assert_redone_once(&document, state.after.as_ref().unwrap());
             keys.reset_all();
             reset_drag_fixture(&mut document, state.before.as_ref().unwrap());
-            options.follow_children = false;
+            assert!(options.follow_children);
+            let Some(rect) = ui.0.follow_children else {
+                return;
+            };
+            state.input.click_rect(rect, &mut input);
         }
         62 => {
+            assert!(!options.follow_children, "真实复选框点击应关闭后代跟随");
             point(0.0, 0.0);
             mouse.press(MouseButton::Left);
         }
@@ -663,6 +740,20 @@ pub(crate) fn run(
     }
     state.pointer = pointer;
     state.phase += 1;
+}
+
+/// 配置短点击释放并消费后，先回画布再按 Home；不让 UI 指针隔离吞掉重置。
+pub(crate) fn reset_camera_on_canvas(
+    window: &mut Window,
+    mouse: &mut ButtonInput<MouseButton>,
+    keys: &mut ButtonInput<KeyCode>,
+) -> Vec2 {
+    mouse.reset_all();
+    keys.reset_all();
+    let point = Vec2::new(window.width() / 2.0, window.height() / 2.0 + 120.0);
+    window.set_cursor_position(Some(point));
+    keys.press(KeyCode::Home);
+    point
 }
 
 fn normal_connection(parent: i64, child: i64) -> Connection {
