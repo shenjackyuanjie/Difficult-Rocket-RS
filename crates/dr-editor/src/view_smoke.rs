@@ -1,11 +1,15 @@
 use super::*;
 
+#[derive(Resource)]
+pub(crate) struct HelpCaptured;
+
 #[derive(Default)]
 pub(crate) struct State {
     phase: u8,
     before: Option<Ship>,
     delay: u8,
     previous_scale: f32,
+    help_started: Option<std::time::Instant>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -27,6 +31,8 @@ pub(crate) fn run(
     labels: Query<&Text, With<view::DebugLabel>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut commands: Commands,
+    help: Res<help::HelpState>,
+    help_captured: Option<Res<HelpCaptured>>,
 ) {
     if !mode.view || mode.started.elapsed().as_secs() < 3 {
         return;
@@ -197,6 +203,45 @@ pub(crate) fn run(
             }
             assert_eq!(state.before.as_ref(), Some(&document.ship));
             assert!(!document.dirty);
+            assert!(!document.history.can_undo());
+            keys.reset_all();
+            keys.press(KeyCode::F1);
+            state.help_started = Some(std::time::Instant::now());
+        }
+        6 => {
+            assert!(help.open, "F1 应打开可见帮助窗口");
+            keys.reset_all();
+            // 等待 egui 窗口淡入完成，截图不能只证明资源已打开。
+            if state.help_started.unwrap().elapsed().as_millis() < 250 {
+                return;
+            }
+            keys.press(KeyCode::KeyR);
+            keys.press(KeyCode::F4);
+            use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
+            commands
+                .spawn(Screenshot::primary_window())
+                .observe(save_to_disk("target/editor-help.png"))
+                .observe(|_: On<ScreenshotCaptured>, mut commands: Commands| {
+                    commands.insert_resource(HelpCaptured);
+                });
+        }
+        7 => {
+            assert!(help.open);
+            assert!(options.ship_visible, "帮助期间 F4 不应穿透");
+            assert_eq!(
+                state.before.as_ref(),
+                Some(&document.ship),
+                "帮助期间 R 不应编辑文档"
+            );
+            keys.reset_all();
+            if help_captured.is_none() {
+                return;
+            }
+            keys.press(KeyCode::Escape);
+        }
+        8 => {
+            assert!(!help.open, "Esc 应关闭帮助窗口");
+            assert_eq!(state.before.as_ref(), Some(&document.ship));
             assert!(!document.history.can_undo());
             keys.reset_all();
             use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};

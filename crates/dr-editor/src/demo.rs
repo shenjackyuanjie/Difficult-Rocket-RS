@@ -35,18 +35,19 @@ const CHAPTERS: &[Chapter] = &[
     Chapter {
         id: "selection",
         title: "选择与编辑",
-        description: "框选/增选 → 连续拖动 → 复制粘贴 → 撤销重做 → 删除与取消",
+        description: "框选/复制 → 拖拽 R 旋转 → 重叠保留 → 子孙跟随 → 列表删除与撤销",
         artifacts: &[
             "editor-selection-preview.png",
             "editor-selection-smoke.png",
+            "editor-drag-rotation.png",
             "selection-smoke.xml",
         ],
     },
     Chapter {
         id: "view",
         title: "视角与显示",
-        description: "平移/缩放 → 适配船体及选区 → 窗口缩放 → 调试与显示选项",
-        artifacts: &["editor-view-smoke.png"],
+        description: "平移/缩放 → 适配 → 960×640 窗口 → 调试显隐 → F1 帮助",
+        artifacts: &["editor-view-smoke.png", "editor-help.png"],
     },
     Chapter {
         id: "staging",
@@ -94,6 +95,160 @@ const CHAPTERS: &[Chapter] = &[
     },
 ];
 
+/// 提示寿命独立于演示节拍：fast 模式也有可见的停留与淡出。
+const KEY_HINT_HOLD: Duration = Duration::from_millis(250);
+const KEY_HINT_FADE: Duration = Duration::from_millis(650);
+
+struct KeyHint {
+    text: String,
+    applied: Instant,
+}
+
+impl KeyHint {
+    fn opacity(&self, now: Instant) -> f32 {
+        let elapsed = now.saturating_duration_since(self.applied);
+        if elapsed <= KEY_HINT_HOLD {
+            1.
+        } else {
+            (1. - (elapsed - KEY_HINT_HOLD).as_secs_f32() / KEY_HINT_FADE.as_secs_f32())
+                .clamp(0., 1.)
+        }
+    }
+}
+
+#[derive(Default)]
+struct KeyHints {
+    latest: Option<KeyHint>,
+    // 只记已采集的边沿；即使 ButtonInput 在下一帧仍保留 just_pressed，也不重置寿命。
+    seen_edges: std::collections::HashSet<KeyCode>,
+}
+
+fn is_modifier(name: &str) -> bool {
+    matches!(
+        name,
+        "ControlLeft"
+            | "ControlRight"
+            | "ShiftLeft"
+            | "ShiftRight"
+            | "AltLeft"
+            | "AltRight"
+            | "SuperLeft"
+            | "SuperRight"
+    )
+}
+
+fn button_key_name(key: KeyCode) -> String {
+    use bevy_egui::egui;
+    let name = format!("{key:?}");
+    let name = name
+        .strip_prefix("Key")
+        .or_else(|| name.strip_prefix("Digit"))
+        .unwrap_or(&name);
+    egui::Key::from_name(name).map_or_else(|| name.to_owned(), |key| key.name().to_owned())
+}
+
+fn key_combination(name: &str, modifiers: bevy_egui::egui::Modifiers) -> String {
+    let mut parts = Vec::new();
+    if modifiers.ctrl || (modifiers.command && !modifiers.mac_cmd) {
+        parts.push("Ctrl");
+    }
+    if modifiers.alt {
+        parts.push("Alt");
+    }
+    if modifiers.shift {
+        parts.push("Shift");
+    }
+    if modifiers.mac_cmd {
+        parts.push("Cmd");
+    }
+    parts.push(name);
+    parts.join("+")
+}
+
+impl KeyHints {
+    /// 必须在 Motion 的键与事件已重播之后调用；不读取待应用的 Motion 快照。
+    fn collect(
+        &mut self,
+        keys: &ButtonInput<KeyCode>,
+        events: &[bevy_egui::egui::Event],
+        now: Instant,
+    ) {
+        use bevy_egui::egui;
+        let mut labels = BTreeSet::new();
+        let mut event_keys = BTreeSet::new();
+        for event in events {
+            if let egui::Event::Key {
+                key,
+                physical_key,
+                pressed,
+                repeat,
+                modifiers,
+            } = event
+            {
+                // egui 的逻辑键用于显示，物理键用于和 ButtonInput 去重。
+                // repeat/release 也占据该键，防止 fallback 把重复事件重新当作新按键。
+                event_keys.insert(key.name().to_owned());
+                event_keys.insert(physical_key.unwrap_or(*key).name().to_owned());
+                if *pressed && !*repeat && !is_modifier(key.name()) {
+                    labels.insert(key_combination(key.name(), *modifiers));
+                }
+            }
+        }
+        let modifiers = egui::Modifiers {
+            ctrl: keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight),
+            alt: keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight),
+            shift: keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight),
+            mac_cmd: keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight),
+            ..Default::default()
+        };
+        self.seen_edges.retain(|key| keys.just_pressed(*key));
+        for key in keys.get_just_pressed() {
+            let fresh = self.seen_edges.insert(*key);
+            let name = button_key_name(*key);
+            if fresh && !is_modifier(&name) && !event_keys.contains(&name) {
+                labels.insert(key_combination(&name, modifiers));
+            }
+        }
+        if !labels.is_empty() {
+            self.latest = Some(KeyHint {
+                text: labels.into_iter().collect::<Vec<_>>().join(" · "),
+                applied: now,
+            });
+        }
+    }
+}
+
+/// 仅向 egui pass 的图层添加形状，不创建 Area/控件，也不请求焦点或捕获输入。
+fn paint_key_hint(ctx: &bevy_egui::egui::Context, hint: &KeyHint, now: Instant, below_help: bool) {
+    use bevy_egui::egui;
+    let opacity = hint.opacity(now);
+    if opacity <= 0. {
+        return;
+    }
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        egui::Id::new("demo-key-hint"),
+    ));
+    let color = egui::Color32::from_rgb(239, 226, 255).gamma_multiply(opacity);
+    let galley = painter.layout_no_wrap(hint.text.clone(), egui::FontId::proportional(24.), color);
+    let center = egui::pos2(
+        ctx.content_rect().center().x,
+        if below_help {
+            ctx.content_rect().bottom() - 12. - (galley.size().y + 16.) / 2.
+        } else {
+            ctx.content_rect().top() + 72.
+        },
+    );
+    let rect = egui::Rect::from_center_size(center, galley.size() + egui::vec2(28., 16.));
+    painter.rect_filled(
+        rect,
+        7.,
+        egui::Color32::from_rgb(25, 23, 34).gamma_multiply(opacity),
+    );
+    painter.galley(rect.min + egui::vec2(14., 8.), galley, color);
+    ctx.request_repaint();
+}
+
 struct Motion {
     from: Vec2,
     to: Vec2,
@@ -124,6 +279,7 @@ pub(crate) struct Showcase {
     before_keys: ButtonInput<KeyCode>,
     display_pointer: Option<Vec2>,
     click_release: Option<(Instant, bevy_egui::egui::Pos2)>,
+    key_hints: KeyHints,
 }
 
 impl Showcase {
@@ -162,6 +318,7 @@ impl Showcase {
             before_keys: default(),
             display_pointer: None,
             click_release: None,
+            key_hints: KeyHints::default(),
         }))
     }
 }
@@ -273,6 +430,7 @@ pub(crate) fn begin(world: &mut World) {
     showcase.ui_pointer = None;
     showcase.motion = None;
     showcase.click_release = None;
+    showcase.key_hints = KeyHints::default();
     showcase.chapter_started = Instant::now();
     showcase.artifact_since = SystemTime::now();
     showcase.next_tick = Instant::now();
@@ -439,6 +597,7 @@ pub(crate) fn animate(
             showcase.click_release = Some((now + Duration::from_millis(45), *pos));
         }
     }
+    showcase.key_hints.collect(&keys, &events, now);
     input.0.events.extend(events);
 }
 
@@ -519,6 +678,7 @@ pub(crate) fn overlay(
     inspector: Res<properties::Inspector>,
     topology: Res<topology_ui::ConnectionEditor>,
     pending: Res<files::PendingFileAction>,
+    help: Res<help::HelpState>,
 ) {
     use bevy_egui::egui;
     let Some(showcase) = showcase else {
@@ -527,6 +687,9 @@ pub(crate) fn overlay(
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
+    if let Some(hint) = &showcase.key_hints.latest {
+        paint_key_hint(ctx, hint, Instant::now(), help.open);
+    }
     if !showcase.completed {
         let pointer = if inspector.is_open() || topology.open || pending.is_blocked() {
             showcase.ui_pointer
@@ -548,6 +711,10 @@ pub(crate) fn overlay(
             );
             painter.circle_filled(point, 2., egui::Color32::WHITE);
         }
+    }
+    // 帮助需要完整阅读：暂停章节横幅，并把按键提示放在窗口下方空隙。
+    if help.open {
+        return;
     }
     let (title, description) = if showcase.completed {
         (
@@ -769,6 +936,352 @@ mod tests {
                 .just_pressed(MouseButton::Left)
         );
         assert!(app.world().resource::<Showcase>().motion.is_none());
+    }
+
+    fn key_event(key: bevy_egui::egui::Key, pressed: bool, repeat: bool) -> bevy_egui::egui::Event {
+        use bevy_egui::egui;
+        egui::Event::Key {
+            key,
+            physical_key: Some(key),
+            pressed,
+            repeat,
+            modifiers: egui::Modifiers {
+                ctrl: true,
+                command: true,
+                ..Default::default()
+            },
+        }
+    }
+
+    fn animation_app(step_ms: u64, target: Vec2) -> (App, Entity, tempfile::TempDir) {
+        let folder = tempfile::tempdir().unwrap();
+        let args = vec![
+            "editor".into(),
+            "--demo-showcase".into(),
+            folder.path().to_string_lossy().into_owned(),
+            "--demo-step-ms".into(),
+            step_ms.to_string(),
+        ];
+        let mut showcase = Showcase::from_args(&args).unwrap().unwrap();
+        showcase.initialize = false;
+        showcase.display_pointer = Some(Vec2::ZERO);
+        let mut app = App::new();
+        app.insert_resource(showcase)
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_systems(Update, animate);
+        let mut window = Window::default();
+        window.set_cursor_position(Some(target));
+        let entity = app
+            .world_mut()
+            .spawn((
+                window,
+                bevy::window::PrimaryWindow,
+                bevy_egui::EguiInput::default(),
+                bevy_egui::PrimaryEguiContext,
+            ))
+            .id();
+        (app, entity, folder)
+    }
+
+    fn inject_undo(app: &mut App, entity: Entity, keyboard: bool, egui: bool) {
+        if keyboard {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.press(KeyCode::ControlLeft);
+            keys.press(KeyCode::KeyZ);
+        }
+        if egui {
+            app.world_mut()
+                .get_mut::<bevy_egui::EguiInput>(entity)
+                .unwrap()
+                .0
+                .events
+                .extend([
+                    key_event(bevy_egui::egui::Key::Z, true, false),
+                    key_event(bevy_egui::egui::Key::Z, false, false),
+                ]);
+        }
+    }
+
+    #[test]
+    fn key_hints_wait_for_motion_replay_for_each_input_source() {
+        for (keyboard, egui) in [(true, false), (false, true), (true, true)] {
+            let (mut app, entity, _folder) = animation_app(450, Vec2::new(100., 0.));
+            inject_undo(&mut app, entity, keyboard, egui);
+            app.update();
+            assert!(
+                app.world()
+                    .resource::<Showcase>()
+                    .key_hints
+                    .latest
+                    .is_none()
+            );
+            assert!(
+                !app.world()
+                    .resource::<ButtonInput<KeyCode>>()
+                    .just_pressed(KeyCode::KeyZ)
+            );
+            assert!(
+                !app.world()
+                    .get::<bevy_egui::EguiInput>(entity)
+                    .unwrap()
+                    .0
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, bevy_egui::egui::Event::Key { .. }))
+            );
+            {
+                let mut showcase = app.world_mut().resource_mut::<Showcase>();
+                let motion = showcase.motion.as_mut().unwrap();
+                // 无 sleep：明确保持中途帧未到达，然后强制到达。
+                motion.started = Instant::now();
+                motion.duration = Duration::from_secs(60);
+            }
+            app.update();
+            assert!(
+                app.world()
+                    .resource::<Showcase>()
+                    .key_hints
+                    .latest
+                    .is_none()
+            );
+            {
+                let mut showcase = app.world_mut().resource_mut::<Showcase>();
+                let motion = showcase.motion.as_mut().unwrap();
+                motion.started = Instant::now() - motion.duration;
+            }
+            let replay_start = Instant::now();
+            app.update();
+            let showcase = app.world().resource::<Showcase>();
+            let hint = showcase.key_hints.latest.as_ref().unwrap();
+            assert_eq!(hint.text, "Ctrl+Z");
+            assert!(hint.applied >= replay_start);
+            assert!(showcase.motion.is_none());
+            let applied = hint.applied;
+            assert_eq!(
+                app.world()
+                    .resource::<ButtonInput<KeyCode>>()
+                    .just_pressed(KeyCode::KeyZ),
+                keyboard
+            );
+            let input = app.world().get::<bevy_egui::EguiInput>(entity).unwrap();
+            assert_eq!(
+                input
+                    .0
+                    .events
+                    .iter()
+                    .filter(|event| matches!(event, bevy_egui::egui::Event::Key { .. }))
+                    .count(),
+                if egui { 2 } else { 0 }
+            );
+            // 模拟 egui pass 消费事件，保留 ButtonInput 边沿检验不逐帧刷新。
+            app.world_mut()
+                .get_mut::<bevy_egui::EguiInput>(entity)
+                .unwrap()
+                .0
+                .events
+                .clear();
+            app.update();
+            assert_eq!(
+                app.world()
+                    .resource::<Showcase>()
+                    .key_hints
+                    .latest
+                    .as_ref()
+                    .unwrap()
+                    .applied,
+                applied
+            );
+        }
+    }
+
+    #[test]
+    fn key_hints_capture_direct_inputs_in_fast_and_stationary_modes() {
+        for (step, target) in [(1, Vec2::new(100., 0.)), (450, Vec2::ZERO)] {
+            for (keyboard, egui) in [(true, false), (false, true), (true, true)] {
+                let (mut app, entity, _folder) = animation_app(step, target);
+                inject_undo(&mut app, entity, keyboard, egui);
+                app.update();
+                let showcase = app.world().resource::<Showcase>();
+                assert!(showcase.motion.is_none());
+                assert_eq!(showcase.key_hints.latest.as_ref().unwrap().text, "Ctrl+Z");
+                assert!(showcase.click_release.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn key_hint_opacity_holds_then_fades_linearly_and_expires() {
+        let now = Instant::now();
+        let hint = KeyHint {
+            text: "F2".into(),
+            applied: now,
+        };
+        assert_eq!(hint.opacity(now), 1.);
+        assert_eq!(hint.opacity(now + KEY_HINT_HOLD), 1.);
+        assert!((hint.opacity(now + KEY_HINT_HOLD + KEY_HINT_FADE / 4) - 0.75).abs() < 0.001);
+        assert!((hint.opacity(now + KEY_HINT_HOLD + KEY_HINT_FADE / 2) - 0.5).abs() < 0.001);
+        assert_eq!(hint.opacity(now + KEY_HINT_HOLD + KEY_HINT_FADE), 0.);
+        assert_eq!(hint.opacity(now + Duration::from_secs(10)), 0.);
+    }
+
+    #[test]
+    fn key_hints_ignore_modifiers_repeats_and_held_edges_but_accept_repress() {
+        use bevy_egui::egui;
+        let now = Instant::now();
+        let mut hints = KeyHints::default();
+        let mut keys = ButtonInput::default();
+        for key in [
+            KeyCode::ControlRight,
+            KeyCode::ShiftRight,
+            KeyCode::AltRight,
+            KeyCode::SuperRight,
+        ] {
+            keys.press(key);
+        }
+        hints.collect(
+            &keys,
+            &[key_event(egui::Key::ControlLeft, true, false)],
+            now,
+        );
+        assert!(hints.latest.is_none());
+        keys.press(KeyCode::KeyZ);
+        hints.collect(&keys, &[key_event(egui::Key::Z, true, true)], now);
+        assert!(
+            hints.latest.is_none(),
+            "repeat 不得经由 ButtonInput fallback 重新出现"
+        );
+        hints.collect(&keys, &[], now);
+        assert!(hints.latest.is_none());
+        keys.clear();
+        hints.collect(&keys, &[], now);
+        keys.release(KeyCode::KeyZ);
+        keys.press(KeyCode::KeyZ);
+        hints.collect(&keys, &[], now);
+        assert_eq!(hints.latest.as_ref().unwrap().text, "Ctrl+Alt+Shift+Cmd+Z");
+        let later = now + Duration::from_millis(500);
+        hints.collect(&keys, &[], later);
+        assert_eq!(hints.latest.as_ref().unwrap().applied, now);
+        keys.clear();
+        hints.collect(&keys, &[], later);
+        keys.release(KeyCode::KeyZ);
+        keys.press(KeyCode::KeyZ);
+        hints.collect(&keys, &[], later);
+        assert_eq!(hints.latest.as_ref().unwrap().applied, later);
+    }
+
+    #[test]
+    fn key_hints_use_logical_names_and_deduplicate_physical_keys() {
+        use bevy_egui::egui;
+        let mut hints = KeyHints::default();
+        let mut keys = ButtonInput::default();
+        keys.press(KeyCode::KeyY);
+        let mut event = key_event(egui::Key::Z, true, false);
+        if let egui::Event::Key {
+            physical_key,
+            modifiers,
+            ..
+        } = &mut event
+        {
+            *physical_key = Some(egui::Key::Y);
+            modifiers.shift = true;
+        }
+        hints.collect(&keys, &[event], Instant::now());
+        assert_eq!(hints.latest.as_ref().unwrap().text, "Ctrl+Shift+Z");
+        for (key, expected) in [
+            (KeyCode::KeyR, "R"),
+            (KeyCode::Digit1, "1"),
+            (KeyCode::F2, "F2"),
+            (KeyCode::Escape, "Escape"),
+            (KeyCode::ArrowLeft, "Left"),
+            (KeyCode::NumpadEnter, "Enter"),
+        ] {
+            assert_eq!(button_key_name(key), expected);
+        }
+    }
+
+    #[test]
+    fn key_hint_painter_does_not_block_underlying_input_and_stops_after_expiry() {
+        use bevy_egui::egui;
+        let ctx = egui::Context::default();
+        let now = Instant::now();
+        let hint = KeyHint {
+            text: "Ctrl+Z".into(),
+            applied: now,
+        };
+        let rect = egui::Rect::from_center_size(egui::pos2(400., 72.), egui::vec2(120., 40.));
+        let raw = || egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800., 600.),
+            )),
+            ..Default::default()
+        };
+        let mut clicked = false;
+        // 首帧布局，第二帧把点击送到提示覆盖的按钮。
+        for click in [false, true] {
+            let mut input = raw();
+            if click {
+                input.events.push(egui::Event::PointerMoved(rect.center()));
+                for pressed in [true, false] {
+                    input.events.push(egui::Event::PointerButton {
+                        pos: rect.center(),
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                }
+                input.events.push(key_event(egui::Key::Z, true, false));
+            }
+            let mut output = ctx.run_ui(input, |ui| {
+                clicked |= ui.put(rect, egui::Button::new("下层按钮")).clicked();
+                let ctx = ui.ctx();
+                let before = ctx.input(|input| input.events.clone());
+                let focus = ctx.memory(|memory| memory.focused());
+                paint_key_hint(ctx, &hint, now, false);
+                assert_eq!(ctx.input(|input| input.events.clone()), before);
+                assert_eq!(ctx.memory(|memory| memory.focused()), focus);
+            });
+            // 无头测试不上传 GPU 字体图集，确认丢弃纹理增量。
+            output.textures_delta.clear();
+            assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::epaint::Shape::Text(text) if text.galley.text() == "Ctrl+Z")));
+        }
+        assert!(clicked, "提示所在位置的下层按钮必须仍收到点击");
+        ctx.begin_pass(raw());
+        paint_key_hint(&ctx, &hint, now + KEY_HINT_HOLD + KEY_HINT_FADE, false);
+        let mut output = ctx.end_pass();
+        output.textures_delta.clear();
+        assert!(output.shapes.is_empty());
+    }
+
+    #[test]
+    fn key_hint_below_help_avoids_minimum_window_sheet() {
+        use bevy_egui::egui;
+        let ctx = egui::Context::default();
+        let now = Instant::now();
+        let hint = KeyHint {
+            text: "F4 · R".into(),
+            applied: now,
+        };
+        ctx.begin_pass(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(960., 640.),
+            )),
+            ..Default::default()
+        });
+        paint_key_hint(&ctx, &hint, now, true);
+        let mut output = ctx.end_pass();
+        output.textures_delta.clear();
+        let rect = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::epaint::Shape::Rect(shape) => Some(shape.rect),
+                _ => None,
+            })
+            .unwrap();
+        assert!(rect.top() >= 580. && rect.bottom() <= 628., "{rect:?}");
     }
 
     #[test]
