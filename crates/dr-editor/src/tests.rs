@@ -168,7 +168,7 @@ fn snapped_connections_use_one_based_sr1_indices() {
 }
 
 /// 使用实际 mouse_editor 系统，测试相机固定为 1 世界像素/逻辑像素。
-fn mouse_app() -> App {
+pub(super) fn mouse_app() -> App {
     use bevy::camera::{ComputedCameraValues, RenderTargetInfo};
     let mut document = document();
     document.catalog = panels::tests::catalog();
@@ -201,6 +201,9 @@ fn mouse_app() -> App {
             },
             ..default()
         },
+        Camera2d,
+        Transform::IDENTITY,
+        Projection::Orthographic(OrthographicProjection::default_2d()),
         GlobalTransform::IDENTITY,
     ));
     app

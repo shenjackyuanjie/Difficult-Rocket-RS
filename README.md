@@ -37,7 +37,7 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 
 编辑历史默认最多 256 步、快照容量预算 64 MiB，超出时移除最旧记录；若单步本身超过预算，仍保留最近一步。每步只保存一份快照，撤销/重做交换快照；预算不包含当前文档、保存点、渲染及分配器开销。
 
-单击部件保留选中；实际拖动或目录拖放结束会取消选中高亮，左键点击画布空白也可取消（Shift 保留选区）。拖动连续跟随指针和抓取偏移，不再量化为半格，靠近有效连接面时仍会吸附。
+单击部件保留选中；实际拖动或目录拖放结束会取消选中高亮，左键点击画布空白也可取消（Shift 保留选区）。拖动连续跟随指针和抓取偏移，不再量化为半格，靠近有效连接面时仍会吸附。零件拖拽与空白平移使用当前帧相机位置/缩放，不等待上一帧的变换缓存；平移松手那帧的末段位移也会应用。编辑器关闭跨帧并行渲染，交换链最大排队帧数请求设为 1，同时保留 AutoVsync。该设置减少软件侧的旧帧排队，不保证驱动遵守提示，也不等价于实测输入到屏幕只有一帧。
 
 多选后拖动任一已选部件可整体移动，R/X/Y 围绕所选部件中心整体旋转或镜像，Delete 一次删除。内部连接保持，移动或变换时断开与未选部件的连接；吸附和碰撞按完整选择验证。复制保留内部连接、分组和内部的分级引用，粘贴分配新编号，并检查数量限制。剪贴板在切换文件时保留；预览和取消不改变文档，每次提交可一次撤销。
 
@@ -69,6 +69,7 @@ cargo run -p dr-editor -- --connection-smoke-test
 cargo run -p dr-editor -- --scoped-smoke-test
 cargo run -p dr-editor -- --selection-smoke-test
 cargo run -p dr-editor -- --view-smoke-test
+cargo run -p dr-editor -- --interaction-smoke-test
 cargo run -p dr-editor -- --native-dialog-test
 cargo run -p dr-editor -- --browser-smoke-test
 cargo run -p dr-editor -- --staging-smoke-test
@@ -96,6 +97,8 @@ python -X utf8 scripts/check_native_dialogs.py
 
 `--view-smoke-test` 验证整船与选区适配、窗口缩小到 960×640 后重新适配、F3 调试标签和 F4 船体显隐，以及文档和历史不变；输出 `target/editor-view-smoke.png`。
 
+`--interaction-smoke-test` 在真实渲染窗口中逐帧注入非中心抓取、亚像素和反向运动，以及两种平移按钮、三种缩放和松手末段位移，在当帧 Transform 传播后检查 167 次渲染坐标，并确认跨帧并行渲染已禁用、交换链排队提示为 1。输出 `target/editor-interaction-latency.json` 和 `target/editor-interaction-smoke.png`；这是应用同帧链路回归，**不是物理显示延迟测量**。
+
 `--native-dialog-test` 保留旧命令名，现用于主窗口未保存模态：输出 `target/editor-unsaved-modal.png`，验证取消保留未保存文档、再次确认后放弃退出；不会打开原生路径选择或写回样本。三按钮的实际 egui 按下/释放、Esc 与遮罩行为另由 headless 控件回归覆盖。
 
 `--browser-smoke-test` 在 `target` 内生成 1,000 个小船体文件及 1 个异常 XML，验收排序、过滤、虚拟列表只绘制可见行、滚动到底、实际点击末项和保留滚动位置，输出 `target/editor-browser-smoke.png/json`。`--staging-smoke-test` 验收 64 级共 1,024 个动作的末项草稿编辑、原子应用、撤销重做和 XML 往返，输出 `target/editor-staging-draft.png`、`target/editor-staging-smoke.png` 与 `target/staging-smoke.xml`。
@@ -116,7 +119,7 @@ uv run --no-project --python 3.12 python -X utf8 scripts/check_native_input.py
 
 窗口驱动可用 `--editor-bin <编辑器程序路径>` 指定独立构建产物，避免覆盖正在运行的默认程序；例如 `cargo rustc -p dr-editor --bin dr-editor -- -o target/drag-editor.exe` 后以 `--editor-bin target/drag-editor.exe` 验收，不强制关闭已有编辑器窗口。
 
-置前/失焦干扰最多自动重试三次，连续失败时尝试通过本机 noticer 的 `sr1` 房间提醒；程序断言和数据错误直接失败，不作为焦点失败重试。测试时会短暂置前窗口，不永久置顶、不向其他应用发送快捷键。产物位于 `target/foreground-*`，最近成功路径记录在 `target/foreground-last.txt`。可用 `--window-case keys` 运行真实系统快捷键验收，使用 `--window-case panels|connections|scoped|selection|view|topology|unsaved` 在受控前台运行已有注入式窗口回归，或 `--window-case performance --selection-count 1000` 测量拖动；前台受控不意味着这些旧回归已改为系统输入。
+置前/失焦干扰最多自动重试三次，连续失败时尝试通过本机 noticer 的 `sr1` 房间提醒；程序断言和数据错误直接失败，不作为焦点失败重试。测试时会短暂置前窗口，不永久置顶、不向其他应用发送快捷键。产物位于 `target/foreground-*`，最近成功路径记录在 `target/foreground-last.txt`。可用 `--window-case keys` 运行真实系统快捷键验收，使用 `--window-case panels|connections|scoped|selection|view|topology|interaction|unsaved` 在受控前台运行已有注入式窗口回归，或 `--window-case performance --selection-count 1000` 测量拖动；前台受控不意味着这些旧回归已改为系统输入。
 
 前台驱动自身的无副作用回归：`uv run --no-project --python 3.12 python -X utf8 -m unittest discover -s scripts -p test_native_input_driver.py`。
 

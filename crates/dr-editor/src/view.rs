@@ -40,6 +40,34 @@ impl Default for ViewOptions {
     }
 }
 
+/// 输入在 Update 中执行，相机的 GlobalTransform/ComputedCameraValues 要到
+/// PostUpdate 才刷新。使用本帧的根相机 Transform、Projection 和窗口尺寸，
+/// 避免平移/缩放/适配后仍读取上一帧视角；不改动渲染使用的相机缓存。
+pub(crate) fn cursor_world(
+    window: &Window,
+    camera: &Camera,
+    transform: &Transform,
+    projection: &Projection,
+) -> Option<Vec2> {
+    use bevy::camera::RenderTargetInfo;
+    let position = window.cursor_position()?;
+    let mut camera = camera.clone();
+    camera.computed.target_info = Some(RenderTargetInfo {
+        physical_size: window.physical_size(),
+        scale_factor: window.scale_factor(),
+    });
+    let size = camera.logical_viewport_size()?;
+    if size.min_element() <= 0.0 {
+        return None;
+    }
+    let mut projection = projection.clone();
+    projection.update(size.x, size.y);
+    camera.computed.clip_from_view = projection.get_clip_from_view();
+    camera
+        .viewport_to_world_2d(&GlobalTransform::from(*transform), position)
+        .ok()
+}
+
 /// 左右目录和顶部操作提示之外的画布，预留 16 像素边距。
 pub(crate) fn canvas(size: Vec2) -> Rect {
     Rect::from_corners(

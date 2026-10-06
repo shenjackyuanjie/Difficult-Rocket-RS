@@ -2,6 +2,7 @@ mod attachment_hints;
 mod connection_smoke;
 mod egui_ui;
 mod files;
+mod interaction_smoke;
 mod native_input;
 mod native_keys;
 mod panels;
@@ -222,6 +223,7 @@ struct SmokeTest {
     enabled: bool,
     native_dialogs: bool,
     native_file_dialogs: bool,
+    interaction: bool,
     topology: bool,
     panels: bool,
     properties: bool,
@@ -274,6 +276,7 @@ fn main() -> anyhow::Result<()> {
             topology: args.iter().any(|arg| arg == "--topology-smoke-test"),
             native_dialogs: args.iter().any(|arg| arg == "--native-dialog-test"),
             native_file_dialogs: args.iter().any(|arg| arg == "--native-file-dialog-test"),
+            interaction: args.iter().any(|arg| arg == "--interaction-smoke-test"),
             panels: args.iter().any(|arg| arg == "--panel-smoke-test"),
             properties: args.iter().any(|arg| arg == "--properties-smoke-test"),
             connections: args.iter().any(|arg| arg == "--connection-smoke-test"),
@@ -310,6 +313,7 @@ fn main() -> anyhow::Result<()> {
         .init_resource::<DragState>()
         .init_resource::<EditorCursor>()
         .init_resource::<CameraDrag>()
+        .init_resource::<interaction_smoke::Probe>()
         .init_resource::<view::ViewOptions>()
         .add_plugins(
             DefaultPlugins
@@ -317,6 +321,8 @@ fn main() -> anyhow::Result<()> {
                     filter: format!("{},icu_provider=error", bevy::log::DEFAULT_FILTER),
                     ..default()
                 })
+                // 编辑器优先输入延迟，不让第 N 帧输入等到第 N+1 帧渲染。
+                .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>()
                 .set(AssetPlugin {
                     file_path: assets,
                     ..default()
@@ -332,6 +338,8 @@ fn main() -> anyhow::Result<()> {
                             ..default()
                         },
                         present_mode: PresentMode::AutoVsync,
+                        // 保留无撕裂显示，避免交换链再积压多帧旧输入。
+                        desired_maximum_frame_latency: std::num::NonZeroU32::new(1),
                         ..default()
                     }),
                     ..default()
@@ -358,6 +366,7 @@ fn main() -> anyhow::Result<()> {
                         topology_ui::smoke::run,
                         properties::egui_smoke::run,
                         connection_smoke::run,
+                        interaction_smoke::input,
                         performance::run,
                         native_input::run,
                         native_keys::run,
@@ -379,10 +388,10 @@ fn main() -> anyhow::Result<()> {
                     properties::cancel_for_file_action,
                     placement::cancel_for_file_action,
                     files::file_actions,
+                    view::controls.run_if(egui_ui::canvas_input_available),
+                    camera_controls,
                     mouse_editor.run_if(egui_ui::canvas_input_available),
                     keyboard_commands.run_if(egui_ui::canvas_input_available),
-                    camera_controls,
-                    view::controls.run_if(egui_ui::canvas_input_available),
                 )
                     .chain(),
                 render::sync,
@@ -398,6 +407,10 @@ fn main() -> anyhow::Result<()> {
                 files::native_file_dialog_test,
             )
                 .chain(),
+        )
+        .add_systems(
+            PostUpdate,
+            interaction_smoke::verify.after(bevy::transform::TransformSystems::Propagate),
         )
         .run();
     Ok(())
@@ -515,13 +528,19 @@ fn camera_controls(
         && editor_drag.rectangle.is_none()
         && !editor_cursor.placing
         && editor_cursor.paste.is_none();
-    if can_pan && mouse.pressed(options.box_select_button.pan()) {
+    let pan_button = options.box_select_button.pan();
+    if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(pan_button) {
+        drag.0 = None;
+    }
+    let pan_active =
+        mouse.pressed(pan_button) || (mouse.just_released(pan_button) && drag.0.is_some());
+    if can_pan && pan_active && !keys.just_pressed(KeyCode::Escape) {
         if let Some(previous) = drag.0 {
             let delta = cursor - previous;
             transform.translation.x -= delta.x * projection.scale;
             transform.translation.y += delta.y * projection.scale;
         }
-        drag.0 = Some(cursor);
+        drag.0 = mouse.pressed(pan_button).then_some(cursor);
     } else {
         drag.0 = None;
     }
@@ -668,7 +687,7 @@ fn mouse_editor(
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
+    cameras: Query<(&Camera, &Transform, &Projection), With<Camera2d>>,
     mut drag: ResMut<DragState>,
     mut document: ResMut<EditorDocument>,
     mut cursor: ResMut<EditorCursor>,
@@ -708,11 +727,10 @@ fn mouse_editor(
         }
         return;
     }
-    let Ok((camera, transform)) = cameras.single() else {
+    let Ok((camera, transform, projection)) = cameras.single() else {
         return;
     };
-    let Ok(world) = camera.viewport_to_world_2d(transform, window.cursor_position().unwrap())
-    else {
+    let Some(world) = view::cursor_world(window, camera, transform, projection) else {
         return;
     };
     let logical = (world.x as f64 / 60.0, world.y as f64 / 60.0);
@@ -897,5 +915,7 @@ fn update_hud(
     }
 }
 
+#[cfg(test)]
+mod interaction_tests;
 #[cfg(test)]
 mod tests;
