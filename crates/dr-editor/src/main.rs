@@ -1,5 +1,6 @@
 mod attachment_hints;
 mod connection_smoke;
+mod demo;
 mod egui_ui;
 mod files;
 mod interaction_smoke;
@@ -264,155 +265,173 @@ fn main() -> anyhow::Result<()> {
         .expect("资源路径无效")
         .to_string_lossy()
         .into_owned();
-    App::new()
-        .insert_resource(panels::ShipBrowser::new(
-            std::path::Path::new(&assets).join("ships"),
-        ))
-        .init_resource::<panels::Palette>()
-        .init_resource::<panels::UiPointer>()
-        .init_resource::<properties::Inspector>()
-        .insert_resource(SmokeTest {
-            enabled: args.iter().any(|arg| arg == "--smoke-test"),
-            topology: args.iter().any(|arg| arg == "--topology-smoke-test"),
-            native_dialogs: args.iter().any(|arg| arg == "--native-dialog-test"),
-            native_file_dialogs: args.iter().any(|arg| arg == "--native-file-dialog-test"),
-            interaction: args.iter().any(|arg| arg == "--interaction-smoke-test"),
-            panels: args.iter().any(|arg| arg == "--panel-smoke-test"),
-            properties: args.iter().any(|arg| arg == "--properties-smoke-test"),
-            connections: args.iter().any(|arg| arg == "--connection-smoke-test"),
-            performance: args.iter().any(|arg| arg == "--performance-test"),
-            performance_selection_count: args
-                .windows(2)
-                .find(|pair| pair[0] == "--performance-selection-count")
-                .and_then(|pair| pair[1].parse().ok())
-                .unwrap_or(1),
-            scoped: args.iter().any(|arg| arg == "--scoped-smoke-test"),
-            repair: args.iter().any(|arg| arg == "--repair-smoke-test"),
-            selection: args.iter().any(|arg| arg == "--selection-smoke-test"),
-            view: args.iter().any(|arg| arg == "--view-smoke-test"),
-            browser: args.iter().any(|arg| arg == "--browser-smoke-test"),
-            staging: args.iter().any(|arg| arg == "--staging-smoke-test"),
-            native_ime: args.iter().any(|arg| arg == "--native-ime-test"),
-            native_keys: args
-                .windows(2)
-                .find(|args| args[0] == "--native-keys-test")
-                .map(|args| std::path::PathBuf::from(&args[1])),
-            native_input: args
-                .windows(2)
-                .find(|args| args[0] == "--native-input-test")
-                .map(|args| std::path::PathBuf::from(&args[1])),
-            egui: args.iter().any(|arg| arg == "--egui-smoke-test"),
-            started: std::time::Instant::now(),
-        })
-        .insert_resource(EditorPaths {
-            ship,
-            catalog: catalog_path,
-            assets: assets.clone(),
-        })
-        .insert_resource(document)
-        .init_resource::<DragState>()
-        .init_resource::<EditorCursor>()
-        .init_resource::<CameraDrag>()
-        .init_resource::<interaction_smoke::Probe>()
-        .init_resource::<view::ViewOptions>()
-        .add_plugins(
-            DefaultPlugins
-                .set(bevy::log::LogPlugin {
-                    filter: format!("{},icu_provider=error", bevy::log::DEFAULT_FILTER),
-                    ..default()
-                })
-                // 编辑器优先输入延迟，不让第 N 帧输入等到第 N+1 帧渲染。
-                .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>()
-                .set(AssetPlugin {
-                    file_path: assets,
-                    ..default()
-                })
-                .set(WindowPlugin {
-                    close_when_requested: false,
-                    primary_window: Some(Window {
-                        title: "Difficult Rocket Editor".into(),
-                        resolution: WindowResolution::new(1440, 900),
-                        resize_constraints: bevy::window::WindowResizeConstraints {
-                            min_width: 960.0,
-                            min_height: 640.0,
-                            ..default()
-                        },
-                        present_mode: PresentMode::AutoVsync,
-                        // 保留无撕裂显示，避免交换链再积压多帧旧输入。
-                        desired_maximum_frame_latency: std::num::NonZeroU32::new(1),
+    let showcase = demo::Showcase::from_args(&args)?;
+    let mut app = App::new();
+    if let Some(showcase) = showcase {
+        app.insert_resource(showcase);
+    }
+    app.insert_resource(panels::ShipBrowser::new(
+        std::path::Path::new(&assets).join("ships"),
+    ))
+    .init_resource::<panels::Palette>()
+    .init_resource::<panels::UiPointer>()
+    .init_resource::<properties::Inspector>()
+    .insert_resource(SmokeTest {
+        enabled: args.iter().any(|arg| arg == "--smoke-test"),
+        topology: args.iter().any(|arg| arg == "--topology-smoke-test"),
+        native_dialogs: args.iter().any(|arg| arg == "--native-dialog-test"),
+        native_file_dialogs: args.iter().any(|arg| arg == "--native-file-dialog-test"),
+        interaction: args.iter().any(|arg| arg == "--interaction-smoke-test"),
+        panels: args.iter().any(|arg| arg == "--panel-smoke-test"),
+        properties: args.iter().any(|arg| arg == "--properties-smoke-test"),
+        connections: args.iter().any(|arg| arg == "--connection-smoke-test"),
+        performance: args.iter().any(|arg| arg == "--performance-test"),
+        performance_selection_count: args
+            .windows(2)
+            .find(|pair| pair[0] == "--performance-selection-count")
+            .and_then(|pair| pair[1].parse().ok())
+            .unwrap_or(1),
+        scoped: args.iter().any(|arg| arg == "--scoped-smoke-test"),
+        repair: args.iter().any(|arg| arg == "--repair-smoke-test"),
+        selection: args.iter().any(|arg| arg == "--selection-smoke-test"),
+        view: args.iter().any(|arg| arg == "--view-smoke-test"),
+        browser: args.iter().any(|arg| arg == "--browser-smoke-test"),
+        staging: args.iter().any(|arg| arg == "--staging-smoke-test"),
+        native_ime: args.iter().any(|arg| arg == "--native-ime-test"),
+        native_keys: args
+            .windows(2)
+            .find(|args| args[0] == "--native-keys-test")
+            .map(|args| std::path::PathBuf::from(&args[1])),
+        native_input: args
+            .windows(2)
+            .find(|args| args[0] == "--native-input-test")
+            .map(|args| std::path::PathBuf::from(&args[1])),
+        egui: args.iter().any(|arg| arg == "--egui-smoke-test"),
+        started: std::time::Instant::now(),
+    })
+    .insert_resource(EditorPaths {
+        ship,
+        catalog: catalog_path,
+        assets: assets.clone(),
+    })
+    .insert_resource(document)
+    .init_resource::<DragState>()
+    .init_resource::<EditorCursor>()
+    .init_resource::<CameraDrag>()
+    .init_resource::<interaction_smoke::Probe>()
+    .init_resource::<view::ViewOptions>()
+    .add_plugins(
+        DefaultPlugins
+            .set(bevy::log::LogPlugin {
+                filter: format!("{},icu_provider=error", bevy::log::DEFAULT_FILTER),
+                ..default()
+            })
+            // 编辑器优先输入延迟，不让第 N 帧输入等到第 N+1 帧渲染。
+            .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>()
+            .set(AssetPlugin {
+                file_path: assets,
+                ..default()
+            })
+            .set(WindowPlugin {
+                close_when_requested: false,
+                primary_window: Some(Window {
+                    title: "Difficult Rocket Editor".into(),
+                    resolution: WindowResolution::new(1440, 900),
+                    resize_constraints: bevy::window::WindowResizeConstraints {
+                        min_width: 960.0,
+                        min_height: 640.0,
                         ..default()
-                    }),
+                    },
+                    present_mode: PresentMode::AutoVsync,
+                    // 保留无撕裂显示，避免交换链再积压多帧旧输入。
+                    desired_maximum_frame_latency: std::num::NonZeroU32::new(1),
                     ..default()
                 }),
-        )
-        .add_plugins(egui_ui::EditorEguiPlugin)
-        .add_message::<files::FileAction>()
-        .add_message::<panels::PanelButton>()
-        .add_systems(
-            Startup,
+                ..default()
+            }),
+    )
+    .add_plugins(egui_ui::EditorEguiPlugin)
+    .add_message::<files::FileAction>()
+    .add_message::<panels::PanelButton>()
+    .add_systems(
+        Startup,
+        (
+            setup_camera,
+            setup_hud,
+            files::setup_file_toolbar,
+            properties::setup,
+        ),
+    )
+    .add_systems(
+        Update,
+        (
             (
-                setup_camera,
-                setup_hud,
-                files::setup_file_toolbar,
-                properties::setup,
-            ),
-        )
-        .add_systems(
-            Update,
-            (
+                demo::begin,
+                demo::restore_pointer,
                 (
-                    (
-                        panels::smoke::run,
-                        topology_ui::smoke::run,
-                        properties::egui_smoke::run,
-                        connection_smoke::run,
-                        interaction_smoke::input,
-                        performance::run,
-                        native_input::run,
-                        native_keys::run,
-                        scoped_smoke::run,
-                        properties::repair_smoke::run,
-                        selection_smoke::run,
-                        view_smoke::run,
-                        panels::browser_smoke::run,
-                        properties::staging_smoke::run,
-                        properties::native_ime::run,
-                    )
-                        .chain(),
-                    panels::pointer_over_ui,
-                    properties::actions,
-                    egui_ui::prepare_input,
-                    panels::panel_actions.run_if(properties::closed),
-                    files::toolbar_actions.run_if(properties::closed),
-                    files::file_inputs,
-                    properties::cancel_for_file_action,
-                    placement::cancel_for_file_action,
-                    files::file_actions,
-                    view::controls.run_if(egui_ui::canvas_input_available),
-                    camera_controls,
-                    mouse_editor.run_if(egui_ui::canvas_input_available),
-                    keyboard_commands.run_if(egui_ui::canvas_input_available),
+                    panels::smoke::run,
+                    topology_ui::smoke::run,
+                    properties::egui_smoke::run,
+                    connection_smoke::run,
+                    interaction_smoke::input,
+                    performance::run,
+                    native_input::run,
+                    native_keys::run,
+                    scoped_smoke::run,
+                    properties::repair_smoke::run,
+                    selection_smoke::run,
+                    view_smoke::run,
+                    panels::browser_smoke::run,
+                    properties::staging_smoke::run,
+                    properties::native_ime::run,
+                    files::native_dialog_test,
                 )
-                    .chain(),
-                render::sync,
-                placement::draw_preview,
-                selection::draw_preview,
-                render::connections,
-                attachment_hints::draw,
-                view::draw_debug,
-                update_hud,
-                files::update_window_title,
-                capture_screenshot,
-                files::native_dialog_test,
-                files::native_file_dialog_test,
+                    .chain()
+                    .run_if(demo::advance_ready),
+                demo::animate,
+                panels::pointer_over_ui,
+                properties::actions,
+                egui_ui::prepare_input,
+                panels::panel_actions.run_if(properties::closed),
+                files::toolbar_actions.run_if(properties::closed),
+                files::file_inputs,
+                properties::cancel_for_file_action,
+                placement::cancel_for_file_action,
+                files::file_actions,
+                view::controls.run_if(egui_ui::canvas_input_available),
+                camera_controls,
+                mouse_editor.run_if(egui_ui::canvas_input_available),
+                keyboard_commands.run_if(egui_ui::canvas_input_available),
             )
                 .chain(),
+            render::sync,
+            placement::draw_preview,
+            selection::draw_preview,
+            render::connections,
+            attachment_hints::draw,
+            view::draw_debug,
+            update_hud,
+            files::update_window_title,
+            capture_screenshot,
+            files::native_file_dialog_test,
+            demo::pace,
         )
-        .add_systems(
-            PostUpdate,
-            interaction_smoke::verify.after(bevy::transform::TransformSystems::Propagate),
-        )
-        .run();
+            .chain(),
+    )
+    .add_systems(
+        PostUpdate,
+        interaction_smoke::verify.after(bevy::transform::TransformSystems::Propagate),
+    )
+    .add_systems(
+        PostUpdate,
+        demo::isolate_pointer.after(bevy_egui::EguiPostUpdateSet::EndPass),
+    )
+    .add_systems(Last, demo::finish)
+    .add_systems(
+        bevy_egui::EguiPrimaryContextPass,
+        demo::overlay.after(topology_ui::draw),
+    )
+    .run();
     Ok(())
 }
 

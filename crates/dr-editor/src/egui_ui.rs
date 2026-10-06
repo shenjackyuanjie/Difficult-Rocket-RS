@@ -242,3 +242,164 @@ impl UiTestInput {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{UiTestInput, egui};
+    use bevy::prelude::*;
+    use bevy_egui::EguiInput;
+
+    /// 显式推进 egui 的秒级时间，不 sleep，也不启动窗口或渲染插件。
+    struct ButtonFrames {
+        ctx: egui::Context,
+        rect: egui::Rect,
+    }
+
+    impl ButtonFrames {
+        fn new() -> Self {
+            let mut frames = Self {
+                ctx: egui::Context::default(),
+                rect: egui::Rect::NOTHING,
+            };
+            for time in [0.0, 0.016, 0.032] {
+                assert!(!frames.frame(time, vec![]));
+            }
+            frames
+        }
+
+        fn frame(&mut self, time: f64, events: Vec<egui::Event>) -> bool {
+            self.ctx.begin_pass(egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(640.0, 480.0),
+                )),
+                time: Some(time),
+                focused: true,
+                events,
+                ..Default::default()
+            });
+            let mut clicked = false;
+            egui::Area::new(egui::Id::new("headless_undo_button"))
+                .fixed_pos(egui::pos2(32.0, 32.0))
+                .movable(false)
+                .show(&self.ctx, |ui| {
+                    // 固定绘制顺序、文案和布局，排除控件身份漂移这一独立变量。
+                    let response = ui.button("Undo");
+                    self.rect = response.rect;
+                    clicked = response.clicked();
+                });
+            self.ctx.end_pass().textures_delta.clear();
+            clicked
+        }
+
+        fn press(&mut self, driver: &mut UiTestInput) {
+            let mut input = EguiInput::default();
+            driver.click_rect(self.rect, &mut input);
+            assert!(!self.frame(0.1, input.0.events));
+        }
+
+        fn release(&mut self, time: f64, driver: &mut UiTestInput) -> bool {
+            let mut input = EguiInput::default();
+            assert!(driver.tick(&mut input));
+            self.frame(time, input.0.events)
+        }
+    }
+
+    #[test]
+    fn clean_450ms_hold_across_empty_frames_still_clicks() {
+        let mut frames = ButtonFrames::new();
+        let mut driver = UiTestInput::default();
+        frames.press(&mut driver);
+        // 真实界面在 smoke 的两个步骤之间仍持续执行 pass。
+        for frame in 1..27 {
+            assert!(!frames.frame(0.1 + f64::from(frame) / 60.0, vec![]));
+        }
+        assert!(
+            frames.release(0.55, &mut driver),
+            "干净的 450ms 按住低于 egui 默认 800ms 阈值，不应自行丢失点击"
+        );
+    }
+
+    #[test]
+    fn pointer_gone_in_an_intermediate_pass_cancels_click() {
+        let mut frames = ButtonFrames::new();
+        let mut driver = UiTestInput::default();
+        frames.press(&mut driver);
+        assert!(!frames.frame(0.116, vec![egui::Event::PointerGone]));
+        assert!(!frames.frame(0.132, vec![]));
+        assert!(
+            !frames.release(0.55, &mut driver),
+            "后续回到原点并释放不能恢复被 PointerGone 清掉的点击归属"
+        );
+    }
+
+    #[test]
+    fn distant_move_then_virtual_move_back_still_cancels_short_click() {
+        let mut frames = ButtonFrames::new();
+        let mut driver = UiTestInput::default();
+        frames.press(&mut driver);
+        let pos = frames.rect.center();
+        assert!(!frames.frame(
+            0.115,
+            vec![
+                egui::Event::PointerMoved(pos + egui::vec2(80.0, 0.0)),
+                egui::Event::PointerMoved(pos),
+            ],
+        ));
+        assert!(!frames.frame(0.13, vec![]));
+        assert!(
+            !frames.release(0.145, &mut driver),
+            "即使只按住 45ms，末尾补虚拟坐标也不能撤销曾经超过点击距离的记录"
+        );
+    }
+
+    #[test]
+    fn demo_filter_then_virtual_move_and_45ms_release_clicks() {
+        // 调用生产 restore_pointer，而不是在测试里复制过滤条件。
+        let output = tempfile::tempdir().unwrap();
+        let args = vec![
+            "--demo-showcase".to_owned(),
+            output.path().to_string_lossy().into_owned(),
+        ];
+        let showcase = crate::demo::Showcase::from_args(&args).unwrap().unwrap();
+        let mut app = App::new();
+        app.insert_resource(showcase)
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_systems(Update, crate::demo::restore_pointer);
+        let entity = app.world_mut().spawn(EguiInput::default()).id();
+
+        let mut frames = ButtonFrames::new();
+        let mut driver = UiTestInput::default();
+        frames.press(&mut driver);
+        let pos = frames.rect.center();
+        for time in [0.115, 0.13] {
+            app.world_mut()
+                .get_mut::<EguiInput>(entity)
+                .unwrap()
+                .0
+                .events = vec![
+                egui::Event::PointerMoved(pos + egui::vec2(80.0, 0.0)),
+                egui::Event::PointerGone,
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::Text("保留非指针事件".to_owned()),
+            ];
+            app.update();
+            let mut input = app.world_mut().get_mut::<EguiInput>(entity).unwrap();
+            assert!(matches!(input.0.events.as_slice(), [egui::Event::Text(_)]));
+            let mut events = std::mem::take(&mut input.0.events);
+            // 与 demo 的执行顺序一致：先隔离原生输入，再补当帧虚拟位置。
+            events.push(egui::Event::PointerMoved(pos));
+            assert!(!frames.frame(time, events));
+        }
+        assert!(
+            frames.release(0.145, &mut driver),
+            "隔离原生指针后持续补虚拟 Move，45ms 短点击应成功"
+        );
+    }
+}

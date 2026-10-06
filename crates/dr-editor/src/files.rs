@@ -602,15 +602,21 @@ pub(crate) fn update_window_title(
     }
 }
 
-/// 保留旧 CLI 名称，改为主窗口确认自测；不打开原生文件选择，也不写回样本。
+#[derive(Resource)]
+pub(crate) struct ModalCaptured;
+
+/// 保留旧 CLI 名称；用真实 egui 按下/释放确认，不直接写入内部 choice。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn native_dialog_test(
     mode: Res<SmokeTest>,
     mut phase: Local<u8>,
     mut settle: Local<u8>,
     mut original: Local<Option<Ship>>,
+    mut driver: Local<egui_ui::UiTestInput>,
+    mut inputs: Query<&mut bevy_egui::EguiInput, With<bevy_egui::PrimaryEguiContext>>,
+    captured: Option<Res<ModalCaptured>>,
     mut document: ResMut<EditorDocument>,
-    mut pending: ResMut<PendingFileAction>,
+    pending: Res<PendingFileAction>,
     mut actions: MessageWriter<FileAction>,
     mut commands: Commands,
 ) {
@@ -618,6 +624,12 @@ pub(crate) fn native_dialog_test(
         return;
     }
     assert!(mode.started.elapsed().as_secs() < 90, "未保存确认自测超时");
+    let Ok(mut input) = inputs.single_mut() else {
+        return;
+    };
+    if driver.tick(&mut input) {
+        return;
+    }
     match *phase {
         0 => {
             let id = document.ship.parts.first().expect("自测船体必须有部件").id;
@@ -628,7 +640,7 @@ pub(crate) fn native_dialog_test(
             *phase = 1;
         }
         1 if !pending.hits.is_empty() => {
-            // Modal 首次布局/淡入并非最终样式，等待稳定后再交付截图。
+            // 等待最终布局与淡入；截图回调仅标记完成，不直接取消事务。
             *settle += 1;
             if *settle < 20 {
                 return;
@@ -637,14 +649,23 @@ pub(crate) fn native_dialog_test(
             commands
                 .spawn(Screenshot::primary_window())
                 .observe(save_to_disk("target/editor-unsaved-modal.png"))
-                .observe(
-                    |_: On<ScreenshotCaptured>, mut pending: ResMut<PendingFileAction>| {
-                        pending.choice = Some(UnsavedChoice::Cancel);
-                    },
-                );
+                .observe(|_: On<ScreenshotCaptured>, mut commands: Commands| {
+                    commands.insert_resource(ModalCaptured);
+                });
             *phase = 2;
         }
-        2 if pending.action.is_none() => {
+        2 if captured.is_some() => {
+            let Some((_, rect)) = pending
+                .hits
+                .iter()
+                .find(|(choice, _)| *choice == UnsavedChoice::Cancel)
+            else {
+                return;
+            };
+            driver.click_rect(*rect, &mut input);
+            *phase = 5;
+        }
+        5 if pending.action.is_none() => {
             assert_eq!(
                 Some(&document.ship),
                 original.as_ref(),
@@ -655,9 +676,16 @@ pub(crate) fn native_dialog_test(
             *phase = 3;
         }
         3 if pending.action.is_some() => {
-            pending.choice = Some(UnsavedChoice::Discard);
+            let Some((_, rect)) = pending
+                .hits
+                .iter()
+                .find(|(choice, _)| *choice == UnsavedChoice::Discard)
+            else {
+                return;
+            };
+            driver.click_rect(*rect, &mut input);
             info!(
-                "主窗口未保存确认自测通过：暗色模态截图、取消保留文档、放弃后退出；原生文件选择未执行"
+                "主窗口未保存确认自测：稳定暗色模态截图、真实取消按钮保留文档、真实放弃按钮退出；原生文件选择未执行"
             );
             *phase = 4;
         }

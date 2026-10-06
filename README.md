@@ -10,6 +10,52 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 
 省略 `--ship` 创建与原版一致、带默认驾驶舱的新船体；自定义目录没有驾驶舱类型时才创建空白文档。可用 `--catalog <PartList.xml>`、`--assets <资源目录>` 指定资源。加载失败会报错退出，不会用空白文档代替错误输入。
 
+## 自动功能演示
+
+在本仓库根目录运行下列脚本，会自动打开一次编辑器窗口，在同一窗口内顺序演示九个章节。底部显示章节说明，紫色圆环表示内部演示指针。正常观看模式中，指针在目标之间逐帧线性移动，零件拖动与背景平移随真实画布输入连续更新；到达目标后才应用点击/按键边沿，egui 按钮短按释放，再等待下一动作。编辑器照常每帧更新，只有操作步骤按节拍推进；40ms 快速回归模式跳过移动动画。
+
+```powershell
+# 正常观看：默认动作间隔 450ms，演示完成后保留窗口
+uv run --no-project --python 3.12 python -X utf8 scripts/demo_editor.py
+
+# 放慢演示，并在完成后自动退出
+uv run --no-project --python 3.12 python -X utf8 scripts/demo_editor.py --step-ms 700 --exit-on-complete
+
+# 快速 UI 回归：40ms 节拍，检查报告后自动退出
+uv run --no-project --python 3.12 python -X utf8 scripts/demo_editor.py --fast
+
+# 固定产物目录；不自动重新构建
+uv run --no-project --python 3.12 python -X utf8 scripts/demo_editor.py --output target/demo-custom --no-build
+```
+
+默认程序为 `target/debug/dr-editor.exe`；缺失或相关源文件更新时脚本自动执行 `cargo build -p dr-editor`。可用 `--editor-bin <路径>` 指定独立程序（不会代为构建），用 `--timeout <秒数>` 调整默认 600 秒超时。输出目录默认是 `target/demo-<时间戳>`，重复演示请使用新目录，不能沿用已有报告。
+
+| 章节 | 演示与断言 |
+| --- | --- |
+| 部件目录与放置 | 点击目录、旋转/镜像预览、碰撞拒绝、放置与撤销 |
+| 连接点与吸附 | 紫色连接提示、长梁沿边吸附、多点连接、撤销及 XML 往返 |
+| 选择与编辑 | 增选/框选、连续拖动、背景平移、复制粘贴、删除、撤销重做及取消 |
+| 视角与显示 | 整船/选区适配、调整窗口、调试显示与船体显隐 |
+| 属性与分级 | 实际属性控件、分级列表滚动、草稿修改、应用及撤销重做 |
+| 连接树与连接图 | 实际树图控件、换父节点、环路拒绝、断边及撤销 |
+| 原版重号船体修复 | Heronb 的歧义引用分配、修复应用、独立删除及撤销重做 |
+| 船体目录与虚拟滚动 | 临时 1,000 船体目录、跳过坏 XML、滚动末项与点击打开 |
+| 未保存确认 | 稳定的窗口内模态、实际点击取消保留文档、再次确认后放弃 |
+
+部件目录与未保存确认使用原版 `Test.xml`，重号修复使用原版 `Heronb.xml`；其它章节使用新建船体或独立夹具。演示专用分级夹具有 8 级、48 个动作，便于观看；独立 `--staging-smoke-test` 仍保留 64 级、1,024 个动作的长列表验收。原版样本仅只读加载、在内存中编辑，**不保存覆盖原版**；启动脚本在成功与异常路径都核对两个源样本的 SHA256，拒绝将输出目录设为包含这些样本的目录或祖先。
+
+每次成功输出完整的 `demo-report.json`、`demo-editor.log` 和 24 项截图/XML 副本/专项 JSON 证据。报告逐章记录通过状态和耗时，仅在九章完成后原子发布；脚本检查报告与声明的产物确实属于本次运行、非空且位于输出目录内，旧报告、缺失截图、提前退出或非零退出不算通过。耗时包含观看节拍和截图等待，**不是性能基准**。
+
+这是有断言的真实窗口演示，但采用内部 Bevy/egui 输入注入和虚拟指针，不移动系统鼠标、不发送系统键盘事件，也不冒充前台系统键鼠或输入法验收。原生打开/保存路径选择不纳入自动演示，仍由 `scripts/check_native_dialogs.py` 单独验收。观看时请不要同时操作鼠标键盘，也不要并行运行其它窗口自测：专项流程会先在 `target` 写临时证据，再归档到本次演示目录。默认完成后窗口可继续手动使用或关闭。
+
+启动器自身的无 GUI 回归：
+
+```powershell
+uv run --no-project --python 3.12 python -B -m unittest discover -s scripts -p test_demo_editor.py -v
+```
+
+## 手动操作
+
 | 操作 | 按键 |
 | --- | --- |
 | 选择、移动并吸附部件 | 左键点击、拖动 |
@@ -99,7 +145,7 @@ python -X utf8 scripts/check_native_dialogs.py
 
 `--interaction-smoke-test` 在真实渲染窗口中逐帧注入非中心抓取、亚像素和反向运动，以及两种平移按钮、三种缩放和松手末段位移，在当帧 Transform 传播后检查 167 次渲染坐标，并确认跨帧并行渲染已禁用、交换链排队提示为 1。输出 `target/editor-interaction-latency.json` 和 `target/editor-interaction-smoke.png`；这是应用同帧链路回归，**不是物理显示延迟测量**。
 
-`--native-dialog-test` 保留旧命令名，现用于主窗口未保存模态：输出 `target/editor-unsaved-modal.png`，验证取消保留未保存文档、再次确认后放弃退出；不会打开原生路径选择或写回样本。三按钮的实际 egui 按下/释放、Esc 与遮罩行为另由 headless 控件回归覆盖。
+`--native-dialog-test` 保留旧命令名，现用于主窗口未保存模态：输出 `target/editor-unsaved-modal.png`，通过实际 egui 指针按下/释放点击“取消”，验证保留未保存文档，再次确认后实际点击“放弃修改并继续”退出；不会打开原生路径选择或写回样本。保存选项、Esc 与遮罩行为另由 headless 控件回归覆盖。
 
 `--browser-smoke-test` 在 `target` 内生成 1,000 个小船体文件及 1 个异常 XML，验收排序、过滤、虚拟列表只绘制可见行、滚动到底、实际点击末项和保留滚动位置，输出 `target/editor-browser-smoke.png/json`。`--staging-smoke-test` 验收 64 级共 1,024 个动作的末项草稿编辑、原子应用、撤销重做和 XML 往返，输出 `target/editor-staging-draft.png`、`target/editor-staging-smoke.png` 与 `target/staging-smoke.xml`。
 

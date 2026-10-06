@@ -307,7 +307,11 @@ pub fn draw(
                     let kind = kinds[index];
                     let texture = *images.entry(kind.sprite.clone()).or_insert_with(|| {
                         contexts.add_image(bevy_egui::EguiTextureHandle::Strong(
-                            assets.load(format!("textures/parts/{}", kind.sprite)),
+                            if kind.sprite.is_empty() {
+                                Handle::<Image>::default()
+                            } else {
+                                assets.load(format!("textures/parts/{}", kind.sprite))
+                            },
                         ))
                     });
                     let size = render::image_size(&kind.sprite, &assets, &image_assets)
