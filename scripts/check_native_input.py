@@ -50,6 +50,12 @@ WINDOW_ARTIFACTS = {
 }
 
 
+def assert_no_segmentation_warnings(log_path):
+    """窗口成功退出后仍检查已知 ICU4X 告警，防止日志刷屏悄悄回归。"""
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    assert "No segmentation model" not in text, f"ICU4X 缺失模型告警再次出现：{log_path}"
+
+
 def completed_window_case(root, case, started_ns, exit_code):
     """只接受正常退出和本次新生成的最终产物，不把提前关闭当作验收成功。"""
     if exit_code != 0 or case not in WINDOW_ARTIFACTS:
@@ -336,13 +342,14 @@ def main():
                 wait_for(lambda: (run / "report.json").exists(), "文档与 XML 最终验收")
                 assert process.wait(timeout=10) == 0
             assert process.returncode == 0, f"编辑器失败：{process.returncode}；日志 {run}"
+            assert_no_segmentation_warnings(run / "editor.log")
             for sample, before in zip(samples, hashes):
                 assert hashlib.sha256(sample.read_bytes()).digest() == before, "源样本被修改"
             if options.window_case == "performance":
                 report = json.loads((root / "target/editor-performance.json").read_text(encoding="utf-8"))
                 (run / "performance.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
                 print(json.dumps(report, ensure_ascii=False), flush=True)
-            result = {"case": options.window_case, "system_foreground_checks": foreground_checks, "real_system_input": options.window_case in ["native", "keys"], "ime_tested": options.window_case == "native-ime", "events": events, "source_samples_unchanged": True}
+            result = {"case": options.window_case, "system_foreground_checks": foreground_checks, "real_system_input": options.window_case in ["native", "keys"], "ime_tested": options.window_case == "native-ime", "events": events, "source_samples_unchanged": True, "icu_segmentation_warnings_absent": True}
             (run / "driver.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
             (root / "target/foreground-last.txt").write_text(str(run), encoding="utf-8")
             print(f"前台验收通过：{foreground_checks} 次系统前台校验；产物 {run}", flush=True)

@@ -108,5 +108,32 @@ class CompletionTests(unittest.TestCase):
             self.assertFalse(check(root, "topology", time.time_ns(), 0))
 
 
+class SegmentationLogTests(unittest.TestCase):
+    def checker(self):
+        node = next(node for node in TREE.body if isinstance(node, ast.FunctionDef)
+                    and node.name == "assert_no_segmentation_warnings")
+        scope = {}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(SOURCE), "exec"), scope)
+        return scope["assert_no_segmentation_warnings"]
+
+    def test_clean_chinese_window_log_is_accepted(self):
+        check = self.checker()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "editor.log"
+            path.write_text("INFO 中文窗口正常退出", encoding="utf-8")
+            check(path)
+
+    def test_both_known_icu_message_forms_are_rejected(self):
+        check = self.checker()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "editor.log"
+            for message in ["No segmentation model for language: ja",
+                            "No segmentation model for complex script: Chinese/Japanese"]:
+                with self.subTest(message=message):
+                    path.write_text("ICU4X data error: " + message, encoding="utf-8")
+                    with self.assertRaisesRegex(AssertionError, "ICU4X"):
+                        check(path)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -146,3 +146,11 @@ uv run --no-project --python 3.12 python -X utf8 scripts/check_native_input.py -
 ```
 
 目录校验逐项比较原始 XML 元素/属性，不修改原文件。拓扑窗口专项经过实际 egui 控件，覆盖树选择/删除/换父、拒绝树环、图环和断边、撤销重做、最小窗口与 XML 往返；它属于**系统前台受控的注入式回归**，不是系统键鼠专项。截图及数据输出为 `target/editor-topology-{tree,graph,smoke}.png` 与 `target/topology-smoke.xml/json`。
+
+## ICU4X 中文/日文告警
+
+当前 Bevy 0.19.1 / Parley 0.9 的轻量分段器未加载完整 CJK 字典，动态中文 HUD 可能反复输出 No segmentation model for complex script: Chinese/Japanese（旧版消息为 No segmentation model for language: ja）。这是已知上游限制，参见 [Bevy #24094](https://github.com/bevyengine/bevy/issues/24094)。
+
+本项目与相邻 bevy-pvz 使用相同 workaround：显式启用 icu_provider 的 logging 特性，将原本直接写入 stderr 的诊断接入 Bevy 日志；默认仅对 icu_provider 设为 error，避免已知 warn 刷屏，其他模块日志和 ICU 真正的 error 保留。仍使用原有回退分段，不声称已经启用完整 CJK 词典，也不修改字体或输入法。RUST_LOG 仍遵守 Bevy 的标准覆盖行为；需要排查时可显式打开 icu_provider=warn。
+
+窗口驱动在正常退出和产物校验后检查本次 editor.log，发现任一版本的缺失模型告警即失败，并在成功报告中记录 icu_segmentation_warnings_absent。依赖升级后若官方提供兼容的复杂文字分段支持，再评估启用并移除该 workaround。

@@ -311,6 +311,10 @@ fn main() -> anyhow::Result<()> {
         .init_resource::<view::ViewOptions>()
         .add_plugins(
             DefaultPlugins
+                .set(bevy::log::LogPlugin {
+                    filter: format!("{},icu_provider=error", bevy::log::DEFAULT_FILTER),
+                    ..default()
+                })
                 .set(AssetPlugin {
                     file_path: assets,
                     ..default()

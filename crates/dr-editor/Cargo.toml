@@ -9,6 +9,8 @@ anyhow.workspace = true
 bevy.workspace = true
 dr-core = { path = "../dr-core" }
 rfd = "0.17"
+# 将 ICU4X 的已知轻量分词告警接入 Bevy 日志，避免直接 stderr 刷屏。
+icu_provider = { version = "2.3", features = ["logging"] }
 bevy_egui = { version = "0.42", default-features = false, features = ["render", "default_fonts", "manage_clipboard", "bevy_ui"] }
 
 [target.'cfg(windows)'.dependencies]
