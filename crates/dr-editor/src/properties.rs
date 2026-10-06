@@ -426,7 +426,11 @@ pub fn actions(
     mut document: ResMut<EditorDocument>,
     mut drag: ResMut<DragState>,
     mut cursor: ResMut<EditorCursor>,
+    pending: Option<Res<files::PendingFileAction>>,
 ) {
+    if pending.is_some_and(|state| state.is_blocked()) {
+        return;
+    }
     for (interaction, action) in &buttons {
         if *interaction == Interaction::Pressed {
             act(action, &mut inspector, &mut document);

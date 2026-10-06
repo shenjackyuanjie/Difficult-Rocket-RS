@@ -134,6 +134,7 @@ pub(crate) fn pointer_over_ui(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn panel_actions(
     mut buttons: MessageReader<PanelButton>,
     mut palette: ResMut<Palette>,
@@ -142,7 +143,12 @@ pub(crate) fn panel_actions(
     mut drag: ResMut<DragState>,
     document: Res<EditorDocument>,
     mut files: MessageWriter<files::FileAction>,
+    pending: Option<Res<files::PendingFileAction>>,
 ) {
+    if pending.is_some_and(|state| state.is_blocked()) {
+        buttons.clear();
+        return;
+    }
     for action in buttons.read() {
         match action {
             PanelButton::Part(index) | PanelButton::DragPart(index) => {

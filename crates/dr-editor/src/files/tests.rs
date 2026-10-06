@@ -15,8 +15,22 @@ impl Dialogs for TestDialogs {
     fn save(&mut self, _: &EditorPaths) -> Option<PathBuf> {
         self.saves.pop_front().expect("意外保存对话框")
     }
-    fn unsaved(&mut self) -> UnsavedChoice {
-        self.choices.pop_front().expect("意外未保存提示")
+}
+
+// 旧文件/混合流程用例通过同一跨帧状态机完成确认；不保留同步生产确认接口。
+fn apply_action(
+    action: FileAction,
+    document: &mut EditorDocument,
+    paths: &mut EditorPaths,
+    dialogs: &mut TestDialogs,
+) -> bool {
+    let mut pending = PendingFileAction::default();
+    let exit = super::apply_action(action, document, paths, dialogs, &mut pending);
+    if pending.action.is_some() {
+        let choice = dialogs.choices.pop_front().expect("意外未保存提示");
+        resolve_choice(choice, document, paths, dialogs, &mut pending)
+    } else {
+        exit
     }
 }
 
@@ -227,6 +241,7 @@ fn file_app() -> (App, Entity) {
     let mut app = App::new();
     app.insert_resource(document)
         .insert_resource(paths)
+        .init_resource::<PendingFileAction>()
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<DragState>()
@@ -629,4 +644,339 @@ fn failed_save_during_new_preserves_cut_redo_and_clipboard_for_a_new_document() 
     assert!(document.undo());
     assert_eq!(document.ship, Ship::default());
     assert!(!document.dirty);
+}
+
+#[test]
+fn pending_replacement_waits_and_cancel_preserves_all_document_state() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("另一船体.xml");
+    save_ship(&path, &Ship::default()).unwrap();
+    for action in [
+        FileAction::New,
+        FileAction::Open(path.clone()),
+        FileAction::Exit,
+    ] {
+        let (mut document, mut paths, mut dialogs) = context();
+        modify(&mut document);
+        paths.ship = Some("原文件.xml".into());
+        document.selected = Some(PartKey::new(0, 1, 0));
+        let before = document.ship.clone();
+        let saved = document.saved_ship.clone();
+        let mut pending = PendingFileAction::default();
+        assert!(!super::apply_action(
+            action,
+            &mut document,
+            &mut paths,
+            &mut dialogs,
+            &mut pending
+        ));
+        assert!(pending.is_blocked());
+        assert_eq!(document.ship, before);
+        // 排队动作不能抢占原事务，也不能触发原生路径选择。
+        assert!(!super::apply_action(
+            FileAction::OpenDialog,
+            &mut document,
+            &mut paths,
+            &mut dialogs,
+            &mut pending
+        ));
+        assert!(!resolve_choice(
+            UnsavedChoice::Cancel,
+            &mut document,
+            &mut paths,
+            &mut dialogs,
+            &mut pending
+        ));
+        assert!(pending.action.is_none());
+        assert_eq!(document.ship, before);
+        assert_eq!(document.saved_ship, saved);
+        assert_eq!(paths.ship.as_deref(), Some("原文件.xml"));
+        assert_eq!(document.selected, Some(PartKey::new(0, 1, 0)));
+        assert!(document.dirty && document.history.can_undo());
+    }
+}
+
+#[test]
+fn native_close_waits_across_updates_and_ignores_competing_inputs() {
+    let (mut app, window) = file_app();
+    modify(&mut app.world_mut().resource_mut::<EditorDocument>());
+    let before = app.world().resource::<EditorDocument>().ship.clone();
+    app.world_mut()
+        .write_message(WindowCloseRequested { window });
+    app.update();
+    assert!(matches!(
+        app.world().resource::<PendingFileAction>().action,
+        Some(FileAction::Exit)
+    ));
+    assert!(app.world().resource::<Messages<AppExit>>().is_empty());
+    for _ in 0..3 {
+        app.world_mut()
+            .write_message(WindowCloseRequested { window });
+        app.world_mut().write_message(FileAction::New);
+        app.world_mut().write_message(FileDragAndDrop::DroppedFile {
+            window,
+            path_buf: PathBuf::from("不存在.xml"),
+        });
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.press(KeyCode::ControlLeft);
+        keys.press(KeyCode::KeyO);
+        app.update();
+        assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+        assert!(app.world().resource::<PendingFileAction>().native.is_none());
+    }
+    app.world_mut().resource_mut::<PendingFileAction>().choice = Some(UnsavedChoice::Cancel);
+    app.update();
+    assert!(app.world().resource::<Messages<AppExit>>().is_empty());
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(app.world().resource::<PendingFileAction>().action.is_none());
+    assert!(
+        !app.world()
+            .resource::<ButtonInput<KeyCode>>()
+            .pressed(KeyCode::KeyO)
+    );
+    // 再关闭并明确放弃才退出。
+    app.world_mut()
+        .write_message(WindowCloseRequested { window });
+    app.update();
+    app.world_mut().resource_mut::<PendingFileAction>().choice = Some(UnsavedChoice::Discard);
+    app.update();
+    assert!(!app.world().resource::<Messages<AppExit>>().is_empty());
+}
+
+fn injected_selection(
+    action: FileAction,
+    choice: Option<UnsavedChoice>,
+) -> (NativeSelection, std::sync::mpsc::Sender<Option<PathBuf>>) {
+    let (sender, result) = std::sync::mpsc::channel();
+    (
+        NativeSelection {
+            action,
+            choice,
+            result: std::sync::Mutex::new(result),
+        },
+        sender,
+    )
+}
+
+#[test]
+fn path_selection_polling_does_not_block_and_cancel_keeps_document() {
+    let (mut app, _) = file_app();
+    modify(&mut app.world_mut().resource_mut::<EditorDocument>());
+    let before = app.world().resource::<EditorDocument>().ship.clone();
+    let (selection, sender) = injected_selection(FileAction::Save, Some(UnsavedChoice::Save));
+    let mut pending = app.world_mut().resource_mut::<PendingFileAction>();
+    pending.action = Some(FileAction::New);
+    pending.native = Some(selection);
+    // 通道没有结果，但 Update 必须能连续完成。
+    for _ in 0..4 {
+        app.update();
+    }
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(app.world().resource::<PendingFileAction>().is_blocked());
+    sender.send(None).unwrap();
+    app.update();
+    assert!(matches!(
+        app.world().resource::<PendingFileAction>().action,
+        Some(FileAction::New)
+    ));
+    assert!(app.world().resource::<PendingFileAction>().native.is_none());
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(app.world().resource::<EditorDocument>().dirty);
+    assert!(app.world().resource::<EditorPaths>().ship.is_none());
+}
+
+#[test]
+fn selected_save_path_continues_new_only_after_successful_write() {
+    let directory = tempfile::tempdir().unwrap();
+    for success in [false, true] {
+        let path = if success {
+            directory.path().join("已保存.xml")
+        } else {
+            directory.path().join("缺失/失败.xml")
+        };
+        let (mut app, _) = file_app();
+        modify(&mut app.world_mut().resource_mut::<EditorDocument>());
+        let before = app.world().resource::<EditorDocument>().ship.clone();
+        let (selection, sender) = injected_selection(FileAction::Save, Some(UnsavedChoice::Save));
+        let mut pending = app.world_mut().resource_mut::<PendingFileAction>();
+        pending.action = Some(FileAction::New);
+        pending.native = Some(selection);
+        sender.send(Some(path.clone())).unwrap();
+        app.update();
+        let document = app.world().resource::<EditorDocument>();
+        if success {
+            assert_eq!(load_ship(&path).unwrap(), before);
+            assert_eq!(document.ship, Ship::default());
+            assert!(!document.dirty && !document.history.can_undo());
+        } else {
+            assert_eq!(document.ship, before);
+            assert!(document.dirty && document.history.can_undo());
+            assert!(document.status.contains("无法保存"));
+        }
+        assert_eq!(
+            app.world().resource::<PendingFileAction>().action.is_none(),
+            success
+        );
+        assert!(app.world().resource::<EditorPaths>().ship.is_none());
+    }
+}
+
+#[test]
+fn selected_open_path_uses_the_same_unsaved_confirmation_for_browser_and_dialog() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("切换.xml");
+    save_ship(&path, &Ship::default()).unwrap();
+    for native in [false, true] {
+        let (mut app, _) = file_app();
+        modify(&mut app.world_mut().resource_mut::<EditorDocument>());
+        let before = app.world().resource::<EditorDocument>().ship.clone();
+        if native {
+            let (selection, sender) = injected_selection(FileAction::OpenDialog, None);
+            app.world_mut().resource_mut::<PendingFileAction>().native = Some(selection);
+            sender.send(Some(path.clone())).unwrap();
+        } else {
+            app.world_mut()
+                .write_message(FileAction::Open(path.clone()));
+        }
+        app.update();
+        assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+        assert!(
+            matches!(&app.world().resource::<PendingFileAction>().action, Some(FileAction::Open(target)) if target == &path)
+        );
+        app.world_mut().resource_mut::<PendingFileAction>().choice = Some(UnsavedChoice::Discard);
+        app.update();
+        assert_eq!(
+            app.world().resource::<EditorDocument>().ship,
+            Ship::default()
+        );
+        assert!(!app.world().resource::<EditorDocument>().history.can_undo());
+    }
+}
+
+#[test]
+fn file_changed_during_confirmation_cannot_replace_current_document() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("后来损坏.xml");
+    save_ship(&path, &Ship::default()).unwrap();
+    let (mut document, mut paths, mut dialogs) = context();
+    modify(&mut document);
+    let before = document.ship.clone();
+    let mut pending = PendingFileAction::default();
+    super::apply_action(
+        FileAction::Open(path.clone()),
+        &mut document,
+        &mut paths,
+        &mut dialogs,
+        &mut pending,
+    );
+    std::fs::write(path, "损坏 XML").unwrap();
+    resolve_choice(
+        UnsavedChoice::Discard,
+        &mut document,
+        &mut paths,
+        &mut dialogs,
+        &mut pending,
+    );
+    assert_eq!(document.ship, before);
+    assert!(document.dirty && document.history.can_undo());
+    assert!(document.status.contains("打开失败"));
+}
+
+#[test]
+fn modal_buttons_escape_and_backdrop_follow_explicit_choices() {
+    use bevy_egui::egui;
+    fn frame(
+        ctx: &egui::Context,
+        pending: &mut PendingFileAction,
+        paths: &EditorPaths,
+        events: Vec<egui::Event>,
+    ) {
+        ctx.begin_pass(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(960.0, 640.0),
+            )),
+            events,
+            focused: true,
+            ..Default::default()
+        });
+        show_confirmation(ctx, pending, paths);
+        ctx.end_pass().textures_delta.clear();
+    }
+    fn click(
+        ctx: &egui::Context,
+        pending: &mut PendingFileAction,
+        paths: &EditorPaths,
+        pos: egui::Pos2,
+    ) {
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                pending,
+                paths,
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::default(),
+                    },
+                ],
+            );
+        }
+    }
+    for choice in [
+        UnsavedChoice::Save,
+        UnsavedChoice::Discard,
+        UnsavedChoice::Cancel,
+    ] {
+        let (document, paths, _) = context();
+        let before = document.ship.clone();
+        let ctx = egui::Context::default();
+        let mut pending = PendingFileAction {
+            action: Some(FileAction::Exit),
+            ..Default::default()
+        };
+        for _ in 0..3 {
+            frame(&ctx, &mut pending, &paths, vec![]);
+        }
+        // 遮罩点击不得成为隐式放弃或关闭确认。
+        click(&ctx, &mut pending, &paths, egui::pos2(8.0, 620.0));
+        assert!(pending.choice.is_none());
+        let pos = pending
+            .hits
+            .iter()
+            .find(|(value, _)| *value == choice)
+            .unwrap()
+            .1
+            .center();
+        click(&ctx, &mut pending, &paths, pos);
+        assert_eq!(pending.choice, Some(choice));
+        // UI 仅记录选择，不同步替换文档或执行退出。
+        assert!(matches!(pending.action, Some(FileAction::Exit)));
+        assert_eq!(document.ship, before);
+    }
+    let (_, paths, _) = context();
+    let ctx = egui::Context::default();
+    let mut pending = PendingFileAction {
+        action: Some(FileAction::New),
+        ..Default::default()
+    };
+    for _ in 0..3 {
+        frame(&ctx, &mut pending, &paths, vec![]);
+    }
+    frame(
+        &ctx,
+        &mut pending,
+        &paths,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        }],
+    );
+    assert_eq!(pending.choice, Some(UnsavedChoice::Cancel));
 }

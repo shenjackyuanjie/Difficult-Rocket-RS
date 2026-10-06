@@ -221,6 +221,7 @@ struct CameraDrag(Option<Vec2>);
 struct SmokeTest {
     enabled: bool,
     native_dialogs: bool,
+    native_file_dialogs: bool,
     topology: bool,
     panels: bool,
     properties: bool,
@@ -272,6 +273,7 @@ fn main() -> anyhow::Result<()> {
             enabled: args.iter().any(|arg| arg == "--smoke-test"),
             topology: args.iter().any(|arg| arg == "--topology-smoke-test"),
             native_dialogs: args.iter().any(|arg| arg == "--native-dialog-test"),
+            native_file_dialogs: args.iter().any(|arg| arg == "--native-file-dialog-test"),
             panels: args.iter().any(|arg| arg == "--panel-smoke-test"),
             properties: args.iter().any(|arg| arg == "--properties-smoke-test"),
             connections: args.iter().any(|arg| arg == "--connection-smoke-test"),
@@ -393,6 +395,7 @@ fn main() -> anyhow::Result<()> {
                 files::update_window_title,
                 capture_screenshot,
                 files::native_dialog_test,
+                files::native_file_dialog_test,
             )
                 .chain(),
         )

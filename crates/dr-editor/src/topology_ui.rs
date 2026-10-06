@@ -752,8 +752,9 @@ pub fn draw(
     mut state: ResMut<ConnectionEditor>,
     mut document: ResMut<EditorDocument>,
     inspector: Res<properties::Inspector>,
+    pending: Option<Res<files::PendingFileAction>>,
 ) {
-    if inspector.is_open() {
+    if inspector.is_open() || pending.is_some_and(|state| state.is_blocked()) {
         return;
     }
     let Ok(ctx) = contexts.ctx_mut() else {

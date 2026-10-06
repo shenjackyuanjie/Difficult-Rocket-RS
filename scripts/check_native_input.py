@@ -47,6 +47,7 @@ WINDOW_ARTIFACTS = {
     "connections": "editor-connections-smoke.png", "scoped": "editor-scoped-smoke.png",
     "selection": "editor-selection-smoke.png", "view": "editor-view-smoke.png",
     "topology": "editor-topology-smoke.png", "performance": "editor-performance.json",
+    "unsaved": "editor-unsaved-modal.png",
 }
 
 
@@ -68,7 +69,7 @@ def completed_window_case(root, case, started_ns, exit_code):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--window-case", choices=["native", "performance", "panels", "browser", "egui", "staging", "repair", "native-ime", "connections", "scoped", "selection", "view", "topology", "keys"], default="native")
+    parser.add_argument("--window-case", choices=["native", "performance", "panels", "browser", "egui", "staging", "repair", "native-ime", "connections", "scoped", "selection", "view", "topology", "keys", "unsaved"], default="native")
     parser.add_argument("--selection-count", type=int, default=1)
     parser.add_argument("--editor-bin", type=Path, help="指定独立编辑器产物，避免覆盖正在运行的默认程序")
     options = parser.parse_args()
@@ -114,8 +115,8 @@ def main():
     elif options.window_case == "performance":
         args += ["--ship", str(root / "../Difficult-Rocket/assets/ships/Ophioglossum.xml"), "--performance-test", "--performance-selection-count", str(options.selection_count)]
     else:
-        flag = {"panels": "panel-smoke-test", "connections": "connection-smoke-test", "native-ime": "native-ime-test"}.get(options.window_case, options.window_case + "-smoke-test")
-        if options.window_case in ["panels", "native-ime", "repair"]:
+        flag = {"panels": "panel-smoke-test", "connections": "connection-smoke-test", "native-ime": "native-ime-test", "unsaved": "native-dialog-test"}.get(options.window_case, options.window_case + "-smoke-test")
+        if options.window_case in ["panels", "native-ime", "repair", "unsaved"]:
             args += ["--ship", str(samples[1 if options.window_case == "repair" else 0])]
         args += ["--" + flag]
     held = set()

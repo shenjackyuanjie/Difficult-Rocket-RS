@@ -113,6 +113,7 @@ pub fn draw(
     mut browser: ResMut<ShipBrowser>,
     cursor: Res<EditorCursor>,
     inspector: Res<properties::Inspector>,
+    pending: Option<Res<files::PendingFileAction>>,
     mut topology: ResMut<crate::topology_ui::ConnectionEditor>,
     mut options: ResMut<view::ViewOptions>,
     mut state: ResMut<UiState>,
@@ -133,7 +134,7 @@ pub fn draw(
     state.areas.clear();
     state.pixels_per_point = ctx.pixels_per_point();
     state.scrolling = ctx.input(|input| input.is_scrolling());
-    let enabled = !inspector.is_open();
+    let enabled = !inspector.is_open() && !pending.is_some_and(|state| state.is_blocked());
     if document.is_changed() {
         counts.clear();
         for part in document.ship.all_parts() {

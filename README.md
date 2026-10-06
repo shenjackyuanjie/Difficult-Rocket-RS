@@ -31,7 +31,7 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 
 视图适配包含旋转后的贴图与真实实体轮廓；窗口最小尺寸为 960×640，调整窗口后可再按 F 适配。调试和显隐只影响显示，不改文档或撤销历史；属性草稿中不触发这些快捷键。
 
-文件操作也可使用顶部工具栏。新建、打开和退出前会提示保存、放弃或取消；保存或打开失败时保留当前文档。保存先写入同目录临时文件再替换目标，不直接截断原文件。无法解释的 XML 根节点、扩展字段和异常内容会报错，避免静默丢失数据后覆盖保存。
+文件操作也可使用顶部工具栏。新建、打开和退出前在主窗口内显示与属性面板统一的暗色 egui 模态，提供“保存后继续”“放弃修改并继续”“取消”；Esc 等价于取消，点击遮罩不会放弃修改。确认期间隔离画布、侧栏和快捷键，重复关闭不会覆盖待确认操作。保存失败或首次保存路径取消会返回原确认并保留当前文档。打开/另存为的路径选择仍使用系统文件选择器，但绑定编辑器 owner 并在工作线程等待，主窗口继续更新。保存先写入同目录临时文件再替换目标，不直接截断原文件。无法解释的 XML 根节点、扩展字段和异常内容会报错，避免静默丢失数据后覆盖保存。
 
 两个边栏使用 egui 内置 Panel 和 ScrollArea。部件列表分为固定图片列和左对齐名称列，长名称截断；缩略图按 PNG 真实宽高等比缩放，不挤成方形。左侧船体列表支持虚拟滚动、刷新和切换目录，只列出可解析的 XML；大目录只绘制可见行，打开文件保留滚动位置。右侧部件目录支持分类、贴图、名称、说明及数量上限；选择部件后进入连续放置预览，R/X/Y 调整预览方向，Esc/右键或“取消放置”返回选择模式。预览吸附时为绿色，发生碰撞或达到数量上限时为红色；放置与连接共用一次撤销。侧栏的点击和滚轮不会编辑或缩放画布，属性模态打开时两个边栏禁用。 从部件列表任一行按住拖到画布，会出现与未连接部件相同的 `100/255` 半透明虚影；松手原子放置并吸附连接，碰撞或达到数量限制时拒绝。拖回侧栏松手、Esc/右键、失焦或文件操作取消；原有单击选择后连续放置保持不变。
 
@@ -69,6 +69,7 @@ cargo run -p dr-editor -- --connection-smoke-test
 cargo run -p dr-editor -- --scoped-smoke-test
 cargo run -p dr-editor -- --selection-smoke-test
 cargo run -p dr-editor -- --view-smoke-test
+cargo run -p dr-editor -- --native-dialog-test
 cargo run -p dr-editor -- --browser-smoke-test
 cargo run -p dr-editor -- --staging-smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Heronb.xml --repair-smoke-test
@@ -77,7 +78,7 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Ophioglossum.x
 python -X utf8 scripts/check_native_dialogs.py
 ```
 
-`--smoke-test` 启动真实窗口，在约 5 秒后截图并自动退出，图片位于 `target/editor-smoke.png`。它验证启动和渲染，不代替交互测试。最后一条是 Windows 原生对话框测试：使用构建好的程序，自动验证取消和退出保护，不保存样本，也不要求抢占桌面焦点。
+`--smoke-test` 启动真实窗口，在约 5 秒后截图并自动退出，图片位于 `target/editor-smoke.png`。它验证启动和渲染，不代替交互测试。最后一条是 Windows 原生路径选择测试：使用构建好的程序，检查打开/另存为窗口属于编辑器、取消保留文档及选择期间主线程持续更新，不保存样本，也不要求抢占桌面焦点；可用 `--editor-bin <路径>` 指定独立程序。未保存确认不再是原生消息框，改由下面的主窗口模态专项验收。
 
 `--panel-smoke-test` 在真实窗口中点击实际 egui 部件按钮并发送滚轮，画布流程通过 Bevy 输入验证预览旋转/镜像、碰撞拒绝及红色预览、放置、撤销重做、取消及侧栏输入隔离；不写回样本，输出 `target/editor-placement-preview.png`、`target/editor-collision-preview.png` 和 `target/editor-panels-smoke.png` 后退出。
 
@@ -94,6 +95,8 @@ python -X utf8 scripts/check_native_dialogs.py
 `--selection-smoke-test` 验证 Shift 多选及取消选择、中键/左键切换与真实轮廓框选、小幅连续跟随、松手高亮清理、空白取消选择、视角平移、整体拖动与内部连接、复制粘贴的红色碰撞/绿色吸附预览、预览旋转取消、全选删除、一次撤销重做、侧栏释放与失焦取消，以及 XML 往返。输出 `target/editor-selection-preview.png`、`target/editor-selection-smoke.png` 和 `target/selection-smoke.xml`，截图捕获完成后才提交预览。
 
 `--view-smoke-test` 验证整船与选区适配、窗口缩小到 960×640 后重新适配、F3 调试标签和 F4 船体显隐，以及文档和历史不变；输出 `target/editor-view-smoke.png`。
+
+`--native-dialog-test` 保留旧命令名，现用于主窗口未保存模态：输出 `target/editor-unsaved-modal.png`，验证取消保留未保存文档、再次确认后放弃退出；不会打开原生路径选择或写回样本。三按钮的实际 egui 按下/释放、Esc 与遮罩行为另由 headless 控件回归覆盖。
 
 `--browser-smoke-test` 在 `target` 内生成 1,000 个小船体文件及 1 个异常 XML，验收排序、过滤、虚拟列表只绘制可见行、滚动到底、实际点击末项和保留滚动位置，输出 `target/editor-browser-smoke.png/json`。`--staging-smoke-test` 验收 64 级共 1,024 个动作的末项草稿编辑、原子应用、撤销重做和 XML 往返，输出 `target/editor-staging-draft.png`、`target/editor-staging-smoke.png` 与 `target/staging-smoke.xml`。
 
@@ -113,7 +116,7 @@ uv run --no-project --python 3.12 python -X utf8 scripts/check_native_input.py
 
 窗口驱动可用 `--editor-bin <编辑器程序路径>` 指定独立构建产物，避免覆盖正在运行的默认程序；例如 `cargo rustc -p dr-editor --bin dr-editor -- -o target/drag-editor.exe` 后以 `--editor-bin target/drag-editor.exe` 验收，不强制关闭已有编辑器窗口。
 
-置前/失焦干扰最多自动重试三次，连续失败时尝试通过本机 noticer 的 `sr1` 房间提醒；程序断言和数据错误直接失败，不作为焦点失败重试。测试时会短暂置前窗口，不永久置顶、不向其他应用发送快捷键。产物位于 `target/foreground-*`，最近成功路径记录在 `target/foreground-last.txt`。可用 `--window-case keys` 运行真实系统快捷键验收，使用 `--window-case panels|connections|scoped|selection|view|topology` 在受控前台运行已有注入式窗口回归，或 `--window-case performance --selection-count 1000` 测量拖动；前台受控不意味着这些旧回归已改为系统输入。
+置前/失焦干扰最多自动重试三次，连续失败时尝试通过本机 noticer 的 `sr1` 房间提醒；程序断言和数据错误直接失败，不作为焦点失败重试。测试时会短暂置前窗口，不永久置顶、不向其他应用发送快捷键。产物位于 `target/foreground-*`，最近成功路径记录在 `target/foreground-last.txt`。可用 `--window-case keys` 运行真实系统快捷键验收，使用 `--window-case panels|connections|scoped|selection|view|topology|unsaved` 在受控前台运行已有注入式窗口回归，或 `--window-case performance --selection-count 1000` 测量拖动；前台受控不意味着这些旧回归已改为系统输入。
 
 前台驱动自身的无副作用回归：`uv run --no-project --python 3.12 python -X utf8 -m unittest discover -s scripts -p test_native_input_driver.py`。
 
