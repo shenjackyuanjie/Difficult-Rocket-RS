@@ -327,13 +327,41 @@ pub(crate) fn sync(
 }
 
 #[derive(Default)]
-pub(crate) struct ConnectionLines(Vec<(usize, Connection, Vec2, Vec2)>);
+pub(crate) struct ConnectionLines(Vec<(usize, Connection, [Vec2; 4])>);
+
+fn dragged_connection_path(
+    document: &EditorDocument,
+    drag: &DragState,
+    group: usize,
+    connection: &Connection,
+) -> Option<[Vec2; 4]> {
+    let (parent, child) = match *connection {
+        Connection::Normal { parent, child, .. } | Connection::Dock { parent, child, .. } => {
+            (parent, child)
+        }
+    };
+    let parent_key = PartKey::new(group, parent, 0);
+    let child_key = PartKey::new(group, child, 0);
+    let parent = drag.pose(parent_key, document.ship.part_at(parent_key)?);
+    let child = drag.pose(child_key, document.ship.part_at(child_key)?);
+    let (a, b) =
+        dr_core::connections::positions_between(&document.catalog, connection, &parent, &child)?;
+    Some([
+        Vec2::new(parent.x as f32, parent.y as f32) * 60.0,
+        Vec2::new(a.x as f32, a.y as f32) * 60.0,
+        Vec2::new(b.x as f32, b.y as f32) * 60.0,
+        Vec2::new(child.x as f32, child.y as f32) * 60.0,
+    ])
+}
 
 pub(crate) fn connections(
-    mut gizmos: Gizmos,
+    mut gizmos: Gizmos<connection_lines::LineGizmos>,
     document: Res<EditorDocument>,
     drag: Res<DragState>,
     mut lines: Local<ConnectionLines>,
+    settings: Res<connection_lines::Settings>,
+    time: Res<Time>,
+    cameras: Query<&Projection, With<Camera2d>>,
 ) {
     if document.is_changed() {
         lines.0.clear();
@@ -371,15 +399,18 @@ pub(crate) fn connections(
                     Vec2::new(b.x as f32, b.y as f32) * 60.0,
                     Vec2::new(child.x as f32, child.y as f32) * 60.0,
                 ];
-                for pair in points.windows(2) {
-                    if pair[0].distance_squared(pair[1]) > 1e-6 {
-                        lines.0.push((group, connection.clone(), pair[0], pair[1]));
-                    }
-                }
+                lines.0.push((group, connection.clone(), points));
             }
         }
     }
-    for (group, connection, a, b) in &lines.0 {
+    if !settings.enabled {
+        return;
+    }
+    let scale = match cameras.single().ok() {
+        Some(Projection::Orthographic(projection)) => projection.scale,
+        _ => 1.0,
+    };
+    for (group, connection, path) in &lines.0 {
         let refs = match *connection {
             Connection::Normal { parent, child, .. } => vec![parent, child],
             Connection::Dock {
@@ -392,17 +423,68 @@ pub(crate) fn connections(
             .iter()
             .filter(|id| drag.contains(PartKey::new(*group, **id, 0)))
             .count();
-        if count == 0 {
-            gizmos.line_2d(*a, *b, Color::srgb(0.25, 0.9, 0.55));
+        let points = if count == 0 {
+            *path
         } else if count == refs.len() {
-            gizmos.line_2d(drag.point(*a), drag.point(*b), Color::srgb(0.25, 0.9, 0.55));
-        }
+            path.map(|point| drag.point(point))
+        } else if document.free_mode {
+            let Some(points) = dragged_connection_path(&document, &drag, *group, connection) else {
+                continue;
+            };
+            points
+        } else {
+            continue;
+        };
+        connection_lines::draw_path(&mut gizmos, &settings, &points, time.elapsed_secs(), scale);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn free_connection_route_tracks_only_the_dragged_endpoint_after_mirrors() {
+        let mut document = crate::tests::document();
+        document.catalog = panels::tests::catalog();
+        let kind = document.catalog.get("pod").unwrap();
+        document.ship.parts = vec![
+            kind.instantiate(1, (0.0, 0.0)),
+            kind.instantiate(2, (3.0, 0.0)),
+        ];
+        document.free_mode = true;
+        let before = document.ship.clone();
+        let connection = Connection::Normal {
+            parent: 1,
+            child: 2,
+            parent_attach: 2,
+            child_attach: 1,
+        };
+        let drag = DragState {
+            id: Some(PartKey::new(0, 1, 0)),
+            preview: (2.0, 1.0),
+            fine_rotation: 0.37,
+            flip_x: true,
+            ..default()
+        };
+        let points = dragged_connection_path(&document, &drag, 0, &connection).unwrap();
+        let parent = drag.pose(PartKey::new(0, 1, 0), document.ship.part(1).unwrap());
+        assert_eq!(
+            points[0],
+            Vec2::new(parent.x as f32, parent.y as f32) * 60.0
+        );
+        assert_eq!(points[3], Vec2::new(180.0, 0.0));
+        let (a, b) = dr_core::connections::positions_between(
+            &document.catalog,
+            &connection,
+            &parent,
+            document.ship.part(2).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(points[1], Vec2::new(a.x as f32, a.y as f32) * 60.0);
+        assert_eq!(points[2], Vec2::new(b.x as f32, b.y as f32) * 60.0);
+        assert_eq!(document.ship, before);
+    }
 
     fn app() -> App {
         let mut app = App::new();

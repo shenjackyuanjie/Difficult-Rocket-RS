@@ -1,4 +1,5 @@
 mod attachment_hints;
+mod connection_lines;
 mod connection_smoke;
 mod demo;
 mod egui_ui;
@@ -379,6 +380,8 @@ fn main() -> anyhow::Result<()> {
     .init_resource::<DragState>()
     .init_resource::<EditorCursor>()
     .init_resource::<CameraDrag>()
+    .init_resource::<connection_lines::Settings>()
+    .init_resource::<connection_lines::Controls>()
     .init_resource::<transform_smoke::Captured>()
     .init_resource::<interaction_smoke::Probe>()
     .init_resource::<view::ViewOptions>()
@@ -418,6 +421,7 @@ fn main() -> anyhow::Result<()> {
                 ..default()
             }),
     )
+    .init_gizmo_group::<connection_lines::LineGizmos>()
     .add_plugins(egui_ui::EditorEguiPlugin)
     .add_message::<files::FileAction>()
     .add_message::<panels::PanelButton>()
@@ -478,6 +482,7 @@ fn main() -> anyhow::Result<()> {
             render::sync,
             placement::draw_preview,
             selection::draw_preview,
+            connection_lines::configure_system,
             render::connections,
             attachment_hints::draw,
             view::draw_debug,

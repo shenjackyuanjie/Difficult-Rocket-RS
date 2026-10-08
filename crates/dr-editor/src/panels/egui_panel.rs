@@ -78,6 +78,7 @@ pub struct UiState {
     pub free_mode: Option<egui::Rect>,
     pub rotate_left: Option<egui::Rect>,
     pub rotate_right: Option<egui::Rect>,
+    pub connection_lines: Option<egui::Rect>,
     pub pixels_per_point: f32,
     pub scrolling: bool,
     pub browser_offset: f32,
@@ -184,7 +185,11 @@ pub fn draw(
         Option<Res<demo::Showcase>>,
     ),
     mut topology: ResMut<crate::topology_ui::ConnectionEditor>,
-    (mut options, mut drag): (ResMut<view::ViewOptions>, ResMut<DragState>),
+    (mut options, mut drag, mut line_settings): (
+        ResMut<view::ViewOptions>,
+        ResMut<DragState>,
+        Option<ResMut<connection_lines::Settings>>,
+    ),
     mut state: ResMut<UiState>,
     mut actions: MessageWriter<PanelButton>,
     mut images: Local<std::collections::HashMap<String, egui::TextureId>>,
@@ -207,6 +212,7 @@ pub fn draw(
     state.free_mode = None;
     state.rotate_left = None;
     state.rotate_right = None;
+    state.connection_lines = None;
     state.areas.clear();
     state.palette_area = None;
     state.pixels_per_point = ctx.pixels_per_point();
@@ -374,6 +380,11 @@ pub fn draw(
             });
             let follow = follow_toggle(ui, &mut options.follow_children);
             state.follow_children = config_rect(ui, &follow);
+            if let Some(settings) = line_settings.as_mut() {
+                let response = ui.button("连接线设置…").on_hover_text("显示开关、颜色/透明度、粗细、实线/虚线/点线、呼吸/流动及方向箭头；只改变显示。");
+                state.connection_lines = config_rect(ui, &response);
+                if response.clicked() { response.surrender_focus(); settings.open = true; }
+            }
             let mut free = document.free_mode;
             let response = ui.checkbox(&mut free, "自由模式")
                 .on_hover_text("关闭自动吸附、碰撞判定和自动断连。依次点击两个连接点/边建立连接，重复点击这两个端点可断开；移动、旋转保留已有连接。Esc / 右键取消选点，Ctrl+Z 撤销。");

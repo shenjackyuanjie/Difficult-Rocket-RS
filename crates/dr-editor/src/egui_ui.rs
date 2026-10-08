@@ -28,6 +28,7 @@ impl Plugin for EditorEguiPlugin {
                     panels::egui_panel::draw,
                     draw,
                     topology_ui::draw,
+                    connection_lines::ui,
                     help::draw,
                 )
                     .chain(),
@@ -42,11 +43,13 @@ pub fn canvas_input_available(
     topology: Option<Res<topology_ui::ConnectionEditor>>,
     pending: Option<Res<files::PendingFileAction>>,
     help: Option<Res<help::HelpState>>,
+    lines: Option<Res<connection_lines::Settings>>,
 ) -> bool {
     !inspector.is_some_and(|inspector| inspector.is_open())
         && !topology.is_some_and(|state| state.open)
         && !pending.is_some_and(|state| state.is_blocked())
         && !help.is_some_and(|state| state.open || state.suppress_frame)
+        && !lines.is_some_and(|state| state.open)
 }
 
 /// 放在 pointer_over_ui、properties::actions 之后，画布输入系统之前。
@@ -63,9 +66,17 @@ pub fn prepare_input(
     mut camera_drag: ResMut<CameraDrag>,
     pending: Option<Res<files::PendingFileAction>>,
     help: Option<Res<help::HelpState>>,
+    lines: Option<ResMut<connection_lines::Settings>>,
 ) {
     if help.is_some_and(|state| state.open || state.suppress_frame) {
         return;
+    }
+    let mut line_open = false;
+    if let Some(mut lines) = lines {
+        if lines.open && keys.just_pressed(KeyCode::Escape) {
+            lines.open = false;
+        }
+        line_open = lines.open;
     }
     if pending.is_some_and(|state| state.is_blocked()) {
         cursor.manual_connection = None;
@@ -91,7 +102,7 @@ pub fn prepare_input(
     if !inspector.is_open() && !topology_open && keys.just_pressed(KeyCode::F2) {
         properties::open(&mut inspector, &document);
     }
-    if inspector.is_open() || topology_open {
+    if inspector.is_open() || topology_open || line_open {
         cursor.manual_connection = None;
         drag.cancel();
         cursor.cancel_placement();
@@ -99,7 +110,7 @@ pub fn prepare_input(
         camera_drag.0 = None;
     }
     // 沿用现有 Bevy 工具栏的命中结果，而不是覆盖它。
-    pointer.blocked |= inspector.is_open() || topology_open;
+    pointer.blocked |= inspector.is_open() || topology_open || line_open;
 }
 
 fn configure_chinese_font(ctx: &egui::Context, paths: &EditorPaths) {
