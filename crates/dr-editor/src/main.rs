@@ -17,6 +17,7 @@ mod scoped_smoke;
 mod selection;
 mod selection_smoke;
 mod topology_ui;
+mod transform_smoke;
 mod view;
 mod view_smoke;
 
@@ -286,6 +287,7 @@ struct SmokeTest {
     panels: bool,
     properties: bool,
     connections: bool,
+    transforms: bool,
     performance: bool,
     performance_selection_count: usize,
     scoped: bool,
@@ -343,6 +345,7 @@ fn main() -> anyhow::Result<()> {
         panels: args.iter().any(|arg| arg == "--panel-smoke-test"),
         properties: args.iter().any(|arg| arg == "--properties-smoke-test"),
         connections: args.iter().any(|arg| arg == "--connection-smoke-test"),
+        transforms: args.iter().any(|arg| arg == "--transforms-smoke-test"),
         performance: args.iter().any(|arg| arg == "--performance-test"),
         performance_selection_count: args
             .windows(2)
@@ -376,6 +379,7 @@ fn main() -> anyhow::Result<()> {
     .init_resource::<DragState>()
     .init_resource::<EditorCursor>()
     .init_resource::<CameraDrag>()
+    .init_resource::<transform_smoke::Captured>()
     .init_resource::<interaction_smoke::Probe>()
     .init_resource::<view::ViewOptions>()
     .add_plugins(
@@ -438,6 +442,7 @@ fn main() -> anyhow::Result<()> {
                     topology_ui::smoke::run,
                     properties::egui_smoke::run,
                     connection_smoke::run,
+                    transform_smoke::run,
                     interaction_smoke::input,
                     performance::run,
                     native_input::run,

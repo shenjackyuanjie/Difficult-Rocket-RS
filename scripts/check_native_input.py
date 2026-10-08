@@ -45,6 +45,7 @@ WINDOW_ARTIFACTS = {
     "egui": "editor-egui-smoke.png", "staging": "editor-staging-smoke.png",
     "repair": "editor-repair-smoke.png", "native-ime": "editor-native-ime.png",
     "connections": "editor-connections-smoke.png", "scoped": "editor-scoped-smoke.png",
+    "transforms": "editor-transforms-smoke.png",
     "selection": "editor-selection-smoke.png", "view": "editor-view-smoke.png",
     "topology": "editor-topology-smoke.png", "performance": "editor-performance.json",
     "interaction": "editor-interaction-latency.json", "unsaved": "editor-unsaved-modal.png",
@@ -69,7 +70,7 @@ def completed_window_case(root, case, started_ns, exit_code):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--window-case", choices=["native", "performance", "panels", "browser", "egui", "staging", "repair", "native-ime", "connections", "scoped", "selection", "view", "topology", "keys", "interaction", "unsaved"], default="native")
+    parser.add_argument("--window-case", choices=["native", "performance", "panels", "browser", "egui", "staging", "repair", "native-ime", "connections", "transforms", "scoped", "selection", "view", "topology", "keys", "interaction", "unsaved"], default="native")
     parser.add_argument("--selection-count", type=int, default=1)
     parser.add_argument("--editor-bin", type=Path, help="指定独立编辑器产物，避免覆盖正在运行的默认程序")
     options = parser.parse_args()

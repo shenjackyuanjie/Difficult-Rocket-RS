@@ -34,6 +34,20 @@ const CHAPTERS: &[Chapter] = &[
         ],
     },
     Chapter {
+        id: "transforms",
+        title: "精细旋转、镜像与自由连接",
+        description: "Q/E 15°与 Shift 1°精调 → 非直角吸附 → 拖拽组合镜像 → 自由双点连/断 → 多选及 XML 往返",
+        artifacts: &[
+            "editor-angled-connection.png",
+            "editor-combined-transform.png",
+            "editor-free-connections.png",
+            "editor-free-placement.png",
+            "editor-transforms-smoke.png",
+            "transforms-smoke.xml",
+            "transforms-smoke.json",
+        ],
+    },
+    Chapter {
         id: "selection",
         title: "选择与编辑",
         description: "左键选取/拖动，中键框选，右键取消 → 切换框选按键 → 后代跟随 → 删除及撤销",
@@ -521,6 +535,32 @@ struct Motion {
     keys: ButtonInput<KeyCode>,
 }
 
+/// 只保存演示自身消费过的输入，下一帧不接受桌面误点或按键覆盖。
+struct ReplayInput {
+    mouse: ButtonInput<MouseButton>,
+    keys: ButtonInput<KeyCode>,
+    focused: bool,
+}
+
+impl Default for ReplayInput {
+    fn default() -> Self {
+        Self {
+            mouse: default(),
+            keys: default(),
+            focused: true,
+        }
+    }
+}
+
+impl ReplayInput {
+    fn restore(&self, mouse: &mut ButtonInput<MouseButton>, keys: &mut ButtonInput<KeyCode>) {
+        *mouse = self.mouse.clone();
+        *keys = self.keys.clone();
+        mouse.clear();
+        keys.clear();
+    }
+}
+
 #[derive(Resource)]
 pub(crate) struct Showcase {
     output: PathBuf,
@@ -542,6 +582,7 @@ pub(crate) struct Showcase {
     motion: Option<Motion>,
     before_mouse: ButtonInput<MouseButton>,
     before_keys: ButtonInput<KeyCode>,
+    replay: ReplayInput,
     display_pointer: Option<Vec2>,
     click_release: Option<(Instant, bevy_egui::egui::Pos2)>,
     key_hints: KeyHints,
@@ -591,6 +632,7 @@ impl Showcase {
             motion: None,
             before_mouse: default(),
             before_keys: default(),
+            replay: default(),
             display_pointer: None,
             click_release: None,
             key_hints: KeyHints::default(),
@@ -655,7 +697,7 @@ pub(crate) fn begin(world: &mut World) {
     let mut document =
         load_document(sample.as_deref(), &paths.catalog).expect("无法只读加载演示样本");
     // 观看模式使用可读的 8 级/48 动作夹具；1024 动作专项仍保留在独立分级自测。
-    if index == 4 {
+    if CHAPTERS[index].id == "staging" {
         let kind = document.catalog.get("detacher-1").unwrap();
         document.ship.parts.extend((2..=7).map(|id| {
             kind.instantiate(
@@ -713,15 +755,17 @@ pub(crate) fn begin(world: &mut World) {
     }
     {
         let mut mode = world.resource_mut::<SmokeTest>();
-        mode.panels = index == 0;
-        mode.connections = index == 1;
-        mode.selection = index == 2;
-        mode.view = index == 3;
-        mode.staging = index == 4;
-        mode.topology = index == 5;
-        mode.repair = index == 6;
-        mode.browser = index == 7;
-        mode.native_dialogs = index == 8;
+        let id = CHAPTERS[index].id;
+        mode.panels = id == "panels";
+        mode.connections = id == "connections";
+        mode.transforms = id == "transforms";
+        mode.selection = id == "selection";
+        mode.view = id == "view";
+        mode.staging = id == "staging";
+        mode.topology = id == "topology";
+        mode.repair = id == "repair";
+        mode.browser = id == "browser";
+        mode.native_dialogs = id == "unsaved";
         mode.started = Instant::now();
     }
     let mut showcase = world.resource_mut::<Showcase>();
@@ -729,6 +773,7 @@ pub(crate) fn begin(world: &mut World) {
     showcase.pointer = None;
     showcase.ui_pointer = None;
     showcase.motion = None;
+    showcase.replay = ReplayInput::default();
     showcase.click_release = None;
     showcase.key_hints = KeyHints::default();
     showcase.mouse_hints = MouseHints::default();
@@ -749,9 +794,16 @@ pub(crate) fn pace(
     mut showcase: Option<ResMut<Showcase>>,
     windows: Query<&Window>,
     inputs: Query<&bevy_egui::EguiInput>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
 ) {
     if let Some(showcase) = showcase.as_mut() {
         showcase.pointer = windows.iter().next().and_then(Window::cursor_position);
+        showcase.replay.mouse = mouse.clone();
+        showcase.replay.keys = keys.clone();
+        if let Some(window) = windows.iter().next() {
+            showcase.replay.focused = window.focused;
+        }
         for input in &inputs {
             for event in &input.0.events {
                 if let bevy_egui::egui::Event::PointerMoved(pos) = event {
@@ -776,28 +828,28 @@ pub(crate) fn pace(
 pub(crate) fn restore_pointer(
     showcase: Option<ResMut<Showcase>>,
     mut windows: Query<&mut Window>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    mut mouse: ResMut<ButtonInput<MouseButton>>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
     mut inputs: Query<&mut bevy_egui::EguiInput>,
+    wheels: Option<ResMut<Messages<bevy::input::mouse::MouseWheel>>>,
 ) {
     if let Some(mut showcase) = showcase
         && !showcase.completed
     {
+        showcase.replay.restore(&mut mouse, &mut keys);
         showcase.before_mouse = mouse.clone();
         showcase.before_keys = keys.clone();
-        // 原生 CursorMoved/PointerGone 不得打断内部演示的连续移动或短点击。
+        // 原生鼠标、按键、文本和滚轮不得混入内部回放；章节稍后注入自己的输入。
         for mut input in &mut inputs {
-            input.0.events.retain(|event| {
-                !matches!(
-                    event,
-                    bevy_egui::egui::Event::PointerMoved(_)
-                        | bevy_egui::egui::Event::PointerGone
-                        | bevy_egui::egui::Event::PointerButton { .. }
-                )
-            });
+            input.0.events.clear();
+            input.0.focused = showcase.replay.focused;
+        }
+        if let Some(mut wheels) = wheels {
+            wheels.clear();
         }
         for mut window in &mut windows {
             window.set_cursor_position(showcase.pointer);
+            window.focused = showcase.replay.focused;
         }
     }
 }
@@ -1039,7 +1091,7 @@ pub(crate) fn finish(world: &mut World) {
     let exit = showcase.exit_on_complete;
     world.resource_mut::<SmokeTest>().native_dialogs = false;
     info!(
-        "九章演示完成，报告：{}",
+        "十章演示完成，报告：{}",
         output.join("demo-report.json").display()
     );
     if exit {
@@ -1117,7 +1169,7 @@ pub(crate) fn overlay(
         return;
     }
     if showcase.presentation {
-        // 录制模式额外提供顶部短章名；下方仍保留九章说明框，字幕在视频独立底栏。
+        // 录制模式额外提供顶部短章名；下方仍保留十章说明框，字幕在视频独立底栏。
         let title = if showcase.completed {
             "演示完成"
         } else {
@@ -1146,7 +1198,12 @@ pub(crate) fn overlay(
     } else {
         let chapter = &CHAPTERS[showcase.index];
         (
-            format!("功能演示 {}/9 · {}", showcase.index + 1, chapter.title),
+            format!(
+                "功能演示 {}/{} · {}",
+                showcase.index + 1,
+                CHAPTERS.len(),
+                chapter.title
+            ),
             showcase.description.unwrap_or(chapter.description),
         )
     };
@@ -1193,7 +1250,7 @@ mod tests {
     #[test]
     fn chapters_are_unique_and_evidence_is_relative() {
         let ids: BTreeSet<_> = CHAPTERS.iter().map(|chapter| chapter.id).collect();
-        assert_eq!(ids.len(), 9);
+        assert_eq!(ids.len(), 10);
         for chapter in CHAPTERS {
             assert!(!chapter.artifacts.is_empty());
             for name in chapter.artifacts {
@@ -1732,4 +1789,27 @@ mod tests {
         std::fs::write(folder.path().join("demo-report.json"), "{}").unwrap();
         assert!(Showcase::from_args(&args).is_err());
     }
+}
+#[test]
+fn replay_keeps_its_own_held_inputs_and_discards_native_clicks_without_repeating_edges() {
+    let mut snapshot = ReplayInput::default();
+    snapshot.mouse.press(MouseButton::Left);
+    snapshot.keys.press(KeyCode::KeyR);
+    let mut mouse = ButtonInput::default();
+    mouse.press(MouseButton::Right);
+    let mut keys = ButtonInput::default();
+    keys.press(KeyCode::Escape);
+    snapshot.restore(&mut mouse, &mut keys);
+    assert!(mouse.pressed(MouseButton::Left));
+    assert!(!mouse.pressed(MouseButton::Right));
+    assert!(!mouse.just_pressed(MouseButton::Left));
+    assert!(keys.pressed(KeyCode::KeyR));
+    assert!(!keys.pressed(KeyCode::Escape));
+    assert!(!keys.just_pressed(KeyCode::KeyR));
+    snapshot.mouse.release(MouseButton::Left);
+    snapshot.keys.release(KeyCode::KeyR);
+    snapshot.restore(&mut mouse, &mut keys);
+    assert!(!mouse.pressed(MouseButton::Left));
+    assert!(!keys.pressed(KeyCode::KeyR));
+    assert!(!mouse.just_released(MouseButton::Left));
 }

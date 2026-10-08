@@ -1,4 +1,4 @@
-"""单窗口九章演示驱动：内部输入注入展示，不代表系统键鼠或前台验收。
+"""单窗口十章演示驱动：内部输入注入展示，不代表系统键鼠或前台验收。
 
 默认完成后保留编辑器；--fast 固定 40ms 且自动退出，仅供 UI 回归。
 只读取原版样本并校验 SHA256，不保存或恢复覆盖任何原版文件。
@@ -16,7 +16,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 CHAPTER_IDS = (
-    "panels", "connections", "selection", "view", "staging",
+    "panels", "connections", "transforms", "selection", "view", "staging",
     "topology", "repair", "browser", "unsaved",
 )
 REPORT_NAME = "demo-report.json"
@@ -109,7 +109,7 @@ def validate_report(report, output, started_ns):
         raise DemoError("报告未声明 completed: true")
     chapters = report.get("chapters")
     if not isinstance(chapters, list) or len(chapters) != len(CHAPTER_IDS):
-        raise DemoError("报告必须包含完整九章")
+        raise DemoError("报告必须包含完整十章")
     seen = set()
     for chapter in chapters:
         if not isinstance(chapter, dict):
@@ -214,7 +214,7 @@ def run_demo(options, root=ROOT):
         command = [str(binary), "--demo-showcase", str(output), "--demo-step-ms", str(options.step_ms)]
         if options.exit_on_complete:
             command.append("--demo-exit-on-complete")
-        print(f"启动单窗口九章演示：动作间隔 {options.step_ms}ms；输出 {output}", flush=True)
+        print(f"启动单窗口十章演示：动作间隔 {options.step_ms}ms；输出 {output}", flush=True)
         print("仅内部输入注入，无系统键鼠操作或前台抢占。", flush=True)
         with (output / "demo-editor.log").open("w", encoding="utf-8") as log:
             started_ns = time.time_ns()
@@ -223,7 +223,7 @@ def run_demo(options, root=ROOT):
         check_samples(original)
         for chapter in report["chapters"]:
             print(f"[通过] {chapter['id']} · {chapter['title']}：{chapter['elapsed_seconds']:.2f} 秒，产物 {len(chapter['artifacts'])} 个")
-        print(f"九章演示完成，Test.xml / Heronb.xml SHA256 未改变。报告：{output / REPORT_NAME}")
+        print(f"十章演示完成，Test.xml / Heronb.xml SHA256 未改变。报告：{output / REPORT_NAME}")
         if not options.exit_on_complete and process.poll() is None:
             print("主窗口保留展示结果；脚本不会终止该进程。")
         succeeded = True

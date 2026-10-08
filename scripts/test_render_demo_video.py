@@ -53,7 +53,7 @@ class TimeTests(unittest.TestCase):
 
 
 class TimelineTests(unittest.TestCase):
-    def test_complete_ordered_nine_chapters(self):
+    def test_complete_ordered_chapters(self):
         chapters = video.validate_timeline(timeline())
         self.assertEqual([c["id"] for c in chapters], list(video.demo.CHAPTER_IDS))
 
@@ -85,7 +85,7 @@ class TimelineTests(unittest.TestCase):
             path = Path(folder) / "timeline.jsonl"
             import json
             path.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in timeline()), encoding="utf-8")
-            self.assertEqual(len(video.load_timeline(path)), 9)
+            self.assertEqual(len(video.load_timeline(path)), len(video.demo.CHAPTER_IDS))
             path.write_text('{"event":', encoding="utf-8")
             with self.assertRaises(video.VideoError):
                 video.load_timeline(path)
@@ -166,7 +166,7 @@ class SubtitleAndFilterTests(unittest.TestCase):
             self.assertIn("00:00:00,000 --> 00:00:04,000", srt)
             self.assertIn("PlayResX: 1920", ass)
             self.assertIn("Microsoft YaHei,36", ass)
-            self.assertEqual(ass.count(",Chapter,,"), 9)
+            self.assertEqual(ass.count(",Chapter,,"), len(video.demo.CHAPTER_IDS))
             self.assertIn(r"{\pos(36,1020)}", ass)
 
     def test_selection_captions_describe_actual_operations(self):
@@ -187,7 +187,7 @@ class SubtitleAndFilterTests(unittest.TestCase):
             video.write_subtitles(output, self.clips, self.duration)
             text = (output / "progress.ass").read_text(encoding="utf-8")
             titles = [line for line in text.splitlines() if line.startswith("Dialogue:") and ",Chapter,," in line]
-            self.assertEqual(len(titles), 9)
+            self.assertEqual(len(titles), len(video.demo.CHAPTER_IDS))
             for line in titles:
                 self.assertIn(r"{\pos(36,1020)}", line)
                 self.assertNotIn(r"\N", line)
@@ -232,9 +232,9 @@ class SubtitleAndFilterTests(unittest.TestCase):
         self.assertIn("setpts=N/(30*TB)", graph)
         self.assertIn("[intro][chapters][outro]concat=n=3:v=1:a=0", graph)
         expression = video.selection_expression(self.clips)
-        self.assertEqual(expression.count("gte(t,"), 9)
-        self.assertEqual(expression.count("lt(t,"), 9)
-        self.assertEqual(expression.count("+"), 8)
+        self.assertEqual(expression.count("gte(t,"), len(video.demo.CHAPTER_IDS))
+        self.assertEqual(expression.count("lt(t,"), len(video.demo.CHAPTER_IDS))
+        self.assertEqual(expression.count("+"), len(video.demo.CHAPTER_IDS) - 1)
         self.assertNotIn("between(", expression)
         for clip in self.clips:
             self.assertIn(f"gte(t,{clip['raw_start_seconds']:.6f})*lt(t,{clip['raw_end_seconds']:.6f})", expression)

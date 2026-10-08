@@ -7,7 +7,7 @@ owned PID置顶（不激活、不改位置大小），持续核对客户区、TO
 
 python scripts/render_demo_video.py --no-build
 python scripts/render_demo_video.py --render-only target/video-YYYYmmdd-HHMMSS
-仅当九章原报告、样本保护与 ffprobe 全部通过才发布最终 MP4。
+仅当十章原报告、样本保护与 ffprobe 全部通过才发布最终 MP4。
 """
 import argparse
 from array import array
@@ -43,6 +43,7 @@ NOT_ACCEPTANCE = "内部输入展示；原生路径与输入法不在本片验�
 CAPTIONS = {
     "panels": ("部件目录：选取部件并预览旋转与镜像", "分类筛选：点击切换部件分类，再恢复全部", "碰撞拒绝：重叠放置不会改写船体或新增撤销记录", "合法放置：添加部件并展示撤销与重做"),
     "connections": ("紫色吸附提示：显示候选连接点与长梁沿边吸附", "同边多点连接：展示连接、撤销重做与 XML 往返"),
+    "transforms": ("2D 精调：Q/E 15°、Shift 1°、非直角吸附和拖拽组合镜像", "自由模式：双点手动连断，移动旋转保留连接，重叠放置不自动连边", "多选整体旋转镜像、原子撤销重做及 XML 往返"),
     "selection": ("默认左键选择/拖动/空白平移；中键框选；R 拖拽旋转，右键取消", "点击切换框选键：左键框选、中键平移；重叠保留位置角度，不新增外部连接", "点击后代跟随开关：保留内部连接，断开外部连接", "拖到右侧部件列表：删除整个连接组件，支持撤销"),
     "view": ("视角控制：平移、缩放，以及整船与选区适配", "视角帮助：F1 查看操作说明", "F3：单独展示调试信息", "F4：单独展示船体隐藏"),
     "staging": ("属性草稿：F2 打开属性编辑，修改后统一应用", "分级长列表：切换动作条目的移动标记", "应用后撤销重做，并进行 XML 往返检查"),
@@ -52,7 +53,7 @@ CAPTIONS = {
     "unsaved": ("未保存模态：窗口内暗色确认提示保护当前修改", "取消保留文档，放弃修改后继续；不演示原生保存路径"),
 }
 SHORT_TITLES = {
-    "panels": "面板碰撞", "connections": "连接吸附", "selection": "选择编辑",
+    "panels": "面板碰撞", "connections": "连接吸附", "transforms": "旋转连接", "selection": "选择编辑",
     "view": "视角帮助", "staging": "属性分级", "topology": "树图拓扑",
     "repair": "歧义修复", "browser": "千船浏览", "unsaved": "未保存确认",
 }
@@ -118,7 +119,7 @@ def load_timeline(path):
 
 def validate_timeline(rows):
     if not isinstance(rows, list) or len(rows) != 2 * len(demo.CHAPTER_IDS):
-        raise VideoError("timeline 必须有九章完整的开始/结束事件")
+        raise VideoError("timeline 必须有十章完整的开始/结束事件")
     chapters = []
     last_ms = -1
     for index, chapter_id in enumerate(demo.CHAPTER_IDS):
@@ -173,7 +174,7 @@ def caption_entries(clips, duration):
         for index, text in enumerate(lines):
             start = clip["video_start_seconds"] + part * index
             entries.append((start, start + part, text))
-    entries.extend([(duration - OUTRO_SECONDS, duration, "当前完成：九章编辑器展示与报告检查通过；非完整游戏"),
+    entries.extend([(duration - OUTRO_SECONDS, duration, "当前完成：十章编辑器展示与报告检查通过；非完整游戏"),
                     (duration - OUTRO_SECONDS, duration, NOT_ACCEPTANCE)])
     return entries
 
@@ -188,7 +189,7 @@ def write_subtitles(output, clips, duration):
     srt_entries = [(0.0, INTRO_SECONDS, "dr-rs 开发进度\n" + NOT_ACCEPTANCE)]
     srt_entries.extend(entries[2:-2])
     srt_entries.append((duration - OUTRO_SECONDS, duration,
-                        "当前完成：九章编辑器展示与报告检查通过；非完整游戏\n" + NOT_ACCEPTANCE))
+                        "当前完成：十章编辑器展示与报告检查通过；非完整游戏\n" + NOT_ACCEPTANCE))
     srt = "\n\n".join(f"{i}\n{timestamp(start)} --> {timestamp(end)}\n{text}"
                        for i, (start, end, text) in enumerate(srt_entries, 1)) + "\n"
     (output / "progress.srt").write_text(srt, encoding="utf-8")
@@ -212,7 +213,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     dialogues = []
     def add(start, end, style, text):
         dialogues.append(f"Dialogue: 0,{timestamp(start, True)},{timestamp(end, True)},{style},,0,0,0,,{text}")
-    add(0, INTRO_SECONDS, "Card", ass_escape("dr-rs 开发进度\n九章编辑器能力展示"))
+    add(0, INTRO_SECONDS, "Card", ass_escape("dr-rs 开发进度\n十章编辑器能力展示"))
     add(0, INTRO_SECONDS, "Scope", ass_escape(NOT_ACCEPTANCE))
     for start, end, text in entries[2:-2]:
         add(start, end, "Subtitle", ass_escape(text))
@@ -222,7 +223,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         add(clip["video_start_seconds"], clip["video_end_seconds"], "Chapter",
             "{\\pos(36,1020)}" + ass_escape(title))
     add(duration - OUTRO_SECONDS, duration, "Card", ass_escape(
-        "当前完成\n九章编辑器展示与报告检查通过\n这是开发进度展示，并非完整游戏"))
+        "当前完成\n十章编辑器展示与报告检查通过\n这是开发进度展示，并非完整游戏"))
     add(duration - OUTRO_SECONDS, duration, "Scope", ass_escape(NOT_ACCEPTANCE))
     (output / "progress.ass").write_text(header + "\n".join(dialogues) + "\n", encoding="utf-8")
 
@@ -701,7 +702,7 @@ def record(options, output, manifest):
                 if report is not None:
                     break
                 if time.monotonic() >= deadline:
-                    raise VideoError("九章报告等待超时")
+                    raise VideoError("十章报告等待超时")
                 time.sleep(0.10)
             # 报告 passed 后才发 q；整个等待期间编辑器保持存活。
             stop_recorder(recorder)

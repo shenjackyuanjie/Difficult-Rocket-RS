@@ -406,7 +406,10 @@ mod tests {
             ];
             app.update();
             let mut input = app.world_mut().get_mut::<EguiInput>(entity).unwrap();
-            assert!(matches!(input.0.events.as_slice(), [egui::Event::Text(_)]));
+            assert!(
+                input.0.events.is_empty(),
+                "原生文本和误点都不能混入内部回放"
+            );
             let mut events = std::mem::take(&mut input.0.events);
             // 与 demo 的执行顺序一致：先隔离原生输入，再补当帧虚拟位置。
             events.push(egui::Event::PointerMoved(pos));

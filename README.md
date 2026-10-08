@@ -12,7 +12,7 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 
 ## 自动功能演示
 
-在本仓库根目录运行下列脚本，会自动打开一次编辑器窗口，在同一窗口内顺序演示九个章节。底部显示章节说明，紫色圆环表示内部演示指针。正常观看模式不再给所有步骤相同停顿：默认 450ms 是节奏倍率基准，技术步骤约 80ms、导航 120ms、拖动节点 200ms，点击与按键结果约 650/700ms，章首至少 1.2s、章尾 0.9s。指针移动按距离分配 200–800ms，在目标之间逐帧线性移动，零件拖动与背景平移随真实画布输入连续更新；到达目标后才应用点击/按键边沿，egui 按钮短按释放，再等待下一动作。编辑器照常每帧更新，只有操作步骤按节拍推进；40ms 快速回归模式跳过移动动画。底部九章说明框保留，并随当前操作解释三键区别与配置效果；默认左键选择/拖动/空白平移、中键框选，真实点击侧栏切换后展示左键框选/中键平移，右键用于取消预览；后代跟随开关也通过真实控件点击展示正反例。演示中的实际鼠标三键、滚轮、按键与组合键会在画布上弹出提示，拖动时持续显示按住状态，停留 250ms 后用 650ms 线性淡出；提示只绘制、不截获点击，键盘持续按住不会每帧刷新淡出寿命；帮助打开时暂停章节横幅并将按键提示放到下方，避免遮住帮助内容。
+在本仓库根目录运行下列脚本，会自动打开一次编辑器窗口，在同一窗口内顺序演示十个章节。底部显示章节说明，紫色圆环表示内部演示指针。正常观看模式不再给所有步骤相同停顿：默认 450ms 是节奏倍率基准，技术步骤约 80ms、导航 120ms、拖动节点 200ms，点击与按键结果约 650/700ms，章首至少 1.2s、章尾 0.9s。指针移动按距离分配 200–800ms，在目标之间逐帧线性移动，零件拖动与背景平移随真实画布输入连续更新；到达目标后才应用点击/按键边沿，egui 按钮短按释放，再等待下一动作。编辑器照常每帧更新，只有操作步骤按节拍推进；40ms 快速回归模式跳过移动动画。底部十章说明框保留，并随当前操作解释三键区别与配置效果；默认左键选择/拖动/空白平移、中键框选，真实点击侧栏切换后展示左键框选/中键平移，右键用于取消预览；后代跟随开关也通过真实控件点击展示正反例。演示中的实际鼠标三键、滚轮、按键与组合键会在画布上弹出提示，拖动时持续显示按住状态，停留 250ms 后用 650ms 线性淡出；提示只绘制、不截获点击，键盘持续按住不会每帧刷新淡出寿命；帮助打开时暂停章节横幅并将按键提示放到下方，避免遮住帮助内容。
 
 ```powershell
 # 正常观看：默认 450ms 节奏基准，演示完成后保留窗口
@@ -34,6 +34,7 @@ uv run --no-project --python 3.12 python -X utf8 scripts/demo_editor.py --output
 | --- | --- |
 | 部件目录与放置 | 点击目录、旋转/镜像预览、碰撞拒绝、放置与撤销、分类筛选及恢复全部 |
 | 连接点与吸附 | 紫色连接提示、长梁沿边吸附、多点连接、撤销及 XML 往返 |
+| 精细旋转、镜像与自由连接 | 真实点击 ±15° 与自由模式开关、Q/E 15°及 Shift 1°精调、16° 吸附与重叠超限拒绝、122° 双镜像拖拽、自由双点连/断、重叠放置不自动连接、多选变换和 XML 往返 |
 | 选择与编辑 | 默认与切换后的三键对照、真实点击框选键与后代跟随配置、增选/框选、连续拖动、拖拽 R 旋转、重叠落点保留、拖入列表删除连接组件、复制粘贴、撤销重做及右键取消 |
 | 视角与显示 | 整船/选区适配、普通模式调整窗口、调试显示与船体显隐、F1 帮助及输入隔离 |
 | 属性与分级 | 实际属性控件、分级列表滚动、草稿修改、应用及撤销重做 |
@@ -44,7 +45,9 @@ uv run --no-project --python 3.12 python -X utf8 scripts/demo_editor.py --output
 
 部件目录与未保存确认使用原版 `Test.xml`，重号修复使用原版 `Heronb.xml`；其它章节使用新建船体或独立夹具。演示专用分级夹具有 8 级、48 个动作，便于观看；独立 `--staging-smoke-test` 仍保留 64 级、1,024 个动作的长列表验收。原版样本仅只读加载、在内存中编辑，**不保存覆盖原版**；启动脚本在成功与异常路径都核对两个源样本的 SHA256，拒绝将输出目录设为包含这些样本的目录或祖先。
 
-每次成功输出完整的 `demo-report.json`、`demo-editor.log` 和逐章截图/XML 副本/专项 JSON 证据。独立的 `demo-timeline.jsonl` 记录九章开始/完成的 18 条 Unix 毫秒时间；`demo-actions.jsonl` 只记录实际重播后的鼠标按下、按键按下及非零滚轮事件，移动/松开不写入，同帧双输入渠道去重，用于音效同步。报告逐章记录通过状态和耗时，仅在九章完成后原子发布；脚本检查报告与声明的产物确实属于本次运行、非空且位于输出目录内，旧报告、缺失截图、提前退出或非零退出不算通过。耗时包含观看节拍和截图等待，**不是性能基准**。
+每次成功输出完整的 `demo-report.json`、`demo-editor.log` 和逐章截图/XML 副本/专项 JSON 证据。独立的 `demo-timeline.jsonl` 记录十章开始/完成的 20 条 Unix 毫秒时间；`demo-actions.jsonl` 只记录实际重播后的鼠标按下、按键按下及非零滚轮事件，移动/松开不写入，同帧双输入渠道去重，用于音效同步。报告逐章记录通过状态和耗时，仅在十章完成后原子发布；脚本检查报告与声明的产物确实属于本次运行、非空且位于输出目录内，旧报告、缺失截图、提前退出或非零退出不算通过。耗时包含观看节拍和截图等待，**不是性能基准**。
+
+演示进行中隔离原生鼠标、按键、文字和滚轮输入，误点窗口不会打断内部拖拽；演示自身的失焦取消步骤仍保留。普通编辑器不受此隔离影响；关闭窗口仍会中断演示，不能算作通过。
 
 这是有断言的真实窗口演示，但采用内部 Bevy/egui 输入注入和虚拟指针，不移动系统鼠标、不发送系统键盘事件，也不冒充前台系统键鼠或输入法验收。原生打开/保存路径选择不纳入自动演示，仍由 `scripts/check_native_dialogs.py` 单独验收。观看时请不要同时操作鼠标键盘，也不要并行运行其它窗口自测：专项流程会先在 `target` 写临时证据，再归档到本次演示目录。默认完成后窗口可继续手动使用或关闭。
 
@@ -56,7 +59,7 @@ uv run --no-project --python 3.12 python -B -m unittest discover -s scripts -p t
 
 ## 渲染无配音 1080p 进度视频
 
-Windows 下使用 FFmpeg/ffprobe 与系统微软雅黑字体，将同一窗口中的九章真实操作录为 H.264 视频，并烧录中文字幕。默认静音；可用 `--sound-effects` 添加根据真实动作时间同步的低音量短音效，不含配音、音乐或外部版权资源。不是截图轮播；操作依然由内部 Bevy/egui 输入驱动，不冒充系统键鼠、输入法或原生路径选择验收。
+Windows 下使用 FFmpeg/ffprobe 与系统微软雅黑字体，将同一窗口中的十章真实操作录为 H.264 视频，并烧录中文字幕。默认静音；可用 `--sound-effects` 添加根据真实动作时间同步的低音量短音效，不含配音、音乐或外部版权资源。不是截图轮播；操作依然由内部 Bevy/egui 输入驱动，不冒充系统键鼠、输入法或原生路径选择验收。
 
 ```powershell
 # 自动构建（必要时）、录制与渲染；使用新的独立目录
@@ -75,11 +78,11 @@ python -X utf8 scripts/render_demo_video.py --render-only target/video-progress-
 python -B -m unittest discover -s scripts -p test_render_demo_video.py -v
 ```
 
-录制专用 `--demo-presentation` 保持原生客户端 1920×1080、无边框、scale factor 1；视图/拓扑的普通专项仍测试 960×640。成片为 **1920×1080、30fps、H.264、yuv420p**，默认无音轨，音效模式为 48kHz 单声道 AAC，含 4s 片头与 5s 进度总结。原始编辑器画面等比缩放到上方 1706×960，保留编辑器底部的九章说明展示框，画面下方另留 120px 字幕带；视频章名与字幕不覆盖展示框或编辑控件。
+录制专用 `--demo-presentation` 保持原生客户端 1920×1080、无边框、scale factor 1；视图/拓扑的普通专项仍测试 960×640。成片为 **1920×1080、30fps、H.264、yuv420p**，默认无音轨，音效模式为 48kHz 单声道 AAC，含 4s 片头与 5s 进度总结。原始编辑器画面等比缩放到上方 1706×960，保留编辑器底部的十章说明展示框，画面下方另留 120px 字幕带；视频章名与字幕不覆盖展示框或编辑控件。
 
 脚本只定位与清理它创建的 PID/HWND；启用 DPI awareness，检查客户区与外框双尺寸及稳态，再使用 `gdigrab desktop` 的输入端坐标/尺寸参数，仅捕获该窗口的 1920×1080 物理客户区，不先录制整个桌面再裁剪。它不是离屏捕获，编辑器会临时置顶，录制中持续检查所有权、几何、最小化状态和九点遮挡采样；九点采样不是绝对无遮挡保证，请保持桌面可见、不要同时运行其它 GUI 自测。
 
-九章报告与原版样本 SHA256 保护全部通过后才结束录制；依据 `demo-timeline.jsonl` 与 FFmpeg 实际 Unix 起点裁掉章间初始化等待，不加速真实操作。烧字幕前先对原始视频的每个保留章节检测实质像素变化，排除底部进度说明区域及微小编码噪声，冻结章节会被拒绝；低分辨率动态检测不能代替人工逐章观看。音效模式将实际 `demo-actions.jsonl` 事件映射到同一剪辑时间线，用标准库确定性合成 75ms 短音色并限制混音峰值，不为指针移动或松开添加噪声。最终 `dr-rs-progress-1080p.mp4` 在 ffprobe 规格和时长检查通过后才发布；`progress.srt`/`progress.ass` 是可复用字幕，`video-manifest.json` 记录命令、章节时间、动态检查、音效映射、哈希与规格，失败保留原始视频和日志以便排查。
+十章报告与原版样本 SHA256 保护全部通过后才结束录制；依据 `demo-timeline.jsonl` 与 FFmpeg 实际 Unix 起点裁掉章间初始化等待，不加速真实操作。烧字幕前先对原始视频的每个保留章节检测实质像素变化，排除底部进度说明区域及微小编码噪声，冻结章节会被拒绝；低分辨率动态检测不能代替人工逐章观看。音效模式将实际 `demo-actions.jsonl` 事件映射到同一剪辑时间线，用标准库确定性合成 75ms 短音色并限制混音峰值，不为指针移动或松开添加噪声。最终 `dr-rs-progress-1080p.mp4` 在 ffprobe 规格和时长检查通过后才发布；`progress.srt`/`progress.ass` 是可复用字幕，`video-manifest.json` 记录命令、章节时间、动态检查、音效映射、哈希与规格，失败保留原始视频和日志以便排查。
 
 ## 手动操作
 
@@ -154,6 +157,7 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --pro
 cargo run -p dr-editor -- --egui-smoke-test
 cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --native-ime-test
 cargo run -p dr-editor -- --connection-smoke-test
+cargo run -p dr-editor -- --transforms-smoke-test
 cargo run -p dr-editor -- --scoped-smoke-test
 cargo run -p dr-editor -- --selection-smoke-test
 cargo run -p dr-editor -- --view-smoke-test
@@ -176,6 +180,8 @@ python -X utf8 scripts/check_native_dialogs.py
 `--native-ime-test` 仅适用于 Windows：在窗口创建线程通过已加载的简体中文 IMM 输入法生成真实预编辑/提交消息，经 Winit/Bevy/bevy_egui 进入 TextEdit，检查候选窗定位、草稿隔离、应用、撤销重做及 XML 往返。输出 `target/editor-native-ime.png` 和 `target/native-ime-smoke.xml`；此专项不代表所有第三方输入法或候选列表操作。
 
 `--connection-smoke-test` 从默认新建船体开始，用原版长梁和两个分离器验证沿边吸附、同边多点连接、原子撤销/重做及保存往返，并捕获前景连接提示预览，输出 `target/editor-connection-hints.png`、`target/editor-connections-smoke.png` 和 `target/connections-smoke.xml`；运行时不要传 `--ship`。
+
+`--transforms-smoke-test` 使用原版部件目录、独立内存夹具及实际 egui 控件/画布输入，演示并断言精细旋转按钮、15°/1° 快捷键、非直角吸附与 5% 超限断连、122° 双轴镜像组合拖拽与渲染姿态、自由模式远距离手动连/断、重叠放置不自动连接、多选整体旋转镜像、原子撤销重做及 XML 往返。输出五张阶段截图和 `target/transforms-smoke.xml/json`；新增内容同时作为完整 demo 的第三章，不写回原版样本，不需要渲染视频。它采用内部输入注入，不冒充系统键鼠/输入法验收。
 
 `--scoped-smoke-test` 使用原版分离器构造三个复用 ID 的组，通过真实窗口的鼠标及快捷键输入验证选择、拖动预览、删除、跨组吸附、撤销重做及 XML 保存往返，输出 `target/editor-scoped-smoke.png` 和 `target/scoped-smoke.xml`。`verify_scoped_edits` 在真实重复 ID 样本中每组抽取一个实例，并额外覆盖同组重复实例，检查属性编辑、撤销重做和往返；原版库目前覆盖 34 个样本、282 个实例，另 5 个异常输入使程序如实返回非零状态，不修改样本。
 
@@ -207,7 +213,7 @@ uv run --no-project --python 3.12 python -X utf8 scripts/check_native_input.py
 
 窗口驱动可用 `--editor-bin <编辑器程序路径>` 指定独立构建产物，避免覆盖正在运行的默认程序；例如 `cargo rustc -p dr-editor --bin dr-editor -- -o target/drag-editor.exe` 后以 `--editor-bin target/drag-editor.exe` 验收，不强制关闭已有编辑器窗口。
 
-置前/失焦干扰最多自动重试三次，连续失败时尝试通过本机 noticer 的 `sr1` 房间提醒；程序断言和数据错误直接失败，不作为焦点失败重试。测试时会短暂置前窗口，不永久置顶、不向其他应用发送快捷键。产物位于 `target/foreground-*`，最近成功路径记录在 `target/foreground-last.txt`。可用 `--window-case keys` 运行真实系统快捷键验收，使用 `--window-case panels|connections|scoped|selection|view|topology|interaction|unsaved` 在受控前台运行已有注入式窗口回归，或 `--window-case performance --selection-count 1000` 测量拖动；前台受控不意味着这些旧回归已改为系统输入。
+置前/失焦干扰最多自动重试三次，连续失败时尝试通过本机 noticer 的 `sr1` 房间提醒；程序断言和数据错误直接失败，不作为焦点失败重试。测试时会短暂置前窗口，不永久置顶、不向其他应用发送快捷键。产物位于 `target/foreground-*`，最近成功路径记录在 `target/foreground-last.txt`。可用 `--window-case keys` 运行真实系统快捷键验收，使用 `--window-case panels|connections|transforms|scoped|selection|view|topology|interaction|unsaved` 在受控前台运行已有注入式窗口回归，或 `--window-case performance --selection-count 1000` 测量拖动；前台受控不意味着这些旧回归已改为系统输入。
 
 前台驱动自身的无副作用回归：`uv run --no-project --python 3.12 python -X utf8 -m unittest discover -s scripts -p test_native_input_driver.py`。
 
