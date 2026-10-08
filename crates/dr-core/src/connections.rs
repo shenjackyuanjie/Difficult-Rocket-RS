@@ -3,6 +3,8 @@ use crate::geometry::{SnapCandidate, part_world_attach};
 use crate::{AttachPoint, Connection, Part, PartCatalog, PartKind, PartType, Ship, Vec2d};
 
 const EPSILON: f64 = 1e-6;
+/// 编辑器中的邻近连接距离，单位与 Ship 坐标一致。
+pub const CONNECTION_DISTANCE: f64 = 0.35;
 
 fn dot(a: Vec2d, b: Vec2d) -> f64 {
     a.x * b.x + a.y * b.y
@@ -34,17 +36,6 @@ fn direction(part: &Part, x: f64, y: f64) -> Vec2d {
         x: x * cos - y * sin,
         y: x * sin + y * cos,
     }
-}
-
-fn normal(part: &Part, attach: &AttachPoint) -> Option<Vec2d> {
-    let (x, y) = match attach.location.as_str() {
-        "Top" | "TopSide" | "TopCenter" => (0.0, 1.0),
-        "Bottom" | "BottomSide" | "BottomCenter" => (0.0, -1.0),
-        "Left" | "LeftSide" | "LeftCenter" => (-1.0, 0.0),
-        "Right" | "RightSide" | "RightCenter" => (1.0, 0.0),
-        _ => return None,
-    };
-    Some(direction(part, x, y))
 }
 
 pub fn segment(part: &Part, kind: &PartType, attach: &AttachPoint) -> (Vec2d, Vec2d) {
@@ -108,10 +99,10 @@ pub fn closest_points(a: (Vec2d, Vec2d), b: (Vec2d, Vec2d)) -> (Vec2d, Vec2d) {
 }
 
 pub fn compatible(
-    source: &Part,
+    _source: &Part,
     st: &PartType,
     sa: &AttachPoint,
-    target: &Part,
+    _target: &Part,
     tt: &PartType,
     ta: &AttachPoint,
 ) -> bool {
@@ -127,10 +118,8 @@ pub fn compatible(
     {
         return false;
     }
-    match (normal(source, sa), normal(target, ta)) {
-        (Some(a), Some(b)) => dot(a, b) < -1.0 + EPSILON,
-        _ => true,
-    }
+    // 任意角度的点/边可以连接，不要求法线严格相反；实体重叠另行校验。
+    true
 }
 
 pub fn candidates(
@@ -396,6 +385,24 @@ pub fn available(
 
 /// 有目录的编辑提交使用此校验；读取已有 XML 时保留原连接。
 pub fn validate(ship: &Ship, catalog: &PartCatalog, connection: &Connection) -> Result<(), String> {
+    validate_mode(ship, catalog, connection, false)
+}
+
+/// 自由模式只校验可保存的端点和连接点类型，不检查几何或占用。
+pub fn validate_manual(
+    ship: &Ship,
+    catalog: &PartCatalog,
+    connection: &Connection,
+) -> Result<(), String> {
+    validate_mode(ship, catalog, connection, true)
+}
+
+fn validate_mode(
+    ship: &Ship,
+    catalog: &PartCatalog,
+    connection: &Connection,
+    free: bool,
+) -> Result<(), String> {
     let Connection::Normal {
         parent,
         child,
@@ -425,6 +432,16 @@ pub fn validate(ship: &Ship, catalog: &PartCatalog, connection: &Connection) -> 
         {
             return Err("对接连接需要插头与端口".into());
         }
+        if free {
+            if [*parent, *child].into_iter().all(|id| {
+                ship.part(id)
+                    .and_then(|part| catalog.get(&part.part_type))
+                    .is_some_and(|kind| kind.attach_points.iter().any(|attach| attach.dock))
+            }) {
+                return Ok(());
+            }
+            return Err("对接连接点不存在".into());
+        }
         if ship
             .all_connections()
             .any(|c| matches!(c, Connection::Dock { .. }) && (c.touches(*dock) || c.touches(peer)))
@@ -435,13 +452,16 @@ pub fn validate(ship: &Ship, catalog: &PartCatalog, connection: &Connection) -> 
         let target = ship.part(*parent).ok_or("连接部件不存在")?;
         let st = catalog.get(&source.part_type).ok_or("连接部件不在目录中")?;
         let tt = catalog.get(&target.part_type).ok_or("连接部件不在目录中")?;
-        if !candidates(source, st, target, tt, EPSILON)
+        if crate::geometry::editor_overlap_blocked(source, st, target, tt) {
+            return Err("连接部件的实体重叠必须小于 5%".into());
+        }
+        if !candidates(source, st, target, tt, CONNECTION_DISTANCE)
             .iter()
             .any(|candidate| {
                 candidate.dock && available(ship, catalog, source, st, target, tt, candidate, None)
             })
         {
-            return Err("没有接触且可用的对接连接点".into());
+            return Err("没有足够接近且可用的对接连接点".into());
         }
         return Ok(());
     };
@@ -460,11 +480,17 @@ pub fn validate(ship: &Ship, catalog: &PartCatalog, connection: &Connection) -> 
     let sa = st.attach_points.get(si).ok_or("连接点超出目录范围")?;
     let ta = tt.attach_points.get(ti).ok_or("连接点超出目录范围")?;
     if sa.dock || ta.dock || !compatible(source, st, sa, target, tt, ta) {
-        return Err("连接点类型或方向不兼容".into());
+        return Err("连接点类型不兼容".into());
+    }
+    if free {
+        return Ok(());
+    }
+    if crate::geometry::editor_overlap_blocked(source, st, target, tt) {
+        return Err("连接部件的实体重叠必须小于 5%".into());
     }
     let (a, b) = closest_points(segment(source, st, sa), segment(target, tt, ta));
-    if !a.distance(b).is_finite() || a.distance(b) > EPSILON {
-        return Err("连接点未接触".into());
+    if !a.distance(b).is_finite() || a.distance(b) > CONNECTION_DISTANCE {
+        return Err("连接点距离过远".into());
     }
     if occupied(ship, catalog, source, st, si, a, None)
         || occupied(ship, catalog, target, tt, ti, b, None)

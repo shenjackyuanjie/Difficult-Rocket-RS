@@ -1,5 +1,8 @@
 use crate::model::{AttachPoint, Part, PartKind, PartType};
 
+mod overlap;
+pub use overlap::{MAX_EDITOR_OVERLAP, editor_overlap_blocked, overlap_ratio};
+
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Vec2d {
     pub x: f64,
@@ -117,6 +120,20 @@ impl<'a> CollisionSet<'a> {
     }
 
     pub fn intersects(&self, part: &Part, kind: &PartType) -> bool {
+        self.any_nearby(part, kind, intersects)
+    }
+
+    /// 编辑连接允许轻微相交，但必须严格小于较小实体面积的 5%。
+    pub fn editor_overlap_blocked(&self, part: &Part, kind: &PartType) -> bool {
+        self.any_nearby(part, kind, editor_overlap_blocked)
+    }
+
+    fn any_nearby(
+        &self,
+        part: &Part,
+        kind: &PartType,
+        check: impl Fn(&Part, &PartType, &Part, &PartType) -> bool,
+    ) -> bool {
         if kind.ignore_editor_intersections {
             return false;
         }
@@ -133,7 +150,7 @@ impl<'a> CollisionSet<'a> {
             .any(|(other, other_kind, other_radius)| {
                 let distance_squared = (part.x - other.x).powi(2) + (part.y - other.y).powi(2);
                 distance_squared <= (radius + other_radius).powi(2)
-                    && intersects(part, kind, other, other_kind)
+                    && check(part, kind, other, other_kind)
             })
     }
 }

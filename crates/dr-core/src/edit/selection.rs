@@ -6,8 +6,35 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 pub enum SelectionTransform {
     Translate { dx: f64, dy: f64 },
     Rotate { center: (f64, f64) },
+    RotateBy { center: (f64, f64), radians: f64 },
     FlipX { center: (f64, f64) },
     FlipY { center: (f64, f64) },
+}
+
+/// 2D 刚体姿态：先绕基准点镜像世界轴，再旋转；位移单独提交。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SelectionPose {
+    pub pivot: (f64, f64),
+    pub radians: f64,
+    pub flip_x: bool,
+    pub flip_y: bool,
+}
+
+impl SelectionPose {
+    pub fn point(self, point: (f64, f64), delta: (f64, f64)) -> (f64, f64) {
+        let (mut x, mut y) = (point.0 - self.pivot.0, point.1 - self.pivot.1);
+        if self.flip_x {
+            x = -x;
+        }
+        if self.flip_y {
+            y = -y;
+        }
+        let (sin, cos) = self.radians.sin_cos();
+        (
+            self.pivot.0 + x * cos - y * sin + delta.0,
+            self.pivot.1 + x * sin + y * cos + delta.1,
+        )
+    }
 }
 
 impl SelectionTransform {
@@ -31,6 +58,28 @@ impl SelectionTransform {
                 part.angle =
                     (part.angle + std::f64::consts::FRAC_PI_2).rem_euclid(std::f64::consts::TAU);
                 part.editor_angle = (part.editor_angle.rem_euclid(4) + 1).rem_euclid(4);
+            }
+            Self::RotateBy {
+                center: (x, y),
+                radians,
+            } => {
+                if !radians.is_finite() || !x.is_finite() || !y.is_finite() {
+                    return Err(CommandError::Invalid);
+                }
+                if catalog
+                    .and_then(|catalog| catalog.get(&part.part_type))
+                    .is_some_and(|kind| kind.disable_editor_rotation)
+                {
+                    return Err(CommandError::InvalidSelection(format!(
+                        "部件 {} 不允许旋转",
+                        part.part_type
+                    )));
+                }
+                let (sin, cos) = radians.sin_cos();
+                let (dx, dy) = (part.x - x, part.y - y);
+                (part.x, part.y) = (x + dx * cos - dy * sin, y + dx * sin + dy * cos);
+                part.angle = (part.angle + radians).rem_euclid(std::f64::consts::TAU);
+                part.editor_angle = (part.angle / std::f64::consts::FRAC_PI_2).round() as i32 % 4;
             }
             Self::FlipX { center: (x, _) } => {
                 part.x = 2.0 * x - part.x;
@@ -84,6 +133,16 @@ pub fn preview(
     parts: &[PartKey],
     transform: SelectionTransform,
 ) -> Result<Vec<(PartKey, Part)>, CommandError> {
+    preview_mode(ship, catalog, parts, transform, false)
+}
+
+fn preview_mode(
+    ship: &Ship,
+    catalog: Option<&PartCatalog>,
+    parts: &[PartKey],
+    transform: SelectionTransform,
+    free: bool,
+) -> Result<Vec<(PartKey, Part)>, CommandError> {
     let keys = keys(ship, parts)?;
     let mut result = Vec::with_capacity(keys.len());
     for (key, original) in ship.keyed_parts().filter(|(key, _)| keys.contains(key)) {
@@ -91,7 +150,7 @@ pub fn preview(
         transform.apply(&mut part, catalog)?;
         result.push((key, part));
     }
-    if let Some(catalog) = catalog {
+    if !free && let Some(catalog) = catalog {
         let others = CollisionSet::new(
             ship.keyed_parts()
                 .filter(|(key, _)| !keys.contains(key))
@@ -111,10 +170,10 @@ fn collides(
     others: &CollisionSet<'_>,
 ) -> Result<(), CommandError> {
     if let Some(kind) = catalog.get(&part.part_type)
-        && others.intersects(part, kind)
+        && others.editor_overlap_blocked(part, kind)
     {
         return Err(CommandError::InvalidSelection(
-            "部件与选择之外的部件重叠".into(),
+            "部件与选择之外的部件重叠达到 5%".into(),
         ));
     }
     Ok(())
@@ -125,9 +184,10 @@ pub(super) fn transform(
     catalog: Option<&PartCatalog>,
     parts: &[PartKey],
     transform: SelectionTransform,
+    free: bool,
 ) -> Result<(), CommandError> {
-    let proposed = preview(ship, catalog, parts, transform)?;
-    install(ship, proposed)
+    let proposed = preview_mode(ship, catalog, parts, transform, free)?;
+    install(ship, proposed, free)
 }
 
 /// 刚体拖拽预览；碰撞是警告而非撤销，旋转权限与有限数值仍严格校验。
@@ -138,12 +198,45 @@ pub fn drag_part(
     turns: u8,
     delta: (f64, f64),
 ) -> Result<Part, CommandError> {
-    if !pivot.0.is_finite() || !pivot.1.is_finite() {
+    pose_part(
+        original,
+        catalog,
+        SelectionPose {
+            pivot,
+            radians: (turns % 4) as f64 * std::f64::consts::FRAC_PI_2,
+            ..Default::default()
+        },
+        delta,
+    )
+}
+
+pub fn pose_part(
+    original: &Part,
+    catalog: Option<&PartCatalog>,
+    pose: SelectionPose,
+    delta: (f64, f64),
+) -> Result<Part, CommandError> {
+    if !pose.pivot.0.is_finite() || !pose.pivot.1.is_finite() || !pose.radians.is_finite() {
         return Err(CommandError::Invalid);
     }
     let mut part = original.clone();
-    for _ in 0..turns % 4 {
-        SelectionTransform::Rotate { center: pivot }.apply(&mut part, catalog)?;
+    if pose.flip_x {
+        SelectionTransform::FlipX { center: pose.pivot }.apply(&mut part, catalog)?;
+    }
+    if pose.flip_y {
+        SelectionTransform::FlipY { center: pose.pivot }.apply(&mut part, catalog)?;
+    }
+    let quarters = pose.radians / std::f64::consts::FRAC_PI_2;
+    if (quarters - quarters.round()).abs() < 1e-10 {
+        for _ in 0..(quarters.round().rem_euclid(4.0) as u8) {
+            SelectionTransform::Rotate { center: pose.pivot }.apply(&mut part, catalog)?;
+        }
+    } else {
+        SelectionTransform::RotateBy {
+            center: pose.pivot,
+            radians: pose.radians,
+        }
+        .apply(&mut part, catalog)?;
     }
     SelectionTransform::Translate {
         dx: delta.0,
@@ -160,17 +253,44 @@ pub(super) fn drag(
     pivot: (f64, f64),
     turns: u8,
     delta: (f64, f64),
+    free: bool,
+) -> Result<(), CommandError> {
+    drag_pose(
+        ship,
+        catalog,
+        parts,
+        SelectionPose {
+            pivot,
+            radians: (turns % 4) as f64 * std::f64::consts::FRAC_PI_2,
+            ..Default::default()
+        },
+        delta,
+        free,
+    )
+}
+
+pub(super) fn drag_pose(
+    ship: &mut Ship,
+    catalog: Option<&PartCatalog>,
+    parts: &[PartKey],
+    pose: SelectionPose,
+    delta: (f64, f64),
+    free: bool,
 ) -> Result<(), CommandError> {
     let keys = keys(ship, parts)?;
     let proposed = ship
         .keyed_parts()
         .filter(|(key, _)| keys.contains(key))
-        .map(|(key, part)| Ok((key, drag_part(part, catalog, pivot, turns, delta)?)))
+        .map(|(key, part)| Ok((key, pose_part(part, catalog, pose, delta)?)))
         .collect::<Result<Vec<_>, CommandError>>()?;
-    install(ship, proposed)
+    install(ship, proposed, free)
 }
 
-fn install(ship: &mut Ship, proposed: Vec<(PartKey, Part)>) -> Result<(), CommandError> {
+fn install(
+    ship: &mut Ship,
+    proposed: Vec<(PartKey, Part)>,
+    free: bool,
+) -> Result<(), CommandError> {
     let originals: HashMap<_, _> = ship.keyed_parts().collect();
     if proposed
         .iter()
@@ -183,6 +303,9 @@ fn install(ship: &mut Ship, proposed: Vec<(PartKey, Part)>) -> Result<(), Comman
         selected.entry(key.group).or_default().insert(key.id);
     }
     for (group, ids) in &selected {
+        if free {
+            continue;
+        }
         let (parts, connections) = ship.group(*group).unwrap();
         let mut counts = HashMap::<PartId, usize>::new();
         for part in parts {
@@ -197,6 +320,9 @@ fn install(ship: &mut Ship, proposed: Vec<(PartKey, Part)>) -> Result<(), Comman
         }
     }
     for (group, selected) in selected {
+        if free {
+            continue;
+        }
         ship.group_mut(group).unwrap().1.retain(|connection| {
             let ids = references(connection);
             !ids.iter().any(|id| selected.contains(id))
@@ -363,6 +489,7 @@ pub(super) fn paste(
     catalog: Option<&PartCatalog>,
     fragment: &ShipFragment,
     offset: (f64, f64),
+    free: bool,
 ) -> Result<(), CommandError> {
     let mut groups = fragment.groups.clone();
     let collision_set = catalog.map(|catalog| CollisionSet::new(ship.all_parts(), catalog));
@@ -408,7 +535,7 @@ pub(super) fn paste(
                 dy: offset.1,
             }
             .apply(part, catalog)?;
-            if let Some(catalog) = catalog {
+            if !free && let Some(catalog) = catalog {
                 collides(catalog, part, collision_set.as_ref().unwrap())?;
             }
         }

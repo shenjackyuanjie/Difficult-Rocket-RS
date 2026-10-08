@@ -319,7 +319,7 @@ fn moving_source_can_reuse_its_own_connection_but_not_another_contact() {
 }
 
 #[test]
-fn directions_follow_rotation_mirrors_and_docking_requires_matching_types() {
+fn arbitrary_directions_are_allowed_but_docking_requires_matching_types() {
     let catalog = catalog();
     let small = catalog.get("small").unwrap();
     assert!(small.attach_points[3].flip_x && small.attach_points[3].flip_y);
@@ -333,7 +333,7 @@ fn directions_follow_rotation_mirrors_and_docking_requires_matching_types() {
         small,
         &small.attach_points[1]
     ));
-    assert!(!compatible(
+    assert!(compatible(
         &source,
         small,
         &small.attach_points[0],
@@ -405,6 +405,143 @@ fn directions_follow_rotation_mirrors_and_docking_requires_matching_types() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn unequal_non_quarter_angles_connect_only_below_five_percent_and_nearby() {
+    let catalog = catalog();
+    let kind = catalog.get("small").unwrap();
+    for base_angle in [0.0_f64, 0.19, 1.3] {
+        for (angle, accepted) in [(0.37_f64, true), (std::f64::consts::FRAC_PI_6, false)] {
+            let mut target = kind.instantiate(1, (2.0, -3.0));
+            target.angle = base_angle;
+            let offset = Vec2d {
+                x: 0.5 + angle.cos() / 2.0,
+                y: angle.sin() / 2.0,
+            };
+            let mut source = kind.instantiate(
+                2,
+                (
+                    target.x + offset.x * base_angle.cos() - offset.y * base_angle.sin(),
+                    target.y + offset.x * base_angle.sin() + offset.y * base_angle.cos(),
+                ),
+            );
+            source.angle = base_angle + angle;
+            let ratio = crate::geometry::overlap_ratio(&source, kind, &target, kind);
+            assert_eq!(ratio < 0.05, accepted, "相对角度 {angle}，重叠 {ratio}");
+            let mut ship = Ship {
+                parts: vec![target, source],
+                ..Default::default()
+            };
+            let before = ship.clone();
+            let mut history = EditorHistory::default();
+            let result = history.execute_with_catalog(
+                &mut ship,
+                &catalog,
+                EditorCommand::Connect(connection(1, 2, 4, 3)),
+            );
+            assert_eq!(result.is_ok(), accepted);
+            if accepted {
+                let (a, b) = positions(&ship, &catalog, &ship.connections[0]).unwrap();
+                assert!(a.distance(b) < 1e-9);
+                assert_eq!(
+                    crate::ship_from_xml(&crate::ship_to_xml(&ship).unwrap()).unwrap(),
+                    ship
+                );
+                history.undo(&mut ship);
+            }
+            assert_eq!(ship, before);
+        }
+    }
+    let mut ship = Ship {
+        parts: vec![
+            kind.instantiate(1, (0.0, 0.0)),
+            kind.instantiate(2, (1.2, 0.0)),
+        ],
+        ..Default::default()
+    };
+    assert!(validate(&ship, &catalog, &connection(1, 2, 4, 3)).is_ok());
+    ship.parts[1].x = 1.351;
+    assert!(validate(&ship, &catalog, &connection(1, 2, 4, 3)).is_err());
+}
+
+#[test]
+fn free_connections_bypass_distance_overlap_and_occupancy_but_keep_references_valid() {
+    use crate::{LinkKind, PartKey, ShipGroup};
+    let catalog = catalog();
+    let kind = catalog.get("small").unwrap();
+    let mut ship = Ship {
+        parts: vec![
+            kind.instantiate(1, (0.0, 0.0)),
+            kind.instantiate(2, (0.0, 0.0)),
+            kind.instantiate(3, (10.0, 5.0)),
+        ],
+        ..Default::default()
+    };
+    let original = ship.clone();
+    let mut history = EditorHistory::default();
+    for child in [2, 3] {
+        history
+            .execute_with_catalog(
+                &mut ship,
+                &catalog,
+                EditorCommand::FreeEdit(Box::new(EditorCommand::Connect(connection(
+                    1, child, 1, 1,
+                )))),
+            )
+            .unwrap();
+    }
+    assert_eq!(ship.connections.len(), 2);
+    assert_eq!(
+        crate::ship_from_xml(&crate::ship_to_xml(&ship).unwrap()).unwrap(),
+        ship
+    );
+    let before = ship.clone();
+    assert!(
+        history
+            .execute_with_catalog(
+                &mut ship,
+                &catalog,
+                EditorCommand::FreeEdit(Box::new(EditorCommand::Connect(connection(1, 3, 99, 2))))
+            )
+            .is_err()
+    );
+    assert_eq!(ship, before);
+    history.undo(&mut ship);
+    history.undo(&mut ship);
+    assert_eq!(ship, original);
+    assert!(history.can_redo());
+    assert!(
+        history
+            .execute_with_catalog(
+                &mut ship,
+                &catalog,
+                EditorCommand::FreeEdit(Box::new(EditorCommand::Connect(connection(1, 1, 1, 2))))
+            )
+            .is_err()
+    );
+    assert!(history.can_redo());
+    ship.disconnected.push(ShipGroup {
+        parts: vec![kind.instantiate(1, (20.0, 0.0))],
+        connections: vec![],
+    });
+    history
+        .execute_with_catalog(
+            &mut ship,
+            &catalog,
+            EditorCommand::FreeEdit(Box::new(EditorCommand::ConnectParts {
+                parent: PartKey::new(0, 1, 0),
+                child: PartKey::new(1, 1, 0),
+                kind: LinkKind::Normal {
+                    parent_attach: 1,
+                    child_attach: 2,
+                },
+            })),
+        )
+        .unwrap();
+    assert!(ship.disconnected.is_empty());
+    assert_ne!(ship.parts.last().unwrap().id, 1);
+    assert_eq!(ship.connections.len(), 1);
 }
 
 #[test]

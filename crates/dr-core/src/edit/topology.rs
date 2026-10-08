@@ -21,6 +21,7 @@ pub fn reparent(
     parent: PartKey,
     child: PartKey,
     kind: &LinkKind,
+    free: bool,
 ) -> Result<(), CommandError> {
     let graph = Topology::from_ship(ship);
     let p = graph
@@ -66,5 +67,5 @@ pub fn reparent(
         }
         unlink(ship, &edge.reference)?;
     }
-    scoped::connect(ship, catalog, parent, child, kind)
+    scoped::connect(ship, catalog, parent, child, kind, free)
 }

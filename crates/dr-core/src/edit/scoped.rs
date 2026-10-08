@@ -152,6 +152,7 @@ pub(super) fn connect(
     parent: PartKey,
     child: PartKey,
     kind: &LinkKind,
+    free: bool,
 ) -> Result<(), CommandError> {
     if parent == child || parent.id <= 0 || child.id <= 0 {
         return Err(CommandError::Invalid);
@@ -254,8 +255,12 @@ pub(super) fn connect(
         return Err(CommandError::Invalid);
     }
     if let Some(catalog) = catalog {
-        crate::connections::validate(&merged, catalog, &connection)
-            .map_err(CommandError::InvalidConnection)?;
+        let validate = if free {
+            crate::connections::validate_manual
+        } else {
+            crate::connections::validate
+        };
+        validate(&merged, catalog, &connection).map_err(CommandError::InvalidConnection)?;
     }
     merged.connections.push(connection);
     let (parts, connections) = ship.group_mut(target).unwrap();

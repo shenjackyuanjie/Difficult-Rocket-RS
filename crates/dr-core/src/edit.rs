@@ -1,7 +1,7 @@
 mod repair;
 pub mod selection;
 mod topology;
-pub use selection::{SelectionTransform, ShipFragment};
+pub use selection::{SelectionPose, SelectionTransform, ShipFragment};
 pub(crate) mod scoped;
 pub use repair::{ConnectionRole, DuplicateRepair, ReferenceSite};
 
@@ -32,6 +32,8 @@ pub enum CommandError {
 
 #[derive(Debug, Clone)]
 pub enum EditorCommand {
+    /// 自由编辑：关闭几何/占用判定，变换保留外部连接；引用和目录约束仍校验。
+    FreeEdit(Box<EditorCommand>),
     RemoveConnection(crate::topology::ConnectionRef),
     /// 树编辑只替换唯一父边，拒绝引入环或静默抹去多父关系。
     Reparent {
@@ -53,6 +55,12 @@ pub enum EditorCommand {
         parts: Vec<PartKey>,
         pivot: (f64, f64),
         turns: u8,
+        delta: (f64, f64),
+    },
+    /// 任意角度及轴向镜像的拖拽，姿态和位移原子提交。
+    DragPoseSelection {
+        parts: Vec<PartKey>,
+        pose: SelectionPose,
         delta: (f64, f64),
     },
     Paste {
@@ -253,7 +261,7 @@ impl EditorCommand {
         catalog: Option<&PartCatalog>,
     ) -> Result<Ship, CommandError> {
         let mut after = ship.clone();
-        self.apply_inner(&mut after, catalog, None)?;
+        self.apply_inner(&mut after, catalog, None, false)?;
         // 批量命令完成后再压缩被编辑清空的组，保留输入本身已有的空组。
         let mut group = 0;
         after.disconnected.retain(|current| {
@@ -273,46 +281,53 @@ impl EditorCommand {
         ship: &mut Ship,
         catalog: Option<&PartCatalog>,
         scope: Option<PartKey>,
+        free: bool,
     ) -> Result<(), CommandError> {
         match self {
+            Self::FreeEdit(command) => command.apply_inner(ship, catalog, scope, true)?,
             Self::RemoveConnection(reference) => topology::unlink(ship, reference)?,
             Self::Reparent {
                 parent,
                 child,
                 kind,
-            } => topology::reparent(ship, catalog, *parent, *child, kind)?,
+            } => topology::reparent(ship, catalog, *parent, *child, kind, free)?,
             Self::SetMetadata { name, description } => {
                 ship.name = name.clone();
                 ship.description = description.clone();
             }
             Self::DeleteSelection(parts) => selection::delete(ship, parts)?,
             Self::TransformSelection { parts, transform } => {
-                selection::transform(ship, catalog, parts, *transform)?
+                selection::transform(ship, catalog, parts, *transform, free)?
             }
             Self::DragSelection {
                 parts,
                 pivot,
                 turns,
                 delta,
-            } => selection::drag(ship, catalog, parts, *pivot, *turns, *delta)?,
-            Self::Paste { fragment, offset } => selection::paste(ship, catalog, fragment, *offset)?,
+            } => selection::drag(ship, catalog, parts, *pivot, *turns, *delta, free)?,
+            Self::DragPoseSelection { parts, pose, delta } => {
+                selection::drag_pose(ship, catalog, parts, *pose, *delta, free)?
+            }
+            Self::Paste { fragment, offset } => {
+                selection::paste(ship, catalog, fragment, *offset, free)?
+            }
             Self::RepairDuplicates(repair) => repair.apply_inner(ship)?,
             Self::Scoped { part, command } => {
                 if scope.is_some() || ship.part_at(*part).is_none() {
                     return Err(CommandError::MissingInstance(*part));
                 }
-                command.apply_inner(ship, catalog, Some(*part))?;
+                command.apply_inner(ship, catalog, Some(*part), free)?;
             }
             Self::ConnectParts {
                 parent,
                 child,
                 kind,
             } => {
-                scoped::connect(ship, catalog, *parent, *child, kind)?;
+                scoped::connect(ship, catalog, *parent, *child, kind, free)?;
             }
             Self::Batch(commands) => {
                 for command in commands {
-                    command.apply_inner(ship, catalog, scope)?;
+                    command.apply_inner(ship, catalog, scope, free)?;
                 }
             }
             Self::SetActive(id, active) => {
@@ -390,7 +405,8 @@ impl EditorCommand {
                 let key = scoped::resolve(ship, *id, scope)?;
                 let part = ship.part_at_mut(key).unwrap();
                 part.editor_angle = (part.editor_angle + 1).rem_euclid(4);
-                part.angle = (part.editor_angle as f64) * std::f64::consts::FRAC_PI_2;
+                part.angle =
+                    (part.angle + std::f64::consts::FRAC_PI_2).rem_euclid(std::f64::consts::TAU);
             }
             Self::FlipX(id) => {
                 let key = scoped::resolve(ship, *id, scope)?;
@@ -431,7 +447,7 @@ impl EditorCommand {
                 };
                 let parent = scoped::resolve(ship, parent, None)?;
                 let child = scoped::resolve(ship, child, None)?;
-                scoped::connect(ship, catalog, parent, child, &kind)?;
+                scoped::connect(ship, catalog, parent, child, &kind, free)?;
             }
         }
         Ok(())

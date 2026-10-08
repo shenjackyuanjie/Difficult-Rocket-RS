@@ -117,6 +117,132 @@ fn rotation_and_world_mirrors_preserve_attachment_geometry() {
 }
 
 #[test]
+fn compound_pose_rotates_every_attachment_and_edge_through_mirrors_and_translation() {
+    let catalog = catalog();
+    let mut kind = catalog.get("tank").unwrap().clone();
+    kind.attach_points[0].location = "Top".into();
+    let mut part = kind.instantiate(1, (2.3, -1.7));
+    part.angle = 0.37;
+    for original_x in [false, true] {
+        for original_y in [false, true] {
+            part.flip_x = original_x;
+            part.flip_y = original_y;
+            for mirror_x in [false, true] {
+                for mirror_y in [false, true] {
+                    for angle in [-2.17_f64, -0.1, 0.0, 0.63, std::f64::consts::FRAC_PI_2] {
+                        let pose = SelectionPose {
+                            pivot: (0.4, 0.8),
+                            radians: angle,
+                            flip_x: mirror_x,
+                            flip_y: mirror_y,
+                        };
+                        let delta = (-2.0, 4.7);
+                        let result =
+                            selection::pose_part(&part, Some(&catalog), pose, delta).unwrap();
+                        for attach in &kind.attach_points {
+                            let before = crate::part_world_attach(&part, attach);
+                            let after = crate::part_world_attach(&result, attach);
+                            let expected = pose.point((before.x, before.y), delta);
+                            assert!(
+                                after.distance(crate::Vec2d {
+                                    x: expected.0,
+                                    y: expected.1
+                                }) < 1e-9
+                            );
+                            let (a, b) = crate::connections::segment(&part, &kind, attach);
+                            let (c, d) = crate::connections::segment(&result, &kind, attach);
+                            for (before, after) in [(a, c), (b, d)] {
+                                let expected = pose.point((before.x, before.y), delta);
+                                assert!(
+                                    after.distance(crate::Vec2d {
+                                        x: expected.0,
+                                        y: expected.1
+                                    }) < 1e-9
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn free_pose_is_atomic_preserves_boundary_edges_and_still_checks_rotation_permissions() {
+    let catalog = catalog();
+    let mut ship = ship(&catalog);
+    let original = ship.clone();
+    let mut history = EditorHistory::default();
+    let command = EditorCommand::FreeEdit(Box::new(EditorCommand::DragPoseSelection {
+        parts: pair(),
+        pose: SelectionPose {
+            pivot: (0.0, 0.0),
+            radians: 0.37,
+            flip_x: true,
+            flip_y: true,
+        },
+        delta: (0.0, 1.9),
+    }));
+    history
+        .execute_with_catalog(&mut ship, &catalog, command)
+        .unwrap();
+    assert_eq!(ship.connections, original.connections);
+    assert_ne!(ship.parts, original.parts);
+    let edited = ship.clone();
+    history.undo(&mut ship);
+    assert_eq!(ship, original);
+    history.redo(&mut ship);
+    assert_eq!(ship, edited);
+    ship.parts
+        .push(catalog.get("fixed").unwrap().instantiate(4, (10.0, 0.0)));
+    let before = ship.clone();
+    assert!(
+        history
+            .execute_with_catalog(
+                &mut ship,
+                &catalog,
+                EditorCommand::FreeEdit(Box::new(EditorCommand::TransformSelection {
+                    parts: vec![PartKey::new(0, 4, 0)],
+                    transform: SelectionTransform::RotateBy {
+                        center: (0.0, 0.0),
+                        radians: 0.2
+                    }
+                }))
+            )
+            .is_err()
+    );
+    assert_eq!(ship, before);
+    let key = PartKey::new(0, 1, 0);
+    assert!(
+        history
+            .execute_with_catalog(
+                &mut ship,
+                &catalog,
+                EditorCommand::FreeEdit(Box::new(EditorCommand::DragPoseSelection {
+                    parts: vec![key],
+                    pose: SelectionPose {
+                        radians: f64::NAN,
+                        ..Default::default()
+                    },
+                    delta: (0.0, 0.0)
+                }))
+            )
+            .is_err()
+    );
+    assert_eq!(ship, before);
+}
+
+#[test]
+fn single_quarter_rotation_keeps_non_quarter_offset() {
+    let catalog = catalog();
+    let mut ship = ship(&catalog);
+    ship.parts[0].angle = 0.37;
+    EditorCommand::Rotate(1).apply(&mut ship).unwrap();
+    assert!((ship.parts[0].angle - 0.37 - std::f64::consts::FRAC_PI_2).abs() < 1e-10);
+}
+
+#[test]
 fn copy_filters_external_references_but_keeps_internal_staging_flags() {
     let catalog = catalog();
     let ship = ship(&catalog);
