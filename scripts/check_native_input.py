@@ -45,7 +45,7 @@ WINDOW_ARTIFACTS = {
     "egui": "editor-egui-smoke.png", "staging": "editor-staging-smoke.png",
     "repair": "editor-repair-smoke.png", "native-ime": "editor-native-ime.png",
     "connections": "editor-connections-smoke.png", "scoped": "editor-scoped-smoke.png",
-    "transforms": "editor-transforms-smoke.png",
+    "transforms": "transforms-smoke.json",
     "selection": "editor-selection-smoke.png", "view": "editor-view-smoke.png",
     "topology": "editor-topology-smoke.png", "performance": "editor-performance.json",
     "interaction": "editor-interaction-latency.json", "unsaved": "editor-unsaved-modal.png",

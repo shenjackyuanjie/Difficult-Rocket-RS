@@ -13,10 +13,13 @@ pub(crate) struct State {
     overlap: f64,
     manual_distance: f64,
     pointer: Option<Vec2>,
+    group_fixture: Option<Ship>,
+    group_after: Option<Ship>,
+    delay: u8,
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct Captured(u8);
+pub(crate) struct Captured(u16);
 
 fn pointer(state: &mut State, window: &mut Window, point: (f64, f64)) {
     window.focused = true;
@@ -63,6 +66,57 @@ fn assist_position(degrees: f64) -> (f64, f64) {
     (-2.0 + sin, -cos)
 }
 
+fn line_control(
+    state: &mut State,
+    controls: &connection_lines::Controls,
+    input: &mut EguiInput,
+    control: connection_lines::Control,
+) -> bool {
+    let Some((_, rect)) = controls.0.iter().find(|(action, _)| *action == control) else {
+        return false;
+    };
+    state.driver.click_rect(*rect, input);
+    true
+}
+
+fn tree_control(
+    state: &mut State,
+    topology: &topology_ui::ConnectionEditor,
+    input: &mut EguiInput,
+    action: topology_ui::Action,
+) -> bool {
+    let Some((_, rect)) = topology
+        .hits
+        .iter()
+        .find(|(candidate, _)| *candidate == action)
+    else {
+        return false;
+    };
+    state.driver.click_rect(*rect, input);
+    true
+}
+
+fn assert_group(document: &EditorDocument, before: &Ship) {
+    assert_eq!(
+        document.selected_keys(),
+        vec![
+            PartKey::new(0, 1, 0),
+            PartKey::new(0, 2, 0),
+            PartKey::new(0, 3, 0)
+        ]
+    );
+    assert_eq!(document.ship.connections, before.connections);
+    assert_eq!(document.ship.part(4), before.part(4));
+    for (a, b) in [(1, 2), (2, 3), (1, 3)] {
+        let distance = |ship: &Ship| {
+            let a = ship.part(a).unwrap();
+            let b = ship.part(b).unwrap();
+            (a.x - b.x).hypot(a.y - b.y)
+        };
+        assert!((distance(&document.ship) - distance(before)).abs() < 1e-6);
+    }
+}
+
 fn capture(
     commands: &mut Commands,
     state: &mut State,
@@ -89,7 +143,7 @@ fn capture(
     false
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
@@ -106,6 +160,13 @@ pub(crate) fn run(
     captured: Res<Captured>,
     mut exit: MessageWriter<AppExit>,
     mut showcase: Option<ResMut<demo::Showcase>>,
+    (lines, line_controls, configs, topology, options): (
+        Res<connection_lines::Settings>,
+        Res<connection_lines::Controls>,
+        Res<bevy::gizmos::config::GizmoConfigStore>,
+        Res<topology_ui::ConnectionEditor>,
+        Res<view::ViewOptions>,
+    ),
 ) {
     if !mode.transforms || mode.started.elapsed().as_secs() < 3 {
         return;
@@ -119,6 +180,10 @@ pub(crate) fn run(
         return;
     };
     if state.driver.tick(&mut input) {
+        return;
+    }
+    if state.delay > 0 {
+        state.delay -= 1;
         return;
     }
     // 与已有选区专项一致，持续保留内部测试光标；不把它记作系统键鼠验收。
@@ -558,12 +623,491 @@ pub(crate) fn run(
             ) {
                 return;
             }
+        }
+        54 => {
+            let kind = document.catalog.get("fuselage-1").unwrap();
+            let cone = document.catalog.get("nosecone-1").unwrap();
+            document.ship = Ship {
+                parts: vec![
+                    kind.instantiate(1, (-2.0, 0.0)),
+                    kind.instantiate(2, (0.0, -2.0)),
+                    kind.instantiate(3, (1.6, -2.0)),
+                    cone.instantiate(4, (4.7, 2.6)),
+                ],
+                connections: vec![
+                    Connection::Normal {
+                        parent: 1,
+                        child: 2,
+                        parent_attach: 2,
+                        child_attach: 1,
+                    },
+                    Connection::Normal {
+                        parent: 2,
+                        child: 3,
+                        parent_attach: 4,
+                        child_attach: 3,
+                    },
+                ],
+                ..default()
+            };
+            document.saved_ship = document.ship.clone();
+            document.history = default();
+            document.clear_selection();
+            document.refresh();
+            state.group_fixture = Some(document.ship.clone());
+            describe(
+                &mut showcase,
+                "连接线可调：显示开关、颜色/透明度、像素粗细、实线/虚线/点线、呼吸/流动、方向箭头",
+            );
+        }
+        55 => {
+            let Some(rect) = ui.connection_lines else {
+                return;
+            };
+            state.driver.click_rect(rect, &mut input);
+        }
+        56 => {
+            assert!(lines.open);
+            if !line_control(
+                &mut state,
+                &line_controls,
+                &mut input,
+                connection_lines::Control::Visible,
+            ) {
+                return;
+            }
+        }
+        57 => {
+            assert!(!lines.enabled);
+            assert!(!configs.config::<connection_lines::LineGizmos>().0.enabled);
+            if !capture(
+                &mut commands,
+                &mut state,
+                &captured,
+                5,
+                "target/editor-lines-hidden.png",
+            ) {
+                return;
+            }
+        }
+        58 => {
+            if !line_control(
+                &mut state,
+                &line_controls,
+                &mut input,
+                connection_lines::Control::Visible,
+            ) {
+                return;
+            }
+        }
+        59 => {
+            assert!(lines.enabled);
+            if !line_control(
+                &mut state,
+                &line_controls,
+                &mut input,
+                connection_lines::Control::Purple,
+            ) {
+                return;
+            }
+        }
+        60 => {
+            assert!((lines.rgba[0] - 0.75).abs() < 1e-5);
+            if !line_control(
+                &mut state,
+                &line_controls,
+                &mut input,
+                connection_lines::Control::Thicker,
+            ) {
+                return;
+            }
+        }
+        61 => {
+            assert_eq!(lines.width, 3.0);
+            if !line_control(
+                &mut state,
+                &line_controls,
+                &mut input,
+                connection_lines::Control::Thicker,
+            ) {
+                return;
+            }
+        }
+        62 => {
+            assert_eq!(lines.width, 4.0);
+            if !line_control(
+                &mut state,
+                &line_controls,
+                &mut input,
+                connection_lines::Control::Dashed,
+            ) {
+                return;
+            }
+        }
+        63 => {
+            assert_eq!(lines.pattern, connection_lines::Pattern::Dashed);
+            if !line_control(
+                &mut state,
+                &line_controls,
+                &mut input,
+                connection_lines::Control::Flow,
+            ) {
+                return;
+            }
+        }
+        64 => {
+            assert_eq!(lines.effect, connection_lines::Effect::Flow);
+            if !line_control(
+                &mut state,
+                &line_controls,
+                &mut input,
+                connection_lines::Control::Arrows,
+            ) {
+                return;
+            }
+        }
+        65 => {
+            assert!(lines.arrows);
+            let config = configs.config::<connection_lines::LineGizmos>().0;
+            assert_eq!(config.line.width, 4.0);
+            assert!(matches!(
+                config.line.style,
+                bevy::gizmos::config::GizmoLineStyle::Dashed { .. }
+            ));
+            assert_eq!(state.group_fixture.as_ref(), Some(&document.ship));
+            assert_eq!(document.history.undo_len(), 0);
+            if !capture(
+                &mut commands,
+                &mut state,
+                &captured,
+                6,
+                "target/editor-lines-flow.png",
+            ) {
+                return;
+            }
+        }
+        66 => {
+            if !line_control(
+                &mut state,
+                &line_controls,
+                &mut input,
+                connection_lines::Control::Dotted,
+            ) {
+                return;
+            }
+        }
+        67 => {
+            assert_eq!(lines.pattern, connection_lines::Pattern::Dotted);
+            if !line_control(
+                &mut state,
+                &line_controls,
+                &mut input,
+                connection_lines::Control::Pulse,
+            ) {
+                return;
+            }
+        }
+        68 => {
+            assert_eq!(lines.effect, connection_lines::Effect::Pulse);
+            assert_eq!(state.group_fixture.as_ref(), Some(&document.ship));
+            assert_eq!(document.history.undo_len(), 0);
+            if !capture(
+                &mut commands,
+                &mut state,
+                &captured,
+                7,
+                "target/editor-lines-pulse.png",
+            ) {
+                return;
+            }
+            keys.press(KeyCode::Escape);
+        }
+        69 => {
+            assert!(!lines.open);
+            pointer(&mut state, &mut window, (0.0, 3.0));
+        }
+        70 => {
+            keys.press(KeyCode::F6);
+            state.delay = 3;
+            describe(
+                &mut showcase,
+                "连接树实际选择子树：父、子、孙作为同一选区，共用精细旋转和双轴镜像，内部连接保持",
+            );
+        }
+        71 => {
+            assert!(topology.open);
+            if !tree_control(
+                &mut state,
+                &topology,
+                &mut input,
+                topology_ui::Action::Node(PartKey::new(0, 1, 0)),
+            ) {
+                return;
+            }
+        }
+        72 => {
+            assert_eq!(
+                document.selected,
+                Some(PartKey::new(0, 1, 0)),
+                "连接树实际点击根节点未生效"
+            );
+            if !tree_control(
+                &mut state,
+                &topology,
+                &mut input,
+                topology_ui::Action::Subtree,
+            ) {
+                return;
+            }
+        }
+        73 => {
+            assert_group(&document, state.group_fixture.as_ref().unwrap());
+            keys.press(KeyCode::Escape);
+        }
+        74 => {
+            assert!(!topology.open);
+            pointer(&mut state, &mut window, (0.0, 3.0));
+            keys.press(KeyCode::KeyE);
+        }
+        75 => {
+            keys.press(KeyCode::KeyX);
+        }
+        76 => {
+            keys.press(KeyCode::KeyY);
+        }
+        77 => {
+            keys.press(KeyCode::KeyR);
+        }
+        78 => {
+            assert_group(&document, state.group_fixture.as_ref().unwrap());
+            for id in 1..=3 {
+                angle(&document, id, 105.0);
+                assert!(
+                    document.ship.part(id).unwrap().flip_x
+                        && document.ship.part(id).unwrap().flip_y
+                );
+            }
+            assert_eq!(document.history.undo_len(), 4);
+            if !capture(
+                &mut commands,
+                &mut state,
+                &captured,
+                8,
+                "target/editor-tree-transforms.png",
+            ) {
+                return;
+            }
+        }
+        79..=82 => {
+            keys.press(KeyCode::ControlLeft);
+            keys.press(KeyCode::KeyZ);
+        }
+        83 => {
+            assert_eq!(state.group_fixture.as_ref(), Some(&document.ship));
+            keys.press(KeyCode::F6);
+            state.delay = 3;
+            describe(
+                &mut showcase,
+                "连接树/图实际选择连通分量：从中间子节点选整坨，包括父节点；旋转镜像使用相同组中心",
+            );
+        }
+        84 => {
+            if !tree_control(
+                &mut state,
+                &topology,
+                &mut input,
+                topology_ui::Action::Node(PartKey::new(0, 2, 0)),
+            ) {
+                return;
+            }
+        }
+        85 => {
+            if !tree_control(
+                &mut state,
+                &topology,
+                &mut input,
+                topology_ui::Action::Component,
+            ) {
+                return;
+            }
+        }
+        86 => {
+            assert_group(&document, state.group_fixture.as_ref().unwrap());
+            keys.press(KeyCode::Escape);
+        }
+        87 => {
+            pointer(&mut state, &mut window, (0.0, 3.0));
+            keys.press(KeyCode::ShiftLeft);
+            keys.press(KeyCode::KeyE);
+        }
+        88 => {
+            keys.press(KeyCode::KeyX);
+        }
+        89 => {
+            assert_group(&document, state.group_fixture.as_ref().unwrap());
+            if !capture(
+                &mut commands,
+                &mut state,
+                &captured,
+                9,
+                "target/editor-component-transforms.png",
+            ) {
+                return;
+            }
+            keys.press(KeyCode::ControlLeft);
+            keys.press(KeyCode::KeyZ);
+        }
+        90 => {
+            keys.press(KeyCode::ControlLeft);
+            keys.press(KeyCode::KeyZ);
+        }
+        91 => {
+            assert_eq!(state.group_fixture.as_ref(), Some(&document.ship));
+            document.clear_selection();
+            pointer(&mut state, &mut window, (-3.1, 1.2));
+            mouse.press(MouseButton::Middle);
+            describe(
+                &mut showcase,
+                "中键真实框选父、子、孙：选区整体做 1°/15° 精调与镜像，不能逐个绕各自中心转",
+            );
+        }
+        92 => {
+            pointer(&mut state, &mut window, (2.65, -3.1));
+        }
+        93 => {
+            mouse.release(MouseButton::Middle);
+        }
+        94 => {
+            assert_group(&document, state.group_fixture.as_ref().unwrap());
+            keys.press(KeyCode::ShiftLeft);
+            keys.press(KeyCode::KeyQ);
+        }
+        95 => {
+            keys.press(KeyCode::KeyY);
+        }
+        96 => {
+            keys.press(KeyCode::KeyQ);
+        }
+        97 => {
+            assert_group(&document, state.group_fixture.as_ref().unwrap());
+            if !capture(
+                &mut commands,
+                &mut state,
+                &captured,
+                10,
+                "target/editor-box-transforms.png",
+            ) {
+                return;
+            }
+            keys.press(KeyCode::ControlLeft);
+            keys.press(KeyCode::KeyZ);
+        }
+        98..=99 => {
+            keys.press(KeyCode::ControlLeft);
+            keys.press(KeyCode::KeyZ);
+        }
+        100 => {
+            assert_eq!(state.group_fixture.as_ref(), Some(&document.ship));
+            document.select_only(Some(PartKey::new(0, 1, 0)));
+            let Some(rect) = ui.follow_children else {
+                return;
+            };
+            state.driver.click_rect(rect, &mut input);
+            describe(
+                &mut showcase,
+                "开启子节点跟随：只抓父节点，也会带上全部后代同步做非直角旋转与组合镜像，松手只提交一次",
+            );
+        }
+        101 => {
+            assert!(options.follow_children);
+            pointer(&mut state, &mut window, (-2.0, 0.0));
+            mouse.press(MouseButton::Left);
+        }
+        102 => {
+            assert_eq!(drag.keys().len(), 3);
+            pointer(&mut state, &mut window, (-1.5, -0.5));
+            keys.press(KeyCode::KeyE);
+        }
+        103 => {
+            keys.press(KeyCode::KeyX);
+        }
+        104 => {
+            keys.press(KeyCode::ShiftLeft);
+            keys.press(KeyCode::KeyQ);
+        }
+        105 => {
+            keys.press(KeyCode::KeyY);
+        }
+        106 => {
+            keys.press(KeyCode::KeyR);
+        }
+        107 => {
+            assert_eq!(state.group_fixture.as_ref(), Some(&document.ship));
+            assert!(!drag.blocked && drag.keys().len() == 3);
+            for id in 1..=3 {
+                let part = drag.pose(PartKey::new(0, id, 0), document.ship.part(id).unwrap());
+                assert!(
+                    (part.angle.to_degrees() - 106.0).abs() < 1e-6 && part.flip_x && part.flip_y
+                );
+                let (_, transform, sprite) = visuals
+                    .iter()
+                    .find(|(visual, _, _)| visual.id == id)
+                    .unwrap();
+                assert!(sprite.flip_x && sprite.flip_y);
+                assert!((transform.translation.x - part.x as f32 * 60.0).abs() < 1e-3);
+                assert!(
+                    (transform
+                        .rotation
+                        .dot(Quat::from_rotation_z(part.angle as f32))
+                        .abs()
+                        - 1.0)
+                        .abs()
+                        < 1e-5
+                );
+            }
+            if !capture(
+                &mut commands,
+                &mut state,
+                &captured,
+                11,
+                "target/editor-descendant-transforms.png",
+            ) {
+                return;
+            }
+        }
+        108 => {
+            mouse.release(MouseButton::Left);
+        }
+        109 => {
+            assert_eq!(
+                document.ship.connections,
+                state.group_fixture.as_ref().unwrap().connections
+            );
+            assert_eq!(
+                document.ship.part(4),
+                state.group_fixture.as_ref().unwrap().part(4)
+            );
+            assert_eq!(document.history.undo_len(), 1);
+            for id in 1..=3 {
+                angle(&document, id, 106.0);
+            }
+            state.group_after = Some(document.ship.clone());
+            keys.press(KeyCode::ControlLeft);
+            keys.press(KeyCode::KeyZ);
+        }
+        110 => {
+            assert_eq!(state.group_fixture.as_ref(), Some(&document.ship));
+            keys.press(KeyCode::ControlLeft);
+            keys.press(KeyCode::KeyY);
+        }
+        111 => {
+            assert_eq!(state.group_after.as_ref(), Some(&document.ship));
             save_ship("target/transforms-smoke.xml", &document.ship).unwrap();
             assert_eq!(
                 load_ship("target/transforms-smoke.xml").unwrap(),
                 document.ship
             );
-            let report = serde_json::json!({"completed": true, "assisted_overlap_ratio": state.overlap, "manual_connection_distance": state.manual_distance, "rotation_steps_degrees": [90,15,1], "drag_preview_degrees": 122, "drag_mirrors": ["x","y"], "free_mode_real_checkbox": true, "precision_real_buttons": true, "free_drag_preserved_connection": true, "free_overlapping_placement_without_auto_connection": true, "manual_connect_and_disconnect": true, "multiselect_mirrors_and_rotation": true, "undo_redo": true, "xml_roundtrip": true, "input_mode": "内部真实 UI/画布输入注入，不是系统键鼠或输入法验收"});
+            let report = serde_json::json!({"completed": true, "assisted_overlap_ratio": state.overlap, "manual_connection_distance": state.manual_distance, "rotation_steps_degrees": [90,15,1], "drag_preview_degrees": 122, "drag_mirrors": ["x","y"], "free_mode_real_checkbox": true, "precision_real_buttons": true, "free_drag_preserved_connection": true, "free_overlapping_placement_without_auto_connection": true, "manual_connect_and_disconnect": true, "multiselect_mirrors_and_rotation": true, "tree_subtree_transforms":true,"connected_component_transforms":true,"rectangle_group_transforms":true,"follow_all_descendants_transforms":true,"connection_line_real_controls":true,"connection_line_width_px":lines.width,"connection_line_patterns":["solid","dashed","dotted"],"connection_line_effects":["still","flow","pulse"],"connection_line_settings_preserve_history":true,"undo_redo": true, "xml_roundtrip": true, "input_mode": "内部真实 UI/画布输入注入，不是系统键鼠或输入法验收"});
             std::fs::write(
                 "target/transforms-smoke.json",
                 serde_json::to_vec_pretty(&report).unwrap(),
@@ -571,7 +1115,7 @@ pub(crate) fn run(
             .unwrap();
             describe(
                 &mut showcase,
-                "任意角度吸附、组合镜像、自由双点连接、多选变换、原子撤销重做及 XML 往返全部通过",
+                "任意角度、自由双点连接、树/连通/框选/后代整组变换与连线样式全部通过；撤销重做及 XML 往返一致",
             );
             info!(
                 "旋转镜像与自由模式窗口自测通过：真实控件、16° 吸附、122° 双镜像拖拽、自由双点连/断、多选及 XML 往返"
@@ -581,4 +1125,7 @@ pub(crate) fn run(
         _ => return,
     }
     state.phase += 1;
+    if state.phase >= 69 {
+        info!("整组变换专项进入阶段 {}", state.phase);
+    }
 }

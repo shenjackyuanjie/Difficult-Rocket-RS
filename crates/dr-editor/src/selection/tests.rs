@@ -21,6 +21,103 @@ fn document() -> EditorDocument {
 fn key(id: i64) -> PartKey {
     PartKey::new(0, id, 0)
 }
+
+#[test]
+fn tree_subtree_component_and_rectangle_share_rigid_precision_rotation_and_mirrors() {
+    for free_mode in [false, true] {
+        for source in 0..3 {
+            let mut document = document();
+            let kind = document.catalog.get("pod").unwrap();
+            document.ship.parts = vec![
+                kind.instantiate(1, (-2.0, 1.0)),
+                kind.instantiate(2, (1.5, -2.0)),
+                kind.instantiate(3, (3.0, -2.0)),
+                kind.instantiate(4, (9.0, 9.0)),
+            ];
+            document.ship.connections.push(Connection::Normal {
+                parent: 2,
+                child: 3,
+                parent_attach: 2,
+                child_attach: 1,
+            });
+            document.free_mode = free_mode;
+            document.saved_ship = document.ship.clone();
+            document.refresh();
+            let original = document.ship.clone();
+            let mut topology = topology_ui::ConnectionEditor::default();
+            match source {
+                0 => {
+                    topology_ui::act(
+                        topology_ui::Action::Node(key(1)),
+                        &mut topology,
+                        &mut document,
+                    );
+                    topology_ui::act(topology_ui::Action::Subtree, &mut topology, &mut document);
+                }
+                1 => {
+                    topology_ui::act(
+                        topology_ui::Action::Node(key(2)),
+                        &mut topology,
+                        &mut document,
+                    );
+                    topology_ui::act(topology_ui::Action::Component, &mut topology, &mut document);
+                }
+                _ => rectangle(&mut document, (-4.0, -4.0), (4.0, 3.0), false),
+            }
+            assert_eq!(document.selected_keys(), vec![key(1), key(2), key(3)]);
+            let mut cursor = EditorCursor::default();
+            for (code, fine) in [
+                (KeyCode::KeyE, false),
+                (KeyCode::KeyQ, true),
+                (KeyCode::KeyX, false),
+                (KeyCode::KeyY, false),
+                (KeyCode::KeyR, false),
+            ] {
+                let parts = document.selected_keys();
+                let center = center(&document, &parts);
+                let transform = match code {
+                    KeyCode::KeyE => SelectionTransform::RotateBy {
+                        center,
+                        radians: 15.0_f64.to_radians(),
+                    },
+                    KeyCode::KeyQ => SelectionTransform::RotateBy {
+                        center,
+                        radians: (-1.0_f64).to_radians(),
+                    },
+                    KeyCode::KeyX => SelectionTransform::FlipX { center },
+                    KeyCode::KeyY => SelectionTransform::FlipY { center },
+                    _ => SelectionTransform::Rotate { center },
+                };
+                let expected = document
+                    .edit_command(EditorCommand::TransformSelection { parts, transform })
+                    .preview_with_catalog(&document.ship, &document.catalog)
+                    .unwrap();
+                let undo = document.history.undo_len();
+                let mut keys = ButtonInput::default();
+                keys.press(code);
+                if fine {
+                    keys.press(KeyCode::ShiftLeft);
+                }
+                assert!(keyboard(&mut document, &mut cursor, &keys, false));
+                assert_eq!(
+                    document.ship, expected,
+                    "source={source}, free={free_mode}, key={code:?}"
+                );
+                assert_eq!(document.history.undo_len(), undo + 1);
+                assert_eq!(document.ship.connections, original.connections);
+                assert_eq!(document.ship.part(4), original.part(4));
+                let edited = document.ship.clone();
+                let selected = document.selected;
+                let selection = document.selection.clone();
+                assert!(document.undo());
+                assert!(document.redo());
+                assert_eq!(document.ship, edited);
+                document.selected = selected;
+                document.selection = selection;
+            }
+        }
+    }
+}
 fn press(document: &mut EditorDocument, cursor: &mut EditorCursor, code: KeyCode, control: bool) {
     let mut keys = ButtonInput::default();
     keys.press(code);
