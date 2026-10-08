@@ -13,13 +13,17 @@ pub(crate) fn collides(
     ship.all_parts()
         .filter(|other| !original.is_some_and(|part| std::ptr::eq(part, *other)))
         .any(|other| {
-            catalog
-                .get(&other.part_type)
-                .is_some_and(|other_kind| dr_core::intersects(part, kind, other, other_kind))
+            catalog.get(&other.part_type).is_some_and(|other_kind| {
+                dr_core::geometry::editor_overlap_blocked(part, kind, other, other_kind)
+            })
         })
 }
 
 pub(crate) fn transform(document: &mut EditorDocument, id: PartKey, command: EditorCommand) {
+    if document.free_mode {
+        document.execute(command.at(id));
+        return;
+    }
     let Some(part) = document.ship.part_at(id).cloned() else {
         return;
     };
@@ -90,9 +94,13 @@ pub(crate) fn snap(
         let Some(target_type) = catalog.get(&target.part_type) else {
             continue;
         };
-        for candidate in
-            dr_core::connections::candidates(source, source_type, target, target_type, 0.35)
-        {
+        for candidate in dr_core::connections::candidates(
+            source,
+            source_type,
+            target,
+            target_type,
+            dr_core::connections::CONNECTION_DISTANCE,
+        ) {
             if best
                 .as_ref()
                 .is_some_and(|(_, prior)| prior.distance <= candidate.distance)
@@ -148,14 +156,24 @@ pub(crate) fn preview(
     } else {
         cursor.rotation
     };
-    part.angle = part.editor_angle as f64 * std::f64::consts::FRAC_PI_2;
+    part.angle = if kind.disable_editor_rotation {
+        0.0
+    } else {
+        (part.editor_angle as f64 * std::f64::consts::FRAC_PI_2 + cursor.fine_rotation)
+            .rem_euclid(std::f64::consts::TAU)
+    };
     part.flip_x = cursor.flip_x;
     part.flip_y = cursor.flip_y;
     let allowed = kind
         .max_occurrences
         .is_none_or(|limit| document.ship.count_type(&kind.id) < limit as usize);
-    let connection = snap(&document.ship, &document.catalog, &mut part, None);
-    let allowed = allowed && !collides(&document.ship, &document.catalog, &part, None);
+    let connection = if document.free_mode {
+        None
+    } else {
+        snap(&document.ship, &document.catalog, &mut part, None)
+    };
+    let allowed = allowed
+        && (document.free_mode || !collides(&document.ship, &document.catalog, &part, None));
     Some((part, connection, allowed))
 }
 
@@ -164,7 +182,7 @@ pub(crate) fn place(document: &mut EditorDocument, cursor: &EditorCursor) -> boo
         return false;
     };
     if !allowed {
-        document.status = "无法放置：部件重叠或已达到数量上限".into();
+        document.status = "无法放置：实体重叠达到 5% 或已达到数量上限".into();
         return false;
     }
     let id = part.id;
@@ -217,6 +235,7 @@ pub(crate) fn cancel_for_file_action(
     mut cursor: ResMut<EditorCursor>,
 ) {
     if actions.read().next().is_some() {
+        cursor.manual_connection = None;
         cursor.cancel_placement();
         cursor.paste = None;
         cursor.valid = false;

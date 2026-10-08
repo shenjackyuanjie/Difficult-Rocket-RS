@@ -171,6 +171,8 @@ pub(crate) fn panel_actions(
                     cursor.valid = false;
                     cursor.paste = None;
                     cursor.rotation = 0;
+                    cursor.fine_rotation = 0.0;
+                    cursor.manual_connection = None;
                     cursor.flip_x = false;
                     cursor.flip_y = false;
                     drag.cancel();
@@ -230,6 +232,8 @@ pub(crate) fn cycle_part(
     };
     cursor.catalog_index = indices[next];
     cursor.rotation = 0;
+    cursor.fine_rotation = 0.0;
+    cursor.manual_connection = None;
     cursor.flip_x = false;
     cursor.flip_y = false;
     cursor.placing = true;

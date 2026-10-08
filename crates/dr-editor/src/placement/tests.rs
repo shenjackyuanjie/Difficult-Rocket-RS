@@ -98,6 +98,7 @@ fn palette_drag_cancels_on_escape_real_focus_loss_or_sidebar_release() {
         app.insert_resource(document())
             .insert_resource(dragged((1.2, 0.0)))
             .init_resource::<DragState>()
+            .init_resource::<CameraDrag>()
             .init_resource::<view::ViewOptions>()
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()

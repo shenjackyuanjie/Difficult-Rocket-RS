@@ -75,6 +75,9 @@ pub struct UiState {
     pub box_middle: Option<egui::Rect>,
     pub box_left: Option<egui::Rect>,
     pub follow_children: Option<egui::Rect>,
+    pub free_mode: Option<egui::Rect>,
+    pub rotate_left: Option<egui::Rect>,
+    pub rotate_right: Option<egui::Rect>,
     pub pixels_per_point: f32,
     pub scrolling: bool,
     pub browser_offset: f32,
@@ -169,11 +172,11 @@ pub fn draw(
     mut contexts: EguiContexts,
     assets: Res<AssetServer>,
     image_assets: Res<Assets<Image>>,
-    document: Res<EditorDocument>,
+    mut document: ResMut<EditorDocument>,
     paths: Res<EditorPaths>,
     palette: Res<Palette>,
     mut browser: ResMut<ShipBrowser>,
-    cursor: Res<EditorCursor>,
+    mut cursor: ResMut<EditorCursor>,
     inspector: Res<properties::Inspector>,
     (pending, help, showcase): (
         Option<Res<files::PendingFileAction>>,
@@ -181,7 +184,7 @@ pub fn draw(
         Option<Res<demo::Showcase>>,
     ),
     mut topology: ResMut<crate::topology_ui::ConnectionEditor>,
-    (mut options, drag): (ResMut<view::ViewOptions>, Res<DragState>),
+    (mut options, mut drag): (ResMut<view::ViewOptions>, ResMut<DragState>),
     mut state: ResMut<UiState>,
     mut actions: MessageWriter<PanelButton>,
     mut images: Local<std::collections::HashMap<String, egui::TextureId>>,
@@ -201,6 +204,9 @@ pub fn draw(
     state.box_middle = None;
     state.box_left = None;
     state.follow_children = None;
+    state.free_mode = None;
+    state.rotate_left = None;
+    state.rotate_right = None;
     state.areas.clear();
     state.palette_area = None;
     state.pixels_per_point = ctx.pixels_per_point();
@@ -368,6 +374,34 @@ pub fn draw(
             });
             let follow = follow_toggle(ui, &mut options.follow_children);
             state.follow_children = config_rect(ui, &follow);
+            let mut free = document.free_mode;
+            let response = ui.checkbox(&mut free, "自由模式")
+                .on_hover_text("关闭自动吸附、碰撞判定和自动断连。依次点击两个连接点/边建立连接，重复点击这两个端点可断开；移动、旋转保留已有连接。Esc / 右键取消选点，Ctrl+Z 撤销。");
+            state.free_mode = config_rect(ui, &response);
+            if response.changed() {
+                response.surrender_focus();
+                free_mode::set_enabled(&mut document, &mut cursor, &mut drag, free);
+            }
+            let selected = document.selected_keys();
+            if let Some(part) = document.selected.and_then(|key| document.ship.part_at(key)) {
+                let angle = part.angle.to_degrees();
+                ui.horizontal(|ui| {
+                    ui.label(format!("角度 {angle:.1}°"));
+                    for (degrees, label) in [(-15.0_f64, "−15°"), (15.0_f64, "+15°")] {
+                        let response = ui.button(label).on_hover_text("围绕选区中心精细旋转；连接点和连接边跟随角度。R 仍为 90°。");
+                        if degrees < 0.0 { state.rotate_left = config_rect(ui, &response); }
+                        else { state.rotate_right = config_rect(ui, &response); }
+                        if response.clicked() {
+                            response.surrender_focus();
+                            let center = selection::center(&document, &selected);
+                            document.execute(EditorCommand::TransformSelection {
+                                parts: selected.clone(),
+                                transform: SelectionTransform::RotateBy { center, radians: degrees.to_radians() },
+                            });
+                        }
+                    }
+                });
+            }
             let mut categories: Vec<_> = document
                 .catalog
                 .visible()

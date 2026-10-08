@@ -79,15 +79,14 @@ fn snaps(
     keys: &[PartKey],
     delta: (f64, f64),
 ) -> Vec<(f64, (f64, f64), EditorCommand)> {
-    snaps_pose(ship, catalog, keys, (0.0, 0.0), 0, delta)
+    snaps_pose(ship, catalog, keys, SelectionPose::default(), delta)
 }
 
 fn snaps_pose(
     ship: &Ship,
     catalog: &PartCatalog,
     keys: &[PartKey],
-    pivot: (f64, f64),
-    turns: u8,
+    pose: SelectionPose,
     delta: (f64, f64),
 ) -> Vec<(f64, (f64, f64), EditorCommand)> {
     let selected: HashSet<_> = keys.iter().copied().collect();
@@ -119,13 +118,13 @@ fn snaps_pose(
         let Some(st) = catalog.get(&source.part_type) else {
             continue;
         };
-        let Ok(source) =
-            dr_core::edit::selection::drag_part(source, Some(catalog), pivot, turns, delta)
+        let Ok(source) = dr_core::edit::selection::pose_part(source, Some(catalog), pose, delta)
         else {
             continue;
         };
         let source_radius = dr_core::connections::attachment_radius(st);
-        let reach = source_radius + max_radius + 0.350001;
+        let distance = dr_core::connections::CONNECTION_DISTANCE;
+        let reach = source_radius + max_radius + distance + 1e-6;
         let start = by_x.partition_point(|index| targets[*index].1.x < source.x - reach);
         let end = by_x.partition_point(|index| targets[*index].1.x <= source.x + reach);
         let mut nearby = by_x[start..end].to_vec();
@@ -133,10 +132,10 @@ fn snaps_pose(
         for index in nearby {
             let (target_key, target, tt, target_radius) = targets[index];
             let distance_squared = (source.x - target.x).powi(2) + (source.y - target.y).powi(2);
-            if distance_squared > (source_radius + target_radius + 0.350001).powi(2) {
+            if distance_squared > (source_radius + target_radius + distance + 1e-6).powi(2) {
                 continue;
             }
-            for candidate in dr_core::connections::candidates(&source, st, target, tt, 0.35) {
+            for candidate in dr_core::connections::candidates(&source, st, target, tt, distance) {
                 let kind = if candidate.dock {
                     LinkKind::Dock {
                         connector: if st.kind == PartKind::DockConnector {
@@ -242,6 +241,7 @@ pub(crate) fn movement(
     movement_pose(document, keys, (0.0, 0.0), 0, delta)
 }
 
+#[cfg(test)]
 pub(crate) fn movement_pose(
     document: &EditorDocument,
     keys: &[PartKey],
@@ -249,9 +249,36 @@ pub(crate) fn movement_pose(
     turns: u8,
     delta: (f64, f64),
 ) -> ((f64, f64), EditorCommand, bool) {
-    movement_for(&document.ship, &document.catalog, keys, pivot, turns, delta)
+    movement_transformed(
+        document,
+        keys,
+        SelectionPose {
+            pivot,
+            radians: (turns % 4) as f64 * std::f64::consts::FRAC_PI_2,
+            ..default()
+        },
+        delta,
+    )
 }
 
+pub(crate) fn movement_transformed(
+    document: &EditorDocument,
+    keys: &[PartKey],
+    pose: SelectionPose,
+    delta: (f64, f64),
+) -> ((f64, f64), EditorCommand, bool) {
+    if document.free_mode {
+        let command = drag_command(keys, pose, delta);
+        let valid = document
+            .edit_command(command.clone())
+            .preview_with_catalog(&document.ship, &document.catalog)
+            .is_ok();
+        return (delta, command, valid);
+    }
+    movement_transformed_for(&document.ship, &document.catalog, keys, pose, delta)
+}
+
+#[cfg(test)]
 pub(crate) fn movement_for(
     ship: &Ship,
     catalog: &PartCatalog,
@@ -260,12 +287,49 @@ pub(crate) fn movement_for(
     turns: u8,
     delta: (f64, f64),
 ) -> ((f64, f64), EditorCommand, bool) {
-    let command = |offset| EditorCommand::DragSelection {
-        parts: keys.to_vec(),
-        pivot,
-        turns,
-        delta: offset,
-    };
+    movement_transformed_for(
+        ship,
+        catalog,
+        keys,
+        SelectionPose {
+            pivot,
+            radians: (turns % 4) as f64 * std::f64::consts::FRAC_PI_2,
+            ..default()
+        },
+        delta,
+    )
+}
+
+pub(crate) fn drag_command(
+    keys: &[PartKey],
+    pose: SelectionPose,
+    delta: (f64, f64),
+) -> EditorCommand {
+    let quarters = pose.radians / std::f64::consts::FRAC_PI_2;
+    if !pose.flip_x && !pose.flip_y && (quarters - quarters.round()).abs() < 1e-10 {
+        EditorCommand::DragSelection {
+            parts: keys.to_vec(),
+            pivot: pose.pivot,
+            turns: quarters.round().rem_euclid(4.0) as u8,
+            delta,
+        }
+    } else {
+        EditorCommand::DragPoseSelection {
+            parts: keys.to_vec(),
+            pose,
+            delta,
+        }
+    }
+}
+
+fn movement_transformed_for(
+    ship: &Ship,
+    catalog: &PartCatalog,
+    keys: &[PartKey],
+    pose: SelectionPose,
+    delta: (f64, f64),
+) -> ((f64, f64), EditorCommand, bool) {
+    let command = |offset| drag_command(keys, pose, offset);
     let selected: HashSet<_> = keys.iter().copied().collect();
     let others = dr_core::geometry::CollisionSet::new(
         ship.keyed_parts()
@@ -278,7 +342,7 @@ pub(crate) fn movement_for(
         .filter(|(key, _)| selected.contains(key))
         .filter_map(|(_, part)| catalog.get(&part.part_type).map(|kind| (part, kind)))
         .map(|(part, kind)| {
-            dr_core::edit::selection::drag_part(part, Some(catalog), pivot, turns, (0.0, 0.0))
+            dr_core::edit::selection::pose_part(part, Some(catalog), pose, (0.0, 0.0))
                 .map(|part| (part, kind))
         })
         .collect::<Result<Vec<_>, _>>();
@@ -290,12 +354,16 @@ pub(crate) fn movement_for(
             let mut proposed = (*part).clone();
             proposed.x += offset.0;
             proposed.y += offset.1;
-            others.intersects(&proposed, kind)
+            others.editor_overlap_blocked(&proposed, kind)
         })
     };
-    if delta != (0.0, 0.0) || !turns.is_multiple_of(4) {
+    if delta != (0.0, 0.0)
+        || pose.radians.rem_euclid(std::f64::consts::TAU).abs() > 1e-10
+        || pose.flip_x
+        || pose.flip_y
+    {
         let mut invalid = HashSet::new();
-        for (_, offset, connection) in snaps_pose(ship, catalog, keys, pivot, turns, delta) {
+        for (_, offset, connection) in snaps_pose(ship, catalog, keys, pose, delta) {
             let bits = (offset.0.to_bits(), offset.1.to_bits());
             if invalid.contains(&bits) {
                 continue;
@@ -372,7 +440,9 @@ pub(crate) fn keyboard(
     }
     if let Some(fragment) = &cursor.paste {
         let center = fragment.center();
-        let transform = if keys.just_pressed(KeyCode::KeyR) {
+        let transform = if let Some(radians) = rotation_input(keys) {
+            Some(SelectionTransform::RotateBy { center, radians })
+        } else if keys.just_pressed(KeyCode::KeyR) {
             Some(SelectionTransform::Rotate { center })
         } else if keys.just_pressed(KeyCode::KeyX) {
             Some(SelectionTransform::FlipX { center })
@@ -404,7 +474,9 @@ pub(crate) fn keyboard(
         return true;
     }
     let center = center(document, &selected);
-    let transform = if keys.just_pressed(KeyCode::KeyR) {
+    let transform = if let Some(radians) = rotation_input(keys) {
+        Some(SelectionTransform::RotateBy { center, radians })
+    } else if keys.just_pressed(KeyCode::KeyR) {
         Some(SelectionTransform::Rotate { center })
     } else if keys.just_pressed(KeyCode::KeyX) {
         Some(SelectionTransform::FlipX { center })
@@ -423,6 +495,22 @@ pub(crate) fn keyboard(
     false
 }
 
+/// 参考 KSP 的步进/精调：Q/E 为 ±15°，Shift+Q/E 为 ±1°。
+pub(crate) fn rotation_input(keys: &ButtonInput<KeyCode>) -> Option<f64> {
+    if keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight) {
+        return None;
+    }
+    let direction = if keys.just_pressed(KeyCode::KeyQ) {
+        -1.0_f64
+    } else if keys.just_pressed(KeyCode::KeyE) {
+        1.0_f64
+    } else {
+        return None;
+    };
+    let fine = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    Some((direction * if fine { 1.0 } else { 15.0 }).to_radians())
+}
+
 struct PastePreview {
     parts: Vec<Part>,
     command: EditorCommand,
@@ -433,18 +521,24 @@ struct PastePreview {
 fn paste_preview(document: &EditorDocument, cursor: &EditorCursor) -> Option<PastePreview> {
     let fragment = cursor.paste.as_ref()?;
     let center = fragment.center();
-    let mut offset = (
-        (cursor.world.0 * 2.0).round() / 2.0 - center.0,
-        (cursor.world.1 * 2.0).round() / 2.0 - center.1,
-    );
-    let paste = |offset| EditorCommand::Paste {
-        fragment: Box::new(fragment.clone()),
-        offset,
+    let mut offset = if document.free_mode {
+        (cursor.world.0 - center.0, cursor.world.1 - center.1)
+    } else {
+        (
+            (cursor.world.0 * 2.0).round() / 2.0 - center.0,
+            (cursor.world.1 * 2.0).round() / 2.0 - center.1,
+        )
+    };
+    let paste = |offset| {
+        document.edit_command(EditorCommand::Paste {
+            fragment: Box::new(fragment.clone()),
+            offset,
+        })
     };
     let mut command = paste(offset);
     let mut temporary = document.ship.clone();
     let mut snapped = false;
-    if command.apply(&mut temporary).is_ok() {
+    if !document.free_mode && command.apply(&mut temporary).is_ok() {
         let existing: HashSet<_> = document.ship.all_parts().map(|part| part.id).collect();
         let added: Vec<_> = temporary
             .keyed_parts()
@@ -467,7 +561,7 @@ fn paste_preview(document: &EditorDocument, cursor: &EditorCursor) -> Option<Pas
                 let mut part = part.clone();
                 part.x += proposed.0;
                 part.y += proposed.1;
-                collision_set.intersects(&part, kind)
+                collision_set.editor_overlap_blocked(&part, kind)
             }) {
                 invalid_offsets.insert(offset_key);
                 continue;

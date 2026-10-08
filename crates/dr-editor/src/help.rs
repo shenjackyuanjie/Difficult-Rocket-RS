@@ -82,6 +82,7 @@ pub(crate) fn input(
     // 关闭的这一帧也不把 Esc/按钮点击漏给画布。
     state.suppress_frame = state.open || was_open || toggle;
     if state.suppress_frame {
+        cursor.manual_connection = None;
         drag.cancel();
         cursor.cancel_placement();
         cursor.paste = None;
@@ -92,11 +93,16 @@ pub(crate) fn input(
 
 const SHORTCUTS: &[(&str, &str)] = &[
     ("左键 / Shift+左键", "选择、拖动 / 增减选择"),
-    ("R（拖拽时也可用）", "旋转；拖拽期间不镜像、不复制"),
+    (
+        "R · Q/E · Shift+Q/E",
+        "90° · ±15° · ±1°；拖拽和预览中也可用",
+    ),
+    ("侧栏 −15° / +15°", "精细旋转选区；连接点/边随角度旋转"),
+    ("自由模式", "双连接点手动连/断；移动旋转不自动断连，不吸附"),
     ("Esc / 右键", "取消预览；重叠落下保留位置并断开外部连接"),
     ("中键拖动 / Ctrl+A", "框选 / 全选；侧栏可切换框选键"),
     ("Tab / Shift+Tab · P", "切换目录部件 · 放置"),
-    ("Delete · X / Y", "删除 · 镜像（非拖拽状态）"),
+    ("Delete · X / Y", "删除 · 镜像；拖拽中可组合旋转并原子撤销"),
     ("↳ 子节点跟随", "侧栏开关；拖父节点带子孙，不带父节点"),
     ("拖到右侧部件列表", "松手删除整个相连分量；Ctrl+Z 撤销"),
     ("Ctrl+C / X / V", "复制 / 剪切 / 粘贴"),
@@ -296,17 +302,13 @@ mod tests {
     }
 
     #[test]
-    fn help_is_opt_in_and_keeps_drag_restrictions_visible() {
+    fn help_is_opt_in_and_explains_fine_rotation_and_drag_mirroring() {
         assert!(!HelpState::default().open);
+        assert!(SHORTCUTS.iter().any(|(key, _)| key.contains("Shift+Q/E")));
         assert!(
             SHORTCUTS
                 .iter()
-                .any(|(_, text)| text.contains("不镜像、不复制"))
-        );
-        assert!(
-            SHORTCUTS
-                .iter()
-                .any(|(_, text)| text.contains("断开外部连接"))
+                .any(|(_, text)| text.contains("拖拽中可组合旋转"))
         );
         let ctx = egui::Context::default();
         let mut open = true;

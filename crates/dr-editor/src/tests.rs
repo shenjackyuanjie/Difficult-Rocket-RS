@@ -5,6 +5,7 @@ pub(super) fn document() -> EditorDocument {
         dr_core::ship_from_xml(r#"<Ship><Parts><Part id="1" partType="pod"/></Parts></Ship>"#)
             .unwrap();
     EditorDocument {
+        free_mode: false,
         revision: 0,
         saved_ship: ship.clone(),
         ship,
@@ -175,6 +176,7 @@ pub(super) fn mouse_app() -> App {
     let mut app = App::new();
     app.insert_resource(document)
         .init_resource::<DragState>()
+        .init_resource::<CameraDrag>()
         .init_resource::<EditorCursor>()
         .init_resource::<view::ViewOptions>()
         .init_resource::<panels::UiPointer>()
@@ -341,7 +343,7 @@ fn missed_release_event_still_finishes_drag_and_sidebar_release_cancels() {
 }
 
 #[test]
-fn held_drag_rotates_preview_blocks_copy_mirror_and_cancels_atomically() {
+fn held_drag_rotates_preview_blocks_clipboard_shortcuts_and_cancels_atomically() {
     let mut app = mouse_app();
     app.init_resource::<panels::Palette>()
         .add_systems(Update, keyboard_commands.after(mouse_editor));
@@ -381,6 +383,140 @@ fn held_drag_rotates_preview_blocks_copy_mirror_and_cancels_atomically() {
     app.update();
     assert_eq!(app.world().resource::<EditorDocument>().ship, before);
     assert_eq!(app.world().resource::<DragState>().turns, 0);
+}
+
+#[test]
+fn fine_rotation_and_mirrors_compose_during_drag_and_commit_in_one_undo() {
+    for cancel in [false, true] {
+        let mut app = mouse_app();
+        let before = app.world().resource::<EditorDocument>().ship.clone();
+        pointer(&mut app, (0.0, 0.0));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        let mut expected_angle = 0.0_f64;
+        let mut expected_flips = (false, false);
+        for (code, fine) in [
+            (KeyCode::KeyE, false),
+            (KeyCode::KeyE, true),
+            (KeyCode::KeyX, false),
+            (KeyCode::KeyQ, true),
+            (KeyCode::KeyY, false),
+            (KeyCode::KeyR, false),
+        ] {
+            pointer(&mut app, (4.0, 3.0));
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.reset_all();
+            if fine {
+                keys.press(KeyCode::ShiftLeft);
+            }
+            keys.press(code);
+            app.update();
+            match code {
+                KeyCode::KeyE => {
+                    expected_angle += if fine { 1.0_f64 } else { 15.0_f64 }.to_radians()
+                }
+                KeyCode::KeyQ => {
+                    expected_angle -= if fine { 1.0_f64 } else { 15.0_f64 }.to_radians()
+                }
+                KeyCode::KeyR => expected_angle += std::f64::consts::FRAC_PI_2,
+                KeyCode::KeyX => {
+                    expected_angle = -expected_angle;
+                    expected_flips.0 = !expected_flips.0;
+                }
+                KeyCode::KeyY => {
+                    expected_angle = -expected_angle;
+                    expected_flips.1 = !expected_flips.1;
+                }
+                _ => unreachable!(),
+            }
+            let document = app.world().resource::<EditorDocument>();
+            let drag = app.world().resource::<DragState>();
+            let part = drag.pose(PartKey::new(0, 1, 0), &document.ship.parts[0]);
+            assert!((part.angle - expected_angle.rem_euclid(std::f64::consts::TAU)).abs() < 1e-10);
+            assert_eq!((part.flip_x, part.flip_y), expected_flips);
+            assert_eq!(document.ship, before);
+            assert!(!document.history.can_undo());
+        }
+        pointer(&mut app, (4.0, 3.0));
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+        if cancel {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::Escape);
+        } else {
+            app.world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .release(MouseButton::Left);
+        }
+        app.update();
+        let mut document = app.world_mut().resource_mut::<EditorDocument>();
+        if cancel {
+            assert_eq!(document.ship, before);
+            assert!(!document.history.can_undo());
+        } else {
+            assert_eq!(document.history.undo_len(), 1);
+            assert!(
+                (document.ship.parts[0].angle - expected_angle.rem_euclid(std::f64::consts::TAU))
+                    .abs()
+                    < 1e-10
+            );
+            document.undo();
+            assert_eq!(document.ship, before);
+        }
+    }
+}
+
+#[test]
+fn free_mouse_connection_consumes_click_and_cancels_on_escape_focus_loss_or_ui() {
+    for cancel in ["escape", "focus", "modal"] {
+        let mut app = mouse_app();
+        app.world_mut().resource_mut::<EditorDocument>().free_mode = true;
+        pointer(&mut app, (0.5, 0.0));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        assert!(
+            app.world()
+                .resource::<EditorCursor>()
+                .manual_connection
+                .is_some()
+        );
+        assert!(app.world().resource::<DragState>().id.is_none());
+        match cancel {
+            "escape" => app
+                .world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::Escape),
+            "focus" => {
+                let mut query = app.world_mut().query::<&mut Window>();
+                query.single_mut(app.world_mut()).unwrap().focused = false;
+            }
+            "modal" => {
+                app.init_resource::<properties::Inspector>()
+                    .init_resource::<files::PendingFileAction>()
+                    .init_resource::<help::HelpState>()
+                    .init_resource::<topology_ui::ConnectionEditor>()
+                    .add_systems(Update, egui_ui::prepare_input.before(mouse_editor));
+                app.world_mut()
+                    .resource_mut::<topology_ui::ConnectionEditor>()
+                    .open = true;
+            }
+            _ => unreachable!(),
+        }
+        app.update();
+        assert!(
+            app.world()
+                .resource::<EditorCursor>()
+                .manual_connection
+                .is_none()
+        );
+        assert!(!app.world().resource::<EditorDocument>().history.can_undo());
+    }
 }
 
 #[test]

@@ -173,7 +173,7 @@ pub(crate) fn draw(
     options: Res<view::ViewOptions>,
     cameras: Query<&Projection, With<Camera2d>>,
 ) {
-    if pointer.blocked || !cursor.valid || !options.ship_visible {
+    if !options.ship_visible {
         return;
     }
     let radius = cameras
@@ -184,6 +184,20 @@ pub(crate) fn draw(
             _ => None,
         })
         .unwrap_or(4.0);
+    if document.free_mode {
+        free_mode::draw(
+            &mut gizmos,
+            &document,
+            &drag,
+            &cursor,
+            radius,
+            !pointer.blocked,
+        );
+        return;
+    }
+    if pointer.blocked || !cursor.valid {
+        return;
+    }
     let mut sources = vec![];
     if drag.id.is_some() {
         for key in drag.keys() {

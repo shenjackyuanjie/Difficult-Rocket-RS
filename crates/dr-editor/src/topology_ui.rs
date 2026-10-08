@@ -592,6 +592,9 @@ pub fn show(
         .min_width(650.0)
         .collapsible(false)
         .show(ctx, |ui| {
+            if document.free_mode {
+                ui.label("自由模式：不检查距离、重叠或占用；移动和旋转保留已有连接。");
+            }
             ui.horizontal(|ui| {
                 for (mode, name) in [(Mode::Tree, "连接树"), (Mode::Graph, "连接图")] {
                     let response = ui.add(egui::Button::new(name).selected(state.mode == mode));

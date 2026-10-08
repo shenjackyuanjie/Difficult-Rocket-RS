@@ -3,6 +3,7 @@ mod connection_smoke;
 mod demo;
 mod egui_ui;
 mod files;
+mod free_mode;
 mod help;
 mod interaction_smoke;
 mod native_input;
@@ -27,7 +28,7 @@ use dr_core::{
     Connection, EditorCommand, EditorHistory, LinkKind, Part, PartCatalog, PartKey, PartKind, Ship,
     load_catalog, load_ship, save_ship,
 };
-use dr_core::{SelectionTransform, ShipFragment};
+use dr_core::{SelectionPose, SelectionTransform, ShipFragment};
 use std::collections::BTreeSet;
 
 #[derive(Resource, Clone)]
@@ -39,6 +40,7 @@ pub struct EditorPaths {
 
 #[derive(Resource)]
 pub struct EditorDocument {
+    pub free_mode: bool,
     pub revision: u64,
     pub ship: Ship,
     pub catalog: PartCatalog,
@@ -98,6 +100,7 @@ impl EditorDocument {
         changed
     }
     fn execute(&mut self, command: EditorCommand) -> bool {
+        let command = self.edit_command(command);
         let before: Vec<_> = self.ship.keyed_parts().map(|(key, _)| key).collect();
         match self
             .history
@@ -120,6 +123,14 @@ impl EditorDocument {
             }
         }
     }
+
+    fn edit_command(&self, command: EditorCommand) -> EditorCommand {
+        if self.free_mode {
+            EditorCommand::FreeEdit(Box::new(command))
+        } else {
+            command
+        }
+    }
 }
 
 #[derive(Resource, Default)]
@@ -135,6 +146,9 @@ struct DragState {
     offset: (f64, f64),
     preview: (f64, f64),
     turns: u8,
+    fine_rotation: f64,
+    flip_x: bool,
+    flip_y: bool,
 }
 
 impl DragState {
@@ -145,6 +159,9 @@ impl DragState {
         self.command = None;
         self.blocked = false;
         self.turns = 0;
+        self.fine_rotation = 0.0;
+        self.flip_x = false;
+        self.flip_y = false;
     }
     /// 连续跟随指针，连接面吸附另行计算，不把拖动量化为半格。
     fn follow(&mut self, logical: (f64, f64)) {
@@ -153,21 +170,23 @@ impl DragState {
 
     fn moved(&self) -> bool {
         let delta = self.delta();
-        !self.turns.is_multiple_of(4) || delta.0.hypot(delta.1) > 1e-6
+        !self.turns.is_multiple_of(4)
+            || self.fine_rotation.abs() > 1e-10
+            || self.flip_x
+            || self.flip_y
+            || delta.0.hypot(delta.1) > 1e-6
     }
 
     /// 松手后清理所有临时状态；单击仍保留选中，实际拖动不留下高亮。
     fn finish(&mut self, document: &mut EditorDocument) {
         if self.id.is_some() && self.moved() {
-            let command = self
-                .command
-                .take()
-                .unwrap_or_else(|| EditorCommand::DragSelection {
-                    parts: self.keys().into_iter().collect(),
-                    pivot: self.origin,
-                    turns: self.turns,
-                    delta: self.delta(),
-                });
+            let command = self.command.take().unwrap_or_else(|| {
+                selection::drag_command(
+                    &self.keys().into_iter().collect::<Vec<_>>(),
+                    self.selection_pose(),
+                    self.delta(),
+                )
+            });
             document.execute(command);
             document.clear_selection();
         }
@@ -185,17 +204,14 @@ impl DragState {
         }
     }
     fn point(&self, point: Vec2) -> Vec2 {
-        let pivot = Vec2::new(self.origin.0 as f32, self.origin.1 as f32) * 60.0;
-        let mut relative = point - pivot;
-        for _ in 0..self.turns % 4 {
-            relative = Vec2::new(-relative.y, relative.x);
-        }
-        let delta = self.delta();
-        pivot + relative + Vec2::new(delta.0 as f32, delta.1 as f32) * 60.0
+        let (x, y) = self
+            .selection_pose()
+            .point((point.x as f64 / 60.0, point.y as f64 / 60.0), self.delta());
+        Vec2::new(x as f32, y as f32) * 60.0
     }
     fn pose(&self, key: PartKey, part: &Part) -> Part {
         if self.contains(key) {
-            dr_core::edit::selection::drag_part(part, None, self.origin, self.turns, self.delta())
+            dr_core::edit::selection::pose_part(part, None, self.selection_pose(), self.delta())
                 .unwrap_or_else(|_| part.clone())
         } else {
             part.clone()
@@ -209,9 +225,31 @@ impl DragState {
     }
 }
 
+impl DragState {
+    fn selection_pose(&self) -> SelectionPose {
+        SelectionPose {
+            pivot: self.origin,
+            radians: self.turns as f64 * std::f64::consts::FRAC_PI_2 + self.fine_rotation,
+            flip_x: self.flip_x,
+            flip_y: self.flip_y,
+        }
+    }
+
+    fn mirror(&mut self, x: bool) {
+        if x {
+            self.flip_x = !self.flip_x;
+        } else {
+            self.flip_y = !self.flip_y;
+        }
+        self.turns = (4 - self.turns) % 4;
+        self.fine_rotation = -self.fine_rotation;
+    }
+}
+
 /// 当前鼠标在编辑器世界坐标中的位置，以及目录中待放置的部件。
 #[derive(Resource, Default)]
 struct EditorCursor {
+    manual_connection: Option<free_mode::Endpoint>,
     clipboard: Option<ShipFragment>,
     paste: Option<ShipFragment>,
     world: (f64, f64),
@@ -219,6 +257,7 @@ struct EditorCursor {
     placing: bool,
     palette_drag: bool,
     rotation: i32,
+    fine_rotation: f64,
     flip_x: bool,
     flip_y: bool,
     valid: bool,
@@ -505,6 +544,7 @@ fn load_document(ship_path: Option<&str>, catalog_path: &str) -> anyhow::Result<
         .transpose()?
         .unwrap_or_else(|| new_ship(&catalog));
     Ok(EditorDocument {
+        free_mode: false,
         revision: 0,
         saved_ship: ship.clone(),
         status: String::new(),
@@ -571,6 +611,7 @@ fn camera_controls(
         return;
     };
     let can_pan = editor_drag.id.is_none()
+        && editor_cursor.manual_connection.is_none()
         && editor_drag.rectangle.is_none()
         && !editor_cursor.placing
         && editor_cursor.paste.is_none();
@@ -681,6 +722,9 @@ fn keyboard_commands(
         return;
     }
     if cursor.placing {
+        if let Some(radians) = selection::rotation_input(&keys) {
+            cursor.fine_rotation += radians;
+        }
         if keys.just_pressed(KeyCode::KeyR) {
             cursor.rotation = (cursor.rotation + 1).rem_euclid(4);
         }
@@ -700,6 +744,17 @@ fn keyboard_commands(
         return;
     }
     if cursor.placing {
+        return;
+    }
+    if let Some(radians) = selection::rotation_input(&keys) {
+        let selected = document.selected_keys();
+        if !selected.is_empty() {
+            let center = selection::center(&document, &selected);
+            document.execute(EditorCommand::TransformSelection {
+                parts: selected,
+                transform: SelectionTransform::RotateBy { center, radians },
+            });
+        }
         return;
     }
     if keys.just_pressed(KeyCode::Delete)
@@ -739,11 +794,13 @@ fn mouse_editor(
     mut cursor: ResMut<EditorCursor>,
     options: Res<view::ViewOptions>,
     pointer: Res<panels::UiPointer>,
+    mut camera_drag: ResMut<CameraDrag>,
 ) {
     if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right) {
         drag.cancel();
         cursor.cancel_placement();
         cursor.paste = None;
+        cursor.manual_connection = None;
         return;
     }
     let Ok(window) = windows.single() else {
@@ -752,6 +809,7 @@ fn mouse_editor(
     // 失焦或窗口外释放必须取消预览，不能让部件继续粘在鼠标上。
     if !window.focused || window.cursor_position().is_none() {
         cursor.valid = false;
+        cursor.manual_connection = None;
         if !window.focused || !mouse.pressed(MouseButton::Left) {
             drag.cancel();
             if cursor.palette_drag {
@@ -801,6 +859,7 @@ fn mouse_editor(
     let logical = (world.x as f64 / 60.0, world.y as f64 / 60.0);
     cursor.world = logical;
     cursor.valid = true;
+    free_mode::discard_stale(&document, &mut cursor);
     if cursor.paste.is_some() {
         if mouse.just_pressed(MouseButton::Left) {
             selection::commit_paste(&mut document, &mut cursor);
@@ -817,6 +876,21 @@ fn mouse_editor(
             placement::place(&mut document, &cursor);
         }
         return;
+    }
+    if document.free_mode && mouse.just_pressed(MouseButton::Left) && drag.id.is_none() {
+        let scale = match projection {
+            Projection::Orthographic(p) => p.scale,
+            _ => 1.0,
+        };
+        if free_mode::click(
+            &mut document,
+            &mut cursor,
+            logical,
+            8.0 * scale as f64 / 60.0,
+        ) {
+            camera_drag.0 = None;
+            return;
+        }
     }
     let left_pressed = mouse.just_pressed(MouseButton::Left);
     let box_pressed = mouse.just_pressed(box_button);
@@ -900,8 +974,32 @@ fn mouse_editor(
                 drag.turns = (drag.turns + 1) % 4;
             }
         }
-        let (delta, command, clear) =
-            selection::movement_pose(&document, &selected, drag.origin, drag.turns, drag.delta());
+        if let Some(radians) = selection::rotation_input(&keys) {
+            if selected.iter().any(|key| {
+                document
+                    .ship
+                    .part_at(*key)
+                    .and_then(|part| document.catalog.get(&part.part_type))
+                    .is_some_and(|kind| kind.disable_editor_rotation)
+            }) {
+                document.status = "所拖部件中有禁止旋转的部件".into();
+            } else {
+                drag.fine_rotation += radians;
+            }
+        }
+        let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
+        if !control && keys.just_pressed(KeyCode::KeyX) {
+            drag.mirror(true);
+        }
+        if !control && keys.just_pressed(KeyCode::KeyY) {
+            drag.mirror(false);
+        }
+        let (delta, command, clear) = selection::movement_transformed(
+            &document,
+            &selected,
+            drag.selection_pose(),
+            drag.delta(),
+        );
         drag.preview = (drag.origin.0 + delta.0, drag.origin.1 + delta.1);
         drag.command = Some(command);
         drag.blocked = !clear;

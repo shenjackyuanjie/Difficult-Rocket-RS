@@ -68,6 +68,7 @@ pub fn prepare_input(
         return;
     }
     if pending.is_some_and(|state| state.is_blocked()) {
+        cursor.manual_connection = None;
         drag.cancel();
         cursor.cancel_placement();
         cursor.paste = None;
@@ -91,6 +92,7 @@ pub fn prepare_input(
         properties::open(&mut inspector, &document);
     }
     if inspector.is_open() || topology_open {
+        cursor.manual_connection = None;
         drag.cancel();
         cursor.cancel_placement();
         cursor.paste = None;
