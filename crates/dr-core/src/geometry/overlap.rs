@@ -65,13 +65,17 @@ pub fn overlap_ratio(a: &Part, at: &PartType, b: &Part, bt: &PartType) -> f64 {
     if !intersects(a, at, b, bt) {
         return 0.0;
     }
-    // 平移到局部原点，避免很大的船体坐标导致面积计算中的消减误差。
+    // 使用第一部件的局部坐标系，避免大坐标消减及共同旋转带来的裁剪量化误差。
     let mut local_a = a.clone();
     let mut local_b = b.clone();
     local_a.x = 0.0;
     local_a.y = 0.0;
-    local_b.x -= a.x;
-    local_b.y -= a.y;
+    local_a.angle = 0.0;
+    let (sin, cos) = a.angle.sin_cos();
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    local_b.x = dx * cos + dy * sin;
+    local_b.y = dy * cos - dx * sin;
+    local_b.angle -= a.angle;
     let a = Solid::from_part(&local_a, at);
     let b = Solid::from_part(&local_b, bt);
     let area = a.area().min(b.area());
@@ -82,8 +86,9 @@ pub fn overlap_ratio(a: &Part, at: &PartType, b: &Part, bt: &PartType) -> f64 {
 }
 
 pub fn editor_overlap_blocked(a: &Part, at: &PartType, b: &Part, bt: &PartType) -> bool {
-    // 边界只容忍浮点舍入，不把等于 5% 误认为严格小于。
-    overlap_ratio(a, at, b, bt) >= MAX_EDITOR_OVERLAP - 1e-10
+    // geo 裁剪会映射到整数网格；容忍约 1e-8 的面积比量化误差，
+    // 保守拒绝等于 5% 的边界，不把旋转后的裁剪误差当作可连接空间。
+    overlap_ratio(a, at, b, bt) >= MAX_EDITOR_OVERLAP - 1e-8
 }
 
 fn circle_intersection(distance: f64, a: f64, b: f64) -> f64 {

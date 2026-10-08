@@ -37,6 +37,57 @@ fn five_percent_is_strict_and_uses_the_smaller_solid() {
 }
 
 #[test]
+fn rotated_and_mirrored_five_percent_boundary_stays_strict() {
+    let catalog = catalog();
+    let kind = catalog.get("square").unwrap();
+    for angle in [0.37_f64, 1.19, -2.31] {
+        for (flip_x, flip_y) in [(false, false), (true, false), (false, true), (true, true)] {
+            let mut a = kind.instantiate(1, (10000.0, -12345.0));
+            a.angle = angle;
+            a.flip_x = flip_x;
+            a.flip_y = flip_y;
+            for (distance, blocked) in [(0.951, false), (0.95, true), (0.949, true)] {
+                let mut b = kind.instantiate(
+                    2,
+                    (a.x + distance * angle.cos(), a.y + distance * angle.sin()),
+                );
+                b.angle = angle;
+                b.flip_x = flip_x;
+                b.flip_y = flip_y;
+                assert_eq!(
+                    editor_overlap_blocked(&a, kind, &b, kind),
+                    blocked,
+                    "angle={angle}, mirrors=({flip_x}, {flip_y}), distance={distance}, ratio={}",
+                    overlap_ratio(&a, kind, &b, kind)
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn differently_rotated_five_percent_boundary_stays_strict() {
+    let catalog = catalog();
+    let kind = catalog.get("square").unwrap();
+    for angle in [0.0_f64, 0.37, 1.19] {
+        let mut a = kind.instantiate(1, (0.0, 0.0));
+        a.angle = angle;
+        for (ratio, blocked) in [(0.049_f64, false), (0.05, true), (0.051, true)] {
+            // 45° 方形尖角形成等腰直角三角形：面积等于尖角进入深度的平方。
+            let distance = 0.5 + 0.5_f64.sqrt() - ratio.sqrt();
+            let mut b = kind.instantiate(2, (distance * angle.cos(), distance * angle.sin()));
+            b.angle = angle + std::f64::consts::FRAC_PI_4;
+            assert_eq!(
+                editor_overlap_blocked(&a, kind, &b, kind),
+                blocked,
+                "angle={angle}, ratio={ratio}, actual={}",
+                overlap_ratio(&a, kind, &b, kind)
+            );
+        }
+    }
+}
+
+#[test]
 fn rotation_mirroring_translation_and_shape_union_preserve_area() {
     let catalog = catalog();
     let square = catalog.get("square").unwrap();
