@@ -85,6 +85,61 @@ fn each_drag_input_reaches_visual_and_global_transform_in_the_same_update() {
 }
 
 #[test]
+fn drag_mirrors_and_fine_rotation_reach_sprite_and_cancellation_restores_them() {
+    let mut app = app();
+    let start = Vec2::new(720.0, 450.0);
+    point(&mut app, start);
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.update();
+    let mut query = app.world_mut().query::<(Entity, &render::PartVisual)>();
+    let entity = query.single(app.world()).unwrap().0;
+    for code in [
+        KeyCode::KeyE,
+        KeyCode::KeyX,
+        KeyCode::KeyE,
+        KeyCode::KeyY,
+        KeyCode::KeyR,
+    ] {
+        point(&mut app, start + Vec2::new(180.0, 120.0));
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(code);
+        app.update();
+        let document = app.world().resource::<EditorDocument>();
+        let part = app
+            .world()
+            .resource::<DragState>()
+            .pose(PartKey::new(0, 1, 0), &document.ship.parts[0]);
+        let sprite = app.world().get::<Sprite>(entity).unwrap();
+        assert_eq!((sprite.flip_x, sprite.flip_y), (part.flip_x, part.flip_y));
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert!(
+            (transform
+                .rotation
+                .dot(Quat::from_rotation_z(part.angle as f32))
+                .abs()
+                - 1.0)
+                .abs()
+                < 1e-5
+        );
+        assert!(!document.ship.parts[0].flip_x && !document.ship.parts[0].flip_y);
+    }
+    point(&mut app, start);
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Escape);
+    app.update();
+    let sprite = app.world().get::<Sprite>(entity).unwrap();
+    assert!(!sprite.flip_x && !sprite.flip_y);
+    assert_eq!(
+        app.world().get::<Transform>(entity).unwrap().rotation,
+        Quat::IDENTITY
+    );
+}
+
+#[test]
 fn each_background_pan_tracks_pixels_at_every_zoom_and_captures_release_delta() {
     for button in [view::BoxSelectButton::Left, view::BoxSelectButton::Middle] {
         for scale in [0.25, 1.0, 2.5] {

@@ -181,3 +181,26 @@ fn free_placement_and_paste_allow_overlap_but_never_auto_connect() {
     let pasted = document.ship.all_parts().find(|part| part.id > 2).unwrap();
     assert!((pasted.x - 3.001).abs() < 1e-12 && (pasted.y - 0.002).abs() < 1e-12);
 }
+
+#[test]
+fn free_preview_markers_follow_the_same_fine_rotation_and_mirrors_as_the_ghost() {
+    let document = document();
+    let mut cursor = EditorCursor {
+        placing: true,
+        valid: true,
+        world: (3.7, -2.1),
+        fine_rotation: 0.37,
+        flip_x: true,
+        flip_y: true,
+        ..default()
+    };
+    let segments = preview_segments(&document, &cursor);
+    let (part, _, _) = placement::preview(&document, &cursor).unwrap();
+    let kind = document.catalog.get(&part.part_type).unwrap();
+    assert_eq!(segments.len(), kind.attach_points.len());
+    for (segment, attach) in segments.iter().zip(&kind.attach_points) {
+        assert_eq!(*segment, dr_core::connections::segment(&part, kind, attach));
+    }
+    cursor.valid = false;
+    assert!(preview_segments(&document, &cursor).is_empty());
+}

@@ -231,6 +231,8 @@ pub(crate) fn sync(
         let texture = kind.map(|kind| kind.sprite.as_str()).unwrap_or("");
         let size = fallback_size(kind);
         let part_key = PartKey::new(key.0, key.1, key.2);
+        let preview = drag.contains(part_key).then(|| drag.pose(part_key, part));
+        let sprite_part = preview.as_ref().unwrap_or(part);
         let (color, mut target) = appearance(
             &document,
             &drag,
@@ -261,7 +263,8 @@ pub(crate) fn sync(
                 };
                 visual.texture = texture.to_owned();
             }
-            let (custom_size, target_anchor) = sprite_geometry(kind, &sprite.image, &images, part);
+            let (custom_size, target_anchor) =
+                sprite_geometry(kind, &sprite.image, &images, sprite_part);
             if sprite.custom_size != custom_size {
                 sprite.custom_size = custom_size;
             }
@@ -277,11 +280,11 @@ pub(crate) fn sync(
             if sprite.color != color {
                 sprite.color = color;
             }
-            if sprite.flip_x != part.flip_x {
-                sprite.flip_x = part.flip_x;
+            if sprite.flip_x != sprite_part.flip_x {
+                sprite.flip_x = sprite_part.flip_x;
             }
-            if sprite.flip_y != part.flip_y {
-                sprite.flip_y = part.flip_y;
+            if sprite.flip_y != sprite_part.flip_y {
+                sprite.flip_y = sprite_part.flip_y;
             }
             if *transform != target {
                 *transform = target;
@@ -293,7 +296,7 @@ pub(crate) fn sync(
             } else {
                 Sprite::from_image(assets.load(format!("textures/parts/{texture}")))
             };
-            let (custom_size, anchor) = sprite_geometry(kind, &sprite.image, &images, part);
+            let (custom_size, anchor) = sprite_geometry(kind, &sprite.image, &images, sprite_part);
             sprite.custom_size = custom_size;
             if !texture.is_empty() {
                 index.texture_sizes.insert(
@@ -302,8 +305,8 @@ pub(crate) fn sync(
                 );
             }
             sprite.color = color;
-            sprite.flip_x = part.flip_x;
-            sprite.flip_y = part.flip_y;
+            sprite.flip_x = sprite_part.flip_x;
+            sprite.flip_y = sprite_part.flip_y;
             let entity = commands
                 .spawn((
                     sprite,

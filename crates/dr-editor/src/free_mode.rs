@@ -221,6 +221,20 @@ pub(crate) fn click(
     true
 }
 
+fn preview_segments(document: &EditorDocument, cursor: &EditorCursor) -> Vec<(Vec2d, Vec2d)> {
+    if !cursor.placing || !cursor.valid {
+        return vec![];
+    }
+    let Some((part, _, _)) = placement::preview(document, cursor) else {
+        return vec![];
+    };
+    let kind = document.catalog.get(&part.part_type).unwrap();
+    kind.attach_points
+        .iter()
+        .map(|attach| dr_core::connections::segment(&part, kind, attach))
+        .collect()
+}
+
 pub(crate) fn draw(
     gizmos: &mut Gizmos,
     document: &EditorDocument,
@@ -253,6 +267,19 @@ pub(crate) fn draw(
                 |start| start.point,
             );
             gizmos.circle(Isometry3d::from_translation(point(center)), radius, color);
+        }
+    }
+    if canvas {
+        for (a, b) in preview_segments(document, cursor) {
+            gizmos.line(point(a), point(b), normal);
+            gizmos.circle(
+                Isometry3d::from_translation(point(Vec2d {
+                    x: (a.x + b.x) / 2.0,
+                    y: (a.y + b.y) / 2.0,
+                })),
+                radius,
+                normal,
+            );
         }
     }
     if let Some(start) = pending
