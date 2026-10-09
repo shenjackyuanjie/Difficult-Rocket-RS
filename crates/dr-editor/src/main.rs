@@ -2,6 +2,7 @@ mod attachment_hints;
 mod connection_lines;
 mod connection_smoke;
 mod demo;
+mod demo_cases;
 mod egui_ui;
 mod files;
 mod free_mode;
@@ -383,6 +384,8 @@ fn main() -> anyhow::Result<()> {
     .init_resource::<connection_lines::Settings>()
     .init_resource::<connection_lines::Controls>()
     .init_resource::<transform_smoke::Captured>()
+    .init_resource::<demo_cases::Run>()
+    .init_resource::<demo_cases::Captured>()
     .init_resource::<interaction_smoke::Probe>()
     .init_resource::<view::ViewOptions>()
     .add_plugins(
@@ -441,6 +444,7 @@ fn main() -> anyhow::Result<()> {
             (
                 demo::begin,
                 demo::restore_pointer,
+                demo_cases::run.run_if(demo::advance_ready),
                 (
                     panels::smoke::run,
                     topology_ui::smoke::run,
@@ -485,6 +489,8 @@ fn main() -> anyhow::Result<()> {
             connection_lines::configure_system,
             render::connections,
             attachment_hints::draw,
+            demo_cases::draw,
+            demo_cases::draw_degenerate,
             view::draw_debug,
             update_hud,
             files::update_window_title,

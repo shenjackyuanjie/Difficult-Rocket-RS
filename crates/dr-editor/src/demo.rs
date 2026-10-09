@@ -12,6 +12,16 @@ struct Chapter {
     description: &'static str,
     artifacts: &'static [&'static str],
 }
+
+impl Chapter {
+    fn evidence(&self) -> Vec<String> {
+        self.artifacts
+            .iter()
+            .map(|name| (*name).to_owned())
+            .chain(demo_cases::artifacts(self.id))
+            .collect()
+    }
+}
 const CHAPTERS: &[Chapter] = &[
     Chapter {
         id: "panels",
@@ -117,6 +127,81 @@ const CHAPTERS: &[Chapter] = &[
     },
 ];
 
+const DETAILED_CHAPTERS: &[(&str, Chapter)] = &[
+    (
+        "panels",
+        Chapter {
+            id: "placement-cases",
+            title: "放置边界：取消、上限与禁用旋转",
+            description: "每个夹具独立初始化；预览/拒绝操作不应改写文档。",
+            artifacts: &["placement-cases.json"],
+        },
+    ),
+    (
+        "connections",
+        Chapter {
+            id: "geometry-cases",
+            title: "精确重叠边界：4.9% / 5% / 5.1%",
+            description: "精确事务参数避免鼠标坐标量化；红/绿轮廓是被拒绝/允许的候选。",
+            artifacts: &["geometry-cases.json"],
+        },
+    ),
+    (
+        "transforms",
+        Chapter {
+            id: "free-cases",
+            title: "自由连接边界：取消、自连接与类型",
+            description: "真实端点点击与快捷键；自由模式依然校验引用和端点类型。",
+            artifacts: &["free-cases.json"],
+        },
+    ),
+    (
+        "transforms",
+        Chapter {
+            id: "group-cases",
+            title: "整组变换边界：空选区、顺序与后代",
+            description: "不相连的多选仍是刚体；旋转/镜像顺序不能交换。",
+            artifacts: &["group-cases.json"],
+        },
+    ),
+    (
+        "transforms",
+        Chapter {
+            id: "line-cases",
+            title: "连接线边界：上下限、重置与退化路径",
+            description: "会话级显示设置不生成文档历史；隐藏线不隐藏手动端点。",
+            artifacts: &["line-cases.json"],
+        },
+    ),
+    (
+        "staging",
+        Chapter {
+            id: "history-cases",
+            title: "历史与属性边界：回滚、分支与非法草稿",
+            description: "失败操作保持完整快照；草稿参数直接设置，不进行系统文字输入专项。",
+            artifacts: &["history-cases.json"],
+        },
+    ),
+    (
+        "topology",
+        Chapter {
+            id: "topology-cases",
+            title: "拓扑边界：自连接、环路与跨组重号",
+            description: "树与图的环路规则不同；跨组合并保持实例与引用归属。",
+            artifacts: &["topology-cases.json"],
+        },
+    ),
+    (
+        "unsaved",
+        Chapter {
+            id: "file-cases",
+            title: "文件边界：坏 XML、保存失败与模态隔离",
+            description: "仅使用 target 临时输入，不覆盖或恢复写入原版样本。",
+            artifacts: &["file-cases.json"],
+        },
+    ),
+];
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Mode {
     #[default]
@@ -140,7 +225,19 @@ impl Mode {
     }
 
     fn chapters(self) -> Vec<&'static Chapter> {
-        CHAPTERS.iter().collect()
+        let mut chapters = Vec::new();
+        for chapter in CHAPTERS {
+            chapters.push(chapter);
+            if self == Self::Detailed {
+                chapters.extend(
+                    DETAILED_CHAPTERS
+                        .iter()
+                        .filter(|(after, _)| *after == chapter.id)
+                        .map(|(_, extra)| extra),
+                );
+            }
+        }
+        chapters
     }
 }
 
@@ -692,6 +789,14 @@ impl Showcase {
     fn chapter(&self) -> &'static Chapter {
         self.chapters[self.index]
     }
+
+    pub(crate) fn case_result_pause(&self) -> Duration {
+        if self.mode == Mode::Detailed && !fast(self.step) {
+            self.step * 4
+        } else {
+            Duration::ZERO
+        }
+    }
 }
 
 /// 详细演示不以旧专项的固定时长截断样例；显式超时由外部驱动管理。
@@ -775,6 +880,7 @@ pub(crate) fn begin(world: &mut World) {
     }
     document.revision = world.resource::<EditorDocument>().revision.wrapping_add(1);
     world.insert_resource(document);
+    world.insert_resource(demo_cases::Run::new(chapter.id));
     world.resource_mut::<EditorPaths>().ship = sample;
     world.insert_resource(DragState::default());
     world.insert_resource(EditorCursor::default());
@@ -1097,7 +1203,8 @@ pub(crate) fn finish(world: &mut World) {
         }
         // 用户关闭窗口也产生 Success，只有本章所有新鲜证据齐全才接受。
         let chapter = showcase.chapter();
-        let fresh = chapter.artifacts.iter().all(|name| {
+        let evidence = chapter.evidence();
+        let fresh = evidence.iter().all(|name| {
             std::fs::metadata(format!("target/{name}")).is_ok_and(|metadata| {
                 metadata.len() > 0
                     && metadata
@@ -1109,7 +1216,7 @@ pub(crate) fn finish(world: &mut World) {
             return;
         }
         let output = showcase.output.clone();
-        for name in chapter.artifacts {
+        for name in &evidence {
             std::fs::copy(format!("target/{name}"), output.join(name)).expect("无法复制演示证据");
         }
         world.resource_mut::<Messages<AppExit>>().clear();
@@ -1125,7 +1232,7 @@ pub(crate) fn finish(world: &mut World) {
     append_timeline(&showcase.output, "chapter_finished", chapter, ended);
     let output = showcase.output.clone();
     let elapsed = showcase.chapter_started.elapsed().as_secs_f64();
-    let report = serde_json::json!({"id":chapter.id, "title":chapter.title, "status":"passed", "elapsed_seconds":elapsed, "artifacts":chapter.artifacts, "start_unix_ms":showcase.chapter_start_unix_ms, "end_unix_ms":unix_ms(ended)});
+    let report = serde_json::json!({"id":chapter.id, "title":chapter.title, "status":"passed", "elapsed_seconds":elapsed, "artifacts":chapter.evidence(), "start_unix_ms":showcase.chapter_start_unix_ms, "end_unix_ms":unix_ms(ended)});
     let mut showcase = world.resource_mut::<Showcase>();
     showcase.finishing = None;
     showcase.reports.push(report);
@@ -1157,6 +1264,7 @@ pub(crate) fn finish(world: &mut World) {
 }
 
 /// 说明区不捕获指针；避免改变被演示控件的焦点与命中。
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn overlay(
     mut contexts: bevy_egui::EguiContexts,
     showcase: Option<Res<Showcase>>,
@@ -1165,6 +1273,7 @@ pub(crate) fn overlay(
     pending: Res<files::PendingFileAction>,
     help: Res<help::HelpState>,
     mouse: Res<ButtonInput<MouseButton>>,
+    details: Option<Res<demo_cases::Run>>,
 ) {
     use bevy_egui::egui;
     let Some(showcase) = showcase else {
@@ -1288,6 +1397,10 @@ pub(crate) fn overlay(
                             .color(egui::Color32::from_rgb(221, 203, 255)),
                     );
                     ui.label(description);
+                    if let Some(caption) = details.as_ref().and_then(|details| details.caption()) {
+                        ui.separator();
+                        ui.label(caption);
+                    }
                     ui.label(
                         egui::RichText::new(format!(
                             "节奏基准 {}ms · 内部输入注入 · 窗口单次启动",
@@ -1329,6 +1442,14 @@ mod tests {
             assert_eq!(showcase.mode, expected);
             assert_eq!(showcase.step, Duration::from_millis(450));
             assert_eq!(
+                showcase.case_result_pause(),
+                if expected == Mode::Detailed {
+                    Duration::from_millis(1800)
+                } else {
+                    Duration::ZERO
+                }
+            );
+            assert_eq!(
                 within_timeout(Some(&showcase), old, 60),
                 expected == Mode::Detailed
             );
@@ -1355,6 +1476,33 @@ mod tests {
                 assert_eq!(std::path::Path::new(name).components().count(), 1);
             }
         }
+        let detailed = Mode::Detailed.chapters();
+        assert_eq!(detailed.len(), 18);
+        assert_eq!(
+            detailed
+                .iter()
+                .map(|chapter| chapter.id)
+                .collect::<BTreeSet<_>>()
+                .len(),
+            18
+        );
+        assert_eq!(
+            detailed
+                .iter()
+                .filter(|chapter| demo_cases::cases(chapter.id).is_empty())
+                .map(|chapter| chapter.id)
+                .collect::<Vec<_>>(),
+            CHAPTERS
+                .iter()
+                .map(|chapter| chapter.id)
+                .collect::<Vec<_>>()
+        );
+        let evidence: Vec<_> = detailed
+            .iter()
+            .flat_map(|chapter| chapter.evidence())
+            .collect();
+        assert_eq!(evidence.len(), 89);
+        assert_eq!(evidence.iter().collect::<BTreeSet<_>>().len(), 89);
     }
     #[test]
     fn failed_and_unproven_success_exit_are_not_swallowed() {

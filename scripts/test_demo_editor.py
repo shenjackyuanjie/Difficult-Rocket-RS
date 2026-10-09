@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -17,13 +18,16 @@ demo = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(demo)
 
 
-def complete_report():
+def complete_report(mode="brief"):
     return {
         "completed": True,
+        "mode": mode,
         "chapters": [
             {"id": chapter_id, "title": "演示章节", "status": "passed",
-             "elapsed_seconds": 0.45, "artifacts": [chapter_id + ".png"]}
-            for chapter_id in demo.CHAPTER_IDS
+             "elapsed_seconds": 0.45,
+             "artifacts": ([chapter_id + ".json", *["case-" + case_id + ".png" for case_id in demo.DETAILED_CASE_IDS[chapter_id]]]
+                           if chapter_id in demo.DETAILED_CASE_IDS else [chapter_id + ".png"])}
+            for chapter_id in demo.chapter_ids(mode)
         ],
     }
 
@@ -60,6 +64,12 @@ class DemoTests(unittest.TestCase):
             for name in chapter["artifacts"]:
                 artifact = self.output / name
                 artifact.write_bytes(b"mock screenshot evidence")
+                if name.endswith("-cases.json"):
+                    artifact.write_text(json.dumps({"completed": True, "chapter": chapter["id"], "cases": [
+                        {"id": case_id, "status": "passed", "title": "样例", "expected": "预期", "input_path": "内部注入",
+                         "screenshot": "case-" + case_id + ".png", "metrics": {}}
+                        for case_id in demo.DETAILED_CASE_IDS[chapter["id"]]
+                    ]}), encoding="utf-8")
                 os.utime(artifact, ns=(stamp, stamp))
         path = self.output / demo.REPORT_NAME
         path.write_text(json.dumps(report), encoding="utf-8")
@@ -132,8 +142,7 @@ class DemoTests(unittest.TestCase):
         options = self.options("--mode", "detailed", "--fast")
         self.assertIsNone(options.timeout)
         self.assertEqual(options.mode, "detailed")
-        report = complete_report()
-        report["mode"] = "detailed"
+        report = complete_report("detailed")
         self.write_evidence(report)
         result, popen = self.invoke(options)
         self.assertEqual(result, report)
@@ -159,6 +168,54 @@ class DemoTests(unittest.TestCase):
             with patch.object(demo, "read_completed_report", return_value=None), self.subTest(code=code):
                 with self.assertRaises(demo.DemoError):
                     demo.wait_for_demo(self.process, self.output, self.started_ns, None, True, "detailed")
+
+    def test_modes_have_independent_complete_chapter_and_case_contracts(self):
+        self.assertEqual(len(demo.CHAPTER_IDS), 10)
+        self.assertEqual(len(demo.DETAILED_CHAPTER_IDS), 18)
+        self.assertEqual(sum(map(len, demo.DETAILED_CASE_IDS.values())), 41)
+        self.assertEqual(tuple(chapter for chapter in demo.DETAILED_CHAPTER_IDS if chapter not in demo.DETAILED_CASE_IDS), demo.CHAPTER_IDS)
+        report = complete_report("detailed")
+        self.write_evidence(report)
+        self.assertEqual(demo.validate_report(report, self.output, self.started_ns, "detailed"), report)
+        report["chapters"] = complete_report()["chapters"]
+        with self.assertRaisesRegex(demo.DemoError, "完整 18"):
+            demo.validate_report(report, self.output, self.started_ns, "detailed")
+
+    def test_python_contract_matches_rust_case_manifest(self):
+        source = (demo.ROOT / "crates/dr-editor/src/demo_cases/manifest.rs").read_text(encoding="utf-8")
+        manifests = {name: tuple(re.findall(r'case!\(\s*"([^"]+)"', body))
+                     for name, body in re.findall(r'pub\(crate\) const (\w+):.*?= &\[(.*?)\n\];', source, re.S)}
+        mapping = {"placement-cases": "PLACEMENT", "geometry-cases": "GEOMETRY", "free-cases": "FREE",
+                   "group-cases": "GROUPS", "line-cases": "LINES", "history-cases": "HISTORY",
+                   "topology-cases": "TOPOLOGY", "file-cases": "FILES"}
+        for chapter, rust_name in mapping.items():
+            self.assertEqual(demo.DETAILED_CASE_IDS[chapter], manifests[rust_name])
+
+    def test_detailed_cases_cannot_be_missing_faked_or_unillustrated(self):
+        report = complete_report("detailed")
+        self.write_evidence(report)
+        path = self.output / "geometry-cases.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        variants = []
+        for key, value in (("completed", False), ("completed", 1), ("chapter", "free-cases"), ("cases", [])):
+            bad = copy.deepcopy(original)
+            bad[key] = value
+            variants.append(bad)
+        for key, value in (("id", "unknown"), ("status", "failed"), ("expected", ""), ("input_path", ""),
+                           ("screenshot", "missing.png"), ("metrics", None)):
+            bad = copy.deepcopy(original)
+            bad["cases"][0][key] = value
+            variants.append(bad)
+        for bad in variants:
+            path.write_text(json.dumps(bad), encoding="utf-8")
+            with self.subTest(bad=bad), self.assertRaises(demo.DemoError):
+                demo.validate_report(report, self.output, self.started_ns, "detailed")
+        path.write_text(json.dumps(original), encoding="utf-8")
+        for chapter in report["chapters"]:
+            if chapter["id"] == "geometry-cases":
+                chapter["artifacts"].remove("case-overlap-exact.png")
+        with self.assertRaisesRegex(demo.DemoError, "截图"):
+            demo.validate_report(report, self.output, self.started_ns, "detailed")
 
     def test_exit_mode_nonzero_after_report_fails_and_cleans_owned_process(self):
         self.process.wait.return_value = 101

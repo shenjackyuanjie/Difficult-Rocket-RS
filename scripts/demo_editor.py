@@ -19,7 +19,25 @@ CHAPTER_IDS = (
     "panels", "connections", "transforms", "selection", "view", "staging",
     "topology", "repair", "browser", "unsaved",
 )
-DETAILED_CHAPTER_IDS = CHAPTER_IDS
+DETAILED_CHAPTER_IDS = (
+    "panels", "placement-cases", "connections", "geometry-cases", "transforms",
+    "free-cases", "group-cases", "line-cases", "selection", "view", "staging",
+    "history-cases", "topology", "topology-cases", "repair", "browser", "unsaved", "file-cases",
+)
+DETAILED_CASE_IDS = {
+    "placement-cases": ("palette-cancel", "quantity-limit", "disabled-rotation"),
+    "geometry-cases": ("overlap-below", "overlap-exact", "overlap-above", "overlap-rotated-mirrors",
+                       "overlap-relative-45", "overlap-contained"),
+    "free-cases": ("manual-same", "manual-self", "manual-escape", "manual-blank", "manual-stale",
+                   "manual-type-mismatch", "manual-reverse-unlink"),
+    "group-cases": ("selection-empty", "selection-single", "selection-disconnected", "mirrors-involution",
+                    "transform-order", "descendants-no-ancestor"),
+    "line-cases": ("line-width-min", "line-width-max", "line-reset", "line-zero-length", "line-hidden-endpoint"),
+    "history-cases": ("history-empty", "history-batch-rollback", "history-new-branch", "fuel-nan", "fuel-negative",
+                      "fuel-over-capacity", "properties-stale"),
+    "topology-cases": ("topology-self", "topology-tree-cycle", "topology-graph-cycle", "topology-cross-group"),
+    "file-cases": ("file-invalid-open", "file-save-failure", "file-modal-cancel"),
+}
 
 
 def chapter_ids(mode):
@@ -166,7 +184,37 @@ def validate_report(report, output, started_ns, expected_mode=None):
             stat = artifact.stat()
             if stat.st_size == 0 or stat.st_mtime_ns < started_ns:
                 raise DemoError(f"artifact 为空或不是本次新产物：{name}")
+        if mode == "detailed" and chapter_id in DETAILED_CASE_IDS:
+            validate_cases(chapter, output)
     return report
+
+
+def validate_cases(chapter, output):
+    """详细模式不能用十章简略报告或空边界清单冒充通过。"""
+    chapter_id = chapter["id"]
+    filename = chapter_id + ".json"
+    if filename not in chapter["artifacts"]:
+        raise DemoError(f"详细章节 {chapter_id} 缺少独立样例报告")
+    try:
+        report = json.loads((output / filename).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise DemoError(f"详细样例报告不可读：{chapter_id}") from error
+    if not isinstance(report, dict) or report.get("completed") is not True or report.get("chapter") != chapter_id:
+        raise DemoError(f"详细样例报告身份或完成状态不符：{chapter_id}")
+    expected = DETAILED_CASE_IDS[chapter_id]
+    cases = report.get("cases")
+    if not isinstance(cases, list) or len(cases) != len(expected):
+        raise DemoError(f"详细章节 {chapter_id} 必须包含完整 {len(expected)} 个样例")
+    for case_id, case in zip(expected, cases):
+        if not isinstance(case, dict) or case.get("id") != case_id or case.get("status") != "passed":
+            raise DemoError(f"详细样例未通过、重复或顺序不符：{case_id}")
+        if any(not isinstance(case.get(key), str) or not case[key].strip() for key in ("title", "expected", "input_path")):
+            raise DemoError(f"详细样例缺少说明或真实输入路径：{case_id}")
+        screenshot = "case-" + case_id + ".png"
+        if case.get("screenshot") != screenshot or screenshot not in chapter["artifacts"]:
+            raise DemoError(f"详细样例缺少声明的独立截图：{case_id}")
+        if not isinstance(case.get("metrics"), dict):
+            raise DemoError(f"详细样例缺少实际验收数据：{case_id}")
 
 
 def read_completed_report(output, started_ns, expected_mode=None):
