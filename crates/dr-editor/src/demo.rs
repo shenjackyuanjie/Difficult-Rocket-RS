@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+mod caption;
 mod chapters;
 mod evidence;
 mod hints;

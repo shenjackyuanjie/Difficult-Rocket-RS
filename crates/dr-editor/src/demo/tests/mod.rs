@@ -6,6 +6,7 @@ use super::*;
 mod configuration;
 mod evidence;
 mod hints;
+mod overlay;
 mod pacing;
 mod replay;
 

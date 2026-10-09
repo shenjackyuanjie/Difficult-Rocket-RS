@@ -12,6 +12,7 @@ pub(crate) fn overlay(
     help: Res<help::HelpState>,
     mouse: Res<ButtonInput<MouseButton>>,
     details: Option<Res<demo_cases::Run>>,
+    property_hits: Res<egui_ui::UiHits>,
 ) {
     use bevy_egui::egui;
     let Some(showcase) = showcase else {
@@ -114,39 +115,26 @@ pub(crate) fn overlay(
             showcase.description.unwrap_or(chapter.description),
         )
     };
-    egui::Area::new(egui::Id::new("demo-caption"))
-        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0., -14.))
-        .order(egui::Order::Tooltip)
-        .interactable(false)
-        .show(ctx, |ui| {
-            egui::Frame::new()
-                .fill(egui::Color32::from_rgb(25, 23, 34))
-                .stroke(egui::Stroke::new(
-                    1.,
-                    egui::Color32::from_rgb(142, 116, 199),
-                ))
-                .corner_radius(6.)
-                .inner_margin(10.)
-                .show(ui, |ui| {
-                    ui.set_max_width(620.);
-                    ui.label(
-                        egui::RichText::new(title)
-                            .size(18.)
-                            .color(egui::Color32::from_rgb(221, 203, 255)),
-                    );
-                    ui.label(description);
-                    if let Some(caption) = details.as_ref().and_then(|details| details.caption()) {
-                        ui.separator();
-                        ui.label(caption);
-                    }
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "节奏基准 {}ms · 内部输入注入 · 窗口单次启动",
-                            showcase.step.as_millis()
-                        ))
-                        .size(12.)
-                        .weak(),
-                    );
-                });
-        });
+    let details = details.as_ref().and_then(|details| details.caption());
+    let left_of = if details.is_some() && inspector.is_open() {
+        // 用本帧真实控件位置避让，而不是假定模态高度；错误文字和取消必须可见。
+        let Some((_, apply)) = property_hits
+            .0
+            .iter()
+            .find(|(action, _)| *action == properties::Action::Apply)
+        else {
+            return; // 首次布局尚无控件时不闪现一个挡住模态的说明层。
+        };
+        Some(apply.left())
+    } else {
+        None
+    };
+    caption::paint(
+        ctx,
+        &title,
+        description,
+        details.as_deref(),
+        showcase.step,
+        left_of,
+    );
 }
