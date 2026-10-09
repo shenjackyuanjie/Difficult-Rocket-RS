@@ -26,12 +26,13 @@ pub(crate) fn run(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
     mut commands: Commands,
+    showcase: Option<Res<demo::Showcase>>,
 ) {
     if !mode.repair || mode.started.elapsed().as_secs() < 3 {
         return;
     }
     assert!(
-        mode.started.elapsed().as_secs() < 60,
+        demo::within_timeout(showcase.as_deref(), mode.started, 60),
         "重复编号修复自测超时"
     );
     let Ok(mut input) = inputs.single_mut() else {

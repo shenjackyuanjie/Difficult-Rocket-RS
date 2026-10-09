@@ -20,11 +20,15 @@ pub(crate) fn run(
     mut ui: ResMut<egui_panel::UiState>,
     mut inputs: Query<&mut bevy_egui::EguiInput, With<bevy_egui::PrimaryEguiContext>>,
     mut commands: Commands,
+    showcase: Option<Res<demo::Showcase>>,
 ) {
     if !mode.browser || mode.started.elapsed().as_secs() < 3 {
         return;
     }
-    assert!(mode.started.elapsed().as_secs() < 90, "大目录交互自测超时");
+    assert!(
+        demo::within_timeout(showcase.as_deref(), mode.started, 90),
+        "大目录交互自测超时"
+    );
     let Ok(mut input) = inputs.single_mut() else {
         return;
     };

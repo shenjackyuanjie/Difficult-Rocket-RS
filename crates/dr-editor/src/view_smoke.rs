@@ -49,7 +49,10 @@ pub(crate) fn run(
     if !mode.view || mode.started.elapsed().as_secs() < 3 {
         return;
     }
-    assert!(mode.started.elapsed().as_secs() < 60, "视图交互自测超时");
+    assert!(
+        demo::within_timeout(showcase.as_deref(), mode.started, 60),
+        "视图交互自测超时"
+    );
     let Ok(mut window) = windows.single_mut() else {
         return;
     };

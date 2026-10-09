@@ -1,4 +1,4 @@
-"""单窗口十章演示驱动：内部输入注入展示，不代表系统键鼠或前台验收。
+"""单窗口简略/详细演示驱动：内部输入注入展示，不代表系统键鼠或前台验收。
 
 默认完成后保留编辑器；--fast 固定 40ms 且自动退出，仅供 UI 回归。
 只读取原版样本并校验 SHA256，不保存或恢复覆盖任何原版文件。
@@ -19,6 +19,17 @@ CHAPTER_IDS = (
     "panels", "connections", "transforms", "selection", "view", "staging",
     "topology", "repair", "browser", "unsaved",
 )
+DETAILED_CHAPTER_IDS = CHAPTER_IDS
+
+
+def chapter_ids(mode):
+    if mode == "brief":
+        return CHAPTER_IDS
+    if mode == "detailed":
+        return DETAILED_CHAPTER_IDS
+    raise DemoError(f"未知演示模式：{mode!r}")
+
+
 REPORT_NAME = "demo-report.json"
 
 
@@ -50,12 +61,17 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--editor-bin", type=Path, help="编辑器路径，默认 target/debug/dr-editor.exe")
     parser.add_argument("--no-build", action="store_true", help="不自动构建默认编辑器")
+    parser.add_argument("--mode", choices=("brief", "detailed"), default="brief",
+                        help="brief 简略（原有节奏）；detailed 详细（含边界样例），默认 brief")
     parser.add_argument("--step-ms", type=positive_int, default=450, help="每动作间隔毫秒，默认 450")
     parser.add_argument("--fast", action="store_true", help="40ms UI 回归模式，强制自动退出")
     parser.add_argument("--exit-on-complete", action="store_true", help="演示完成后自动关闭编辑器")
     parser.add_argument("--output", type=Path, help="输出目录，默认 target/demo-时间戳")
-    parser.add_argument("--timeout", type=positive_seconds, default=600, help="启动后的超时秒数，默认 600")
+    parser.add_argument("--timeout", type=positive_seconds,
+                        help="启动后的超时秒数；简略默认 600，详细默认不限时")
     options = parser.parse_args(argv)
+    if options.timeout is None and options.mode == "brief":
+        options.timeout = 600
     if options.fast:
         options.step_ms = 40
         options.exit_on_complete = True
@@ -104,19 +120,25 @@ def prepare_binary(options, root):
     return binary
 
 
-def validate_report(report, output, started_ns):
+def validate_report(report, output, started_ns, expected_mode=None):
     if not isinstance(report, dict) or report.get("completed") is not True:
         raise DemoError("报告未声明 completed: true")
+    mode = report.get("mode", "brief")  # 兼容既有十章视频报告；详细报告必须显式标识。
+    expected = chapter_ids(mode)
+    if expected_mode is not None and mode != expected_mode:
+        raise DemoError(f"报告模式 {mode!r} 与请求的 {expected_mode!r} 不符")
     chapters = report.get("chapters")
-    if not isinstance(chapters, list) or len(chapters) != len(CHAPTER_IDS):
-        raise DemoError("报告必须包含完整十章")
+    if not isinstance(chapters, list) or len(chapters) != len(expected):
+        raise DemoError(f"{mode} 报告必须包含完整 {len(expected)} 章")
     seen = set()
-    for chapter in chapters:
+    for index, chapter in enumerate(chapters):
         if not isinstance(chapter, dict):
             raise DemoError("章节必须为对象")
         chapter_id = chapter.get("id")
-        if not isinstance(chapter_id, str) or chapter_id not in CHAPTER_IDS or chapter_id in seen:
+        if not isinstance(chapter_id, str) or chapter_id not in expected or chapter_id in seen:
             raise DemoError(f"章节 ID 未知或重复：{chapter_id!r}")
+        if chapter_id != expected[index]:
+            raise DemoError(f"章节顺序不符：预期 {expected[index]}，实际 {chapter_id}")
         seen.add(chapter_id)
         title = chapter.get("title")
         if not isinstance(title, str) or not title.strip():
@@ -147,7 +169,7 @@ def validate_report(report, output, started_ns):
     return report
 
 
-def read_completed_report(output, started_ns):
+def read_completed_report(output, started_ns, expected_mode=None):
     path = output / REPORT_NAME
     if not path.is_file() or path.stat().st_mtime_ns < started_ns:
         return None
@@ -157,7 +179,7 @@ def read_completed_report(output, started_ns):
         return None  # 允许非原子写入的短暂中间态；超时或提前退出仍失败。
     if isinstance(report, dict) and report.get("completed") is False:
         return None
-    return validate_report(report, output, started_ns)
+    return validate_report(report, output, started_ns, expected_mode)
 
 
 def stop_owned_process(process):
@@ -171,17 +193,17 @@ def stop_owned_process(process):
             process.wait(timeout=5)
 
 
-def wait_for_demo(process, output, started_ns, timeout, exit_on_complete):
-    deadline = time.monotonic() + timeout
+def wait_for_demo(process, output, started_ns, timeout, exit_on_complete, expected_mode=None):
+    deadline = time.monotonic() + timeout if timeout is not None else None
     while True:
         code = process.poll()
         if code is not None and code != 0:
             raise DemoError(f"编辑器异常退出，退出码 {code}")
-        report = read_completed_report(output, started_ns)
+        report = read_completed_report(output, started_ns, expected_mode)
         if report is not None:
             if exit_on_complete:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
+                remaining = deadline - time.monotonic() if deadline is not None else None
+                if remaining is not None and remaining <= 0:
                     raise DemoError("演示报告完成，但等待自动退出超时")
                 try:
                     code = process.wait(timeout=remaining)
@@ -194,7 +216,7 @@ def wait_for_demo(process, output, started_ns, timeout, exit_on_complete):
             return report
         if code is not None:
             raise DemoError(f"编辑器提前退出，退出码 {code}，缺少本次完整报告（可能手动关闭）")
-        if time.monotonic() >= deadline:
+        if deadline is not None and time.monotonic() >= deadline:
             raise DemoError(f"演示等待超时（{timeout:g} 秒），缺少本次完整报告")
         time.sleep(0.1)
 
@@ -211,19 +233,23 @@ def run_demo(options, root=ROOT):
         if any(path.is_relative_to(output) for path in original):
             raise DemoError("输出目录不得包含受保护的原版样本，请改用独立演示目录")
         output.mkdir(parents=True, exist_ok=True)
-        command = [str(binary), "--demo-showcase", str(output), "--demo-step-ms", str(options.step_ms)]
+        command = [str(binary), "--demo-showcase", str(output), "--demo-mode", options.mode,
+                   "--demo-step-ms", str(options.step_ms)]
         if options.exit_on_complete:
             command.append("--demo-exit-on-complete")
-        print(f"启动单窗口十章演示：动作间隔 {options.step_ms}ms；输出 {output}", flush=True)
+        label = "详细" if options.mode == "detailed" else "简略"
+        count = len(chapter_ids(options.mode))
+        print(f"启动单窗口{label}演示（{count} 章）：动作间隔 {options.step_ms}ms；输出 {output}", flush=True)
         print("仅内部输入注入，无系统键鼠操作或前台抢占。", flush=True)
         with (output / "demo-editor.log").open("w", encoding="utf-8") as log:
             started_ns = time.time_ns()
             process = subprocess.Popen(command, cwd=root, stdout=log, stderr=log)
-            report = wait_for_demo(process, output, started_ns, options.timeout, options.exit_on_complete)
+            report = wait_for_demo(process, output, started_ns, options.timeout,
+                                   options.exit_on_complete, options.mode)
         check_samples(original)
         for chapter in report["chapters"]:
             print(f"[通过] {chapter['id']} · {chapter['title']}：{chapter['elapsed_seconds']:.2f} 秒，产物 {len(chapter['artifacts'])} 个")
-        print(f"十章演示完成，Test.xml / Heronb.xml SHA256 未改变。报告：{output / REPORT_NAME}")
+        print(f"{label}模式 {count} 章演示完成，Test.xml / Heronb.xml SHA256 未改变。报告：{output / REPORT_NAME}")
         if not options.exit_on_complete and process.poll() is None:
             print("主窗口保留展示结果；脚本不会终止该进程。")
         succeeded = True

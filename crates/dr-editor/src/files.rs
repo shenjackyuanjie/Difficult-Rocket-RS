@@ -628,11 +628,15 @@ pub(crate) fn native_dialog_test(
     pending: Res<PendingFileAction>,
     mut actions: MessageWriter<FileAction>,
     mut commands: Commands,
+    showcase: Option<Res<demo::Showcase>>,
 ) {
     if !mode.native_dialogs || mode.started.elapsed().as_secs() < 2 {
         return;
     }
-    assert!(mode.started.elapsed().as_secs() < 90, "未保存确认自测超时");
+    assert!(
+        demo::within_timeout(showcase.as_deref(), mode.started, 90),
+        "未保存确认自测超时"
+    );
     let Ok(mut input) = inputs.single_mut() else {
         return;
     };

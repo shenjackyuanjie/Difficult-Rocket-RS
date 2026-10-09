@@ -77,7 +77,7 @@ pub fn run(
         return;
     }
     assert!(
-        mode.started.elapsed().as_secs() < 80,
+        demo::within_timeout(showcase.as_deref(), mode.started, 80),
         "连接编辑窗口自测超时，阶段 {}",
         state.phase
     );

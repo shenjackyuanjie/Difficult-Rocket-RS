@@ -172,7 +172,7 @@ pub(crate) fn run(
         return;
     }
     assert!(
-        mode.started.elapsed().as_secs() < 180,
+        demo::within_timeout(showcase.as_deref(), mode.started, 180),
         "旋转镜像与自由模式窗口自测超时，阶段 {}",
         state.phase
     );

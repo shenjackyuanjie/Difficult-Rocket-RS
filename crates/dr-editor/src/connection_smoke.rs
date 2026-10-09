@@ -24,11 +24,15 @@ pub(crate) fn run(
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut commands: Commands,
+    showcase: Option<Res<demo::Showcase>>,
 ) {
     if !mode.connections || mode.started.elapsed().as_secs() < 3 {
         return;
     }
-    assert!(mode.started.elapsed().as_secs() < 60, "连接交互自测超时");
+    assert!(
+        demo::within_timeout(showcase.as_deref(), mode.started, 60),
+        "连接交互自测超时"
+    );
     let Ok(mut window) = windows.single_mut() else {
         return;
     };

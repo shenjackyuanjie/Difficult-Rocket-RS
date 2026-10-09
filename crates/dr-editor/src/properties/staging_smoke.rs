@@ -63,12 +63,13 @@ pub(crate) fn run(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     captured: Option<Res<Captured>>,
     mut commands: Commands,
+    showcase: Option<Res<demo::Showcase>>,
 ) {
     if !mode.staging || mode.started.elapsed().as_secs() < 3 {
         return;
     }
     assert!(
-        mode.started.elapsed().as_secs() < 180,
+        demo::within_timeout(showcase.as_deref(), mode.started, 180),
         "复杂分级交互自测超时"
     );
     let Ok(mut input) = inputs.single_mut() else {

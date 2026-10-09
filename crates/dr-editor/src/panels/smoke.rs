@@ -63,7 +63,10 @@ pub(crate) fn run(
     if !mode.panels || mode.started.elapsed().as_secs() < 3 {
         return;
     }
-    assert!(mode.started.elapsed().as_secs() < 60, "面板交互自测超时");
+    assert!(
+        demo::within_timeout(showcase.as_deref(), mode.started, 60),
+        "面板交互自测超时"
+    );
     let Ok((window_id, mut window)) = windows.single_mut() else {
         return;
     };

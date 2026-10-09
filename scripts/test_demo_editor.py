@@ -89,6 +89,7 @@ class DemoTests(unittest.TestCase):
         options = demo.parse_args([])
         self.assertEqual(options.step_ms, 450)
         self.assertEqual(options.timeout, 600)
+        self.assertEqual(options.mode, "brief")
         self.assertFalse(options.exit_on_complete)
         self.assertFalse(options.no_build)
         self.assertIsNone(options.output)
@@ -112,7 +113,7 @@ class DemoTests(unittest.TestCase):
         self.assertEqual(result, self.report)
         command = popen.call_args.args[0]
         self.assertEqual(command, [str(self.binary.resolve()), "--demo-showcase",
-                                   str(self.output.resolve()), "--demo-step-ms", "450"])
+                                   str(self.output.resolve()), "--demo-mode", "brief", "--demo-step-ms", "450"])
         self.assertEqual(popen.call_args.kwargs["cwd"], self.root.resolve())
         self.assertIs(popen.call_args.kwargs["stdout"], popen.call_args.kwargs["stderr"])
         self.process.terminate.assert_not_called()
@@ -126,6 +127,38 @@ class DemoTests(unittest.TestCase):
         self.assertEqual(command[-3:], ["--demo-step-ms", "40", "--demo-exit-on-complete"])
         self.process.wait.assert_called_once()
         self.process.terminate.assert_not_called()
+
+    def test_detailed_has_no_implicit_timeout_and_fast_does_not_change_content_mode(self):
+        options = self.options("--mode", "detailed", "--fast")
+        self.assertIsNone(options.timeout)
+        self.assertEqual(options.mode, "detailed")
+        report = complete_report()
+        report["mode"] = "detailed"
+        self.write_evidence(report)
+        result, popen = self.invoke(options)
+        self.assertEqual(result, report)
+        command = popen.call_args.args[0]
+        self.assertEqual(command[command.index("--demo-mode") + 1], "detailed")
+        self.process.wait.assert_called_once_with(timeout=None)
+        self.assertEqual(self.options("--mode", "detailed", "--timeout", "7200").timeout, 7200)
+
+    def test_report_mode_and_chapter_order_must_match_request(self):
+        for mode in ("unknown", "detailed", []):
+            report = copy.deepcopy(self.report)
+            report["mode"] = mode
+            with self.subTest(mode=mode), self.assertRaises(demo.DemoError):
+                demo.validate_report(report, self.output, self.started_ns, "brief")
+        report = copy.deepcopy(self.report)
+        report["chapters"][0], report["chapters"][1] = report["chapters"][1], report["chapters"][0]
+        with self.assertRaisesRegex(demo.DemoError, "顺序"):
+            demo.validate_report(report, self.output, self.started_ns)
+
+    def test_unlimited_wait_still_rejects_crashes_and_early_closes(self):
+        for code in (0, 101):
+            self.process.poll.return_value = code
+            with patch.object(demo, "read_completed_report", return_value=None), self.subTest(code=code):
+                with self.assertRaises(demo.DemoError):
+                    demo.wait_for_demo(self.process, self.output, self.started_ns, None, True, "detailed")
 
     def test_exit_mode_nonzero_after_report_fails_and_cleans_owned_process(self):
         self.process.wait.return_value = 101

@@ -117,6 +117,33 @@ const CHAPTERS: &[Chapter] = &[
     },
 ];
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Mode {
+    #[default]
+    Brief,
+    Detailed,
+}
+
+impl Mode {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Brief => "brief",
+            Self::Detailed => "detailed",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Brief => "简略",
+            Self::Detailed => "详细",
+        }
+    }
+
+    fn chapters(self) -> Vec<&'static Chapter> {
+        CHAPTERS.iter().collect()
+    }
+}
+
 /// 提示寿命独立于演示节拍：fast 模式也有可见的停留与淡出。
 const KEY_HINT_HOLD: Duration = Duration::from_millis(250);
 const KEY_HINT_FADE: Duration = Duration::from_millis(650);
@@ -571,6 +598,8 @@ impl ReplayInput {
 #[derive(Resource)]
 pub(crate) struct Showcase {
     output: PathBuf,
+    mode: Mode,
+    chapters: Vec<&'static Chapter>,
     step: Duration,
     exit_on_complete: bool,
     pub(crate) presentation: bool,
@@ -610,6 +639,15 @@ impl Showcase {
             .transpose()?
             .unwrap_or(450);
         anyhow::ensure!(step_ms > 0, "演示步骤间隔必须大于零");
+        let mode = if let Some(index) = args.iter().position(|arg| arg == "--demo-mode") {
+            match args.get(index + 1).map(String::as_str) {
+                Some("brief") => Mode::Brief,
+                Some("detailed") => Mode::Detailed,
+                _ => anyhow::bail!("--demo-mode 必须为 brief（简略）或 detailed（详细）"),
+            }
+        } else {
+            Mode::Brief
+        };
         let output = std::path::absolute(&output[1])?;
         std::fs::create_dir_all(&output)?;
         anyhow::ensure!(
@@ -621,6 +659,8 @@ impl Showcase {
         std::fs::File::create(output.join("demo-actions.jsonl"))?;
         Ok(Some(Self {
             output,
+            mode,
+            chapters: mode.chapters(),
             step: Duration::from_millis(step_ms),
             exit_on_complete: args.iter().any(|arg| arg == "--demo-exit-on-complete"),
             presentation: args.iter().any(|arg| arg == "--demo-presentation"),
@@ -648,6 +688,16 @@ impl Showcase {
             description_changed: false,
         }))
     }
+
+    fn chapter(&self) -> &'static Chapter {
+        self.chapters[self.index]
+    }
+}
+
+/// 详细演示不以旧专项的固定时长截断样例；显式超时由外部驱动管理。
+pub(crate) fn within_timeout(showcase: Option<&Showcase>, started: Instant, seconds: u64) -> bool {
+    showcase.is_some_and(|showcase| showcase.mode == Mode::Detailed)
+        || started.elapsed().as_secs() < seconds
 }
 
 /// 非演示模式不影响任何原有自测；实际编辑器输入、绘制及通道轮询始终每帧运行。
@@ -674,14 +724,10 @@ pub(crate) fn begin(world: &mut World) {
         return;
     }
     let index = showcase.index;
+    let chapter = showcase.chapter();
     let presentation = showcase.presentation;
     let started = SystemTime::now();
-    append_timeline(
-        &showcase.output,
-        "chapter_started",
-        &CHAPTERS[index],
-        started,
-    );
+    append_timeline(&showcase.output, "chapter_started", chapter, started);
     {
         let mut showcase = world.resource_mut::<Showcase>();
         showcase.chapter_started = Instant::now();
@@ -689,7 +735,7 @@ pub(crate) fn begin(world: &mut World) {
         showcase.artifact_since = started;
     }
     let paths = world.resource::<EditorPaths>().clone();
-    let sample = match CHAPTERS[index].id {
+    let sample = match chapter.id {
         "panels" | "unsaved" => Some("Test.xml"),
         "repair" => Some("Heronb.xml"),
         _ => None,
@@ -704,7 +750,7 @@ pub(crate) fn begin(world: &mut World) {
     let mut document =
         load_document(sample.as_deref(), &paths.catalog).expect("无法只读加载演示样本");
     // 观看模式使用可读的 8 级/48 动作夹具；1024 动作专项仍保留在独立分级自测。
-    if CHAPTERS[index].id == "staging" {
+    if chapter.id == "staging" {
         let kind = document.catalog.get("detacher-1").unwrap();
         document.ship.parts.extend((2..=7).map(|id| {
             kind.instantiate(
@@ -762,7 +808,7 @@ pub(crate) fn begin(world: &mut World) {
     }
     {
         let mut mode = world.resource_mut::<SmokeTest>();
-        let id = CHAPTERS[index].id;
+        let id = chapter.id;
         mode.panels = id == "panels";
         mode.connections = id == "connections";
         mode.transforms = id == "transforms";
@@ -791,8 +837,8 @@ pub(crate) fn begin(world: &mut World) {
     info!(
         "演示 {}/{}：{}",
         index + 1,
-        CHAPTERS.len(),
-        CHAPTERS[index].title
+        showcase.chapters.len(),
+        chapter.title
     );
 }
 
@@ -1009,7 +1055,7 @@ pub(crate) fn animate(
     actions.extend(key_actions.into_iter().map(|label| ("key", label)));
     append_actions(
         &showcase.output,
-        &CHAPTERS[showcase.index],
+        showcase.chapter(),
         &actions,
         SystemTime::now(),
     );
@@ -1050,7 +1096,7 @@ pub(crate) fn finish(world: &mut World) {
             return;
         }
         // 用户关闭窗口也产生 Success，只有本章所有新鲜证据齐全才接受。
-        let chapter = &CHAPTERS[showcase.index];
+        let chapter = showcase.chapter();
         let fresh = chapter.artifacts.iter().all(|name| {
             std::fs::metadata(format!("target/{name}")).is_ok_and(|metadata| {
                 metadata.len() > 0
@@ -1074,7 +1120,7 @@ pub(crate) fn finish(world: &mut World) {
     if Instant::now() < showcase.finishing.unwrap() {
         return;
     }
-    let chapter = &CHAPTERS[showcase.index];
+    let chapter = showcase.chapter();
     let ended = SystemTime::now();
     append_timeline(&showcase.output, "chapter_finished", chapter, ended);
     let output = showcase.output.clone();
@@ -1084,21 +1130,23 @@ pub(crate) fn finish(world: &mut World) {
     showcase.finishing = None;
     showcase.reports.push(report);
     showcase.index += 1;
-    if showcase.index < CHAPTERS.len() {
+    if showcase.index < showcase.chapters.len() {
         showcase.initialize = true;
         showcase.next_tick = Instant::now();
         return;
     }
-    let report = serde_json::json!({"completed":true, "input_mode":"内部 UI/画布输入注入；不是系统键鼠验收", "chapters":showcase.reports});
+    let report = serde_json::json!({"completed":true, "mode":showcase.mode.name(), "step_ms":showcase.step.as_millis(), "input_mode":"内部 UI/画布输入注入；不是系统键鼠验收", "chapters":showcase.reports});
     let temporary = output.join("demo-report.json.tmp");
     std::fs::write(&temporary, serde_json::to_vec_pretty(&report).unwrap())
         .expect("无法写演示报告");
     std::fs::rename(temporary, output.join("demo-report.json")).expect("无法发布完整演示报告");
     showcase.completed = true;
     let exit = showcase.exit_on_complete;
+    let label = showcase.mode.label();
     world.resource_mut::<SmokeTest>().native_dialogs = false;
     info!(
-        "十章演示完成，报告：{}",
+        "{}模式演示完成，报告：{}",
+        label,
         output.join("demo-report.json").display()
     );
     if exit {
@@ -1180,7 +1228,7 @@ pub(crate) fn overlay(
         let title = if showcase.completed {
             "演示完成"
         } else {
-            CHAPTERS[showcase.index].title
+            showcase.chapter().title
         };
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Tooltip,
@@ -1199,16 +1247,21 @@ pub(crate) fn overlay(
     }
     let (title, description) = if showcase.completed {
         (
-            "演示完成：9/9 章节通过".to_owned(),
+            format!(
+                "{1}演示完成：{0}/{0} 章节通过",
+                showcase.chapters.len(),
+                showcase.mode.label()
+            ),
             "原版样本未保存覆盖。截图和 XML 副本已写入演示目录；可以关闭窗口。",
         )
     } else {
-        let chapter = &CHAPTERS[showcase.index];
+        let chapter = showcase.chapter();
         (
             format!(
-                "功能演示 {}/{} · {}",
+                "{}演示 {}/{} · {}",
+                showcase.mode.label(),
                 showcase.index + 1,
-                CHAPTERS.len(),
+                showcase.chapters.len(),
                 chapter.title
             ),
             showcase.description.unwrap_or(chapter.description),
@@ -1254,6 +1307,44 @@ mod pacing_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn modes_are_explicit_and_only_detailed_removes_fixed_smoke_deadlines() {
+        let old = Instant::now() - Duration::from_secs(3600);
+        assert!(!within_timeout(None, old, 60));
+        for (args_mode, expected) in [
+            (None, Mode::Brief),
+            (Some("brief"), Mode::Brief),
+            (Some("detailed"), Mode::Detailed),
+        ] {
+            let folder = tempfile::tempdir().unwrap();
+            let mut args = vec![
+                "editor".into(),
+                "--demo-showcase".into(),
+                folder.path().to_string_lossy().into_owned(),
+            ];
+            if let Some(mode) = args_mode {
+                args.extend(["--demo-mode".into(), mode.into()]);
+            }
+            let showcase = Showcase::from_args(&args).unwrap().unwrap();
+            assert_eq!(showcase.mode, expected);
+            assert_eq!(showcase.step, Duration::from_millis(450));
+            assert_eq!(
+                within_timeout(Some(&showcase), old, 60),
+                expected == Mode::Detailed
+            );
+            assert_eq!(showcase.chapter().id, "panels");
+        }
+        for tail in [vec!["--demo-mode"], vec!["--demo-mode", "unknown"]] {
+            let folder = tempfile::tempdir().unwrap();
+            let mut args = vec![
+                "editor".into(),
+                "--demo-showcase".into(),
+                folder.path().to_string_lossy().into_owned(),
+            ];
+            args.extend(tail.into_iter().map(String::from));
+            assert!(Showcase::from_args(&args).is_err());
+        }
+    }
     #[test]
     fn chapters_are_unique_and_evidence_is_relative() {
         let ids: BTreeSet<_> = CHAPTERS.iter().map(|chapter| chapter.id).collect();
