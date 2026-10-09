@@ -26,7 +26,7 @@ def complete_report(mode="brief"):
             {"id": chapter_id, "title": "演示章节", "status": "passed",
              "elapsed_seconds": 0.45,
              "artifacts": ([chapter_id + ".json", *["case-" + case_id + ".png" for case_id in demo.DETAILED_CASE_IDS[chapter_id]]]
-                           if chapter_id in demo.DETAILED_CASE_IDS else [chapter_id + ".png"])}
+                           if chapter_id in demo.DETAILED_CASE_IDS else [chapter_id + ".png", *(["editor-staging-performance.json"] if mode == "detailed" and chapter_id == "staging" else [])])}
             for chapter_id in demo.chapter_ids(mode)
         ],
     }
@@ -70,6 +70,8 @@ class DemoTests(unittest.TestCase):
                          "screenshot": "case-" + case_id + ".png", "metrics": {}}
                         for case_id in demo.DETAILED_CASE_IDS[chapter["id"]]
                     ]}), encoding="utf-8")
+                if name == "editor-staging-performance.json":
+                    artifact.write_text(json.dumps({"stages":64, "activations":1024, "edited_stage":63, "edited_activation":15}), encoding="utf-8")
                 os.utime(artifact, ns=(stamp, stamp))
         path = self.output / demo.REPORT_NAME
         path.write_text(json.dumps(report), encoding="utf-8")
@@ -216,6 +218,17 @@ class DemoTests(unittest.TestCase):
                 chapter["artifacts"].remove("case-overlap-exact.png")
         with self.assertRaisesRegex(demo.DemoError, "截图"):
             demo.validate_report(report, self.output, self.started_ns, "detailed")
+
+    def test_detailed_staging_must_use_the_full_list_and_edit_its_last_action(self):
+        report = complete_report("detailed")
+        self.write_evidence(report)
+        path = self.output / "editor-staging-performance.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        for field, value in (("stages", 8), ("activations", 48), ("edited_stage", 7), ("edited_activation", 0)):
+            bad = dict(original, **{field: value})
+            path.write_text(json.dumps(bad), encoding="utf-8")
+            with self.subTest(field=field), self.assertRaisesRegex(demo.DemoError, "64 级"):
+                demo.validate_report(report, self.output, self.started_ns, "detailed")
 
     def test_exit_mode_nonzero_after_report_fails_and_cleans_owned_process(self):
         self.process.wait.return_value = 101

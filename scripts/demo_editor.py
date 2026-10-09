@@ -186,7 +186,24 @@ def validate_report(report, output, started_ns, expected_mode=None):
                 raise DemoError(f"artifact 为空或不是本次新产物：{name}")
         if mode == "detailed" and chapter_id in DETAILED_CASE_IDS:
             validate_cases(chapter, output)
+        if mode == "detailed" and chapter_id == "staging":
+            validate_detailed_staging(chapter, output)
     return report
+
+
+def validate_detailed_staging(chapter, output):
+    filename = "editor-staging-performance.json"
+    if filename not in chapter["artifacts"]:
+        raise DemoError("详细分级章节缺少真实长列表证据")
+    try:
+        report = json.loads((output / filename).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise DemoError("详细分级证据不可读") from error
+    if not isinstance(report, dict):
+        raise DemoError("详细分级证据必须为对象")
+    for field, expected in (("stages", 64), ("activations", 1024), ("edited_stage", 63), ("edited_activation", 15)):
+        if type(report.get(field)) is not int or report[field] != expected:
+            raise DemoError(f"详细分级必须实际演示 64 级/1024 动作及最后一项：{field}")
 
 
 def validate_cases(chapter, output):

@@ -202,6 +202,18 @@ const DETAILED_CHAPTERS: &[(&str, Chapter)] = &[
     ),
 ];
 
+const DETAILED_STAGING: Chapter = Chapter {
+    id: "staging",
+    title: "属性与长分级：64 级 / 1024 动作",
+    description: "滚动至最后一级最后一个动作 → 修改草稿 → 应用 → 撤销重做 → XML 往返",
+    artifacts: &[
+        "editor-staging-draft.png",
+        "editor-staging-smoke.png",
+        "staging-smoke.xml",
+        "editor-staging-performance.json",
+    ],
+};
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Mode {
     #[default]
@@ -227,7 +239,11 @@ impl Mode {
     fn chapters(self) -> Vec<&'static Chapter> {
         let mut chapters = Vec::new();
         for chapter in CHAPTERS {
-            chapters.push(chapter);
+            chapters.push(if self == Self::Detailed && chapter.id == "staging" {
+                &DETAILED_STAGING
+            } else {
+                chapter
+            });
             if self == Self::Detailed {
                 chapters.extend(
                     DETAILED_CHAPTERS
@@ -239,6 +255,34 @@ impl Mode {
         }
         chapters
     }
+}
+
+fn staging_fixture(document: &mut EditorDocument, mode: Mode) {
+    let (stages, last_id) = match mode {
+        Mode::Brief => (8, 7),
+        Mode::Detailed => (64, 17),
+    };
+    let kind = document.catalog.get("detacher-1").unwrap();
+    document.ship.parts.extend((2..=last_id).map(|id| {
+        kind.instantiate(
+            id,
+            (
+                ((id - 2) % 3) as f64 * 3. - 3.,
+                -((id - 2) / 3) as f64 * 3. - 2.,
+            ),
+        )
+    }));
+    document.ship.parts[0].pod.as_mut().unwrap().staging = Some(dr_core::StagingState {
+        current_stage: stages / 2,
+        steps: (0..stages)
+            .map(|_| dr_core::StageStep {
+                activations: (2..=last_id)
+                    .map(|id| dr_core::Activation { id, moved: false })
+                    .collect(),
+            })
+            .collect(),
+    });
+    document.saved_ship = document.ship.clone();
 }
 
 /// 提示寿命独立于演示节拍：fast 模式也有可见的停留与淡出。
@@ -831,6 +875,7 @@ pub(crate) fn begin(world: &mut World) {
     let index = showcase.index;
     let chapter = showcase.chapter();
     let presentation = showcase.presentation;
+    let demo_mode = showcase.mode;
     let started = SystemTime::now();
     append_timeline(&showcase.output, "chapter_started", chapter, started);
     {
@@ -854,29 +899,9 @@ pub(crate) fn begin(world: &mut World) {
     });
     let mut document =
         load_document(sample.as_deref(), &paths.catalog).expect("无法只读加载演示样本");
-    // 观看模式使用可读的 8 级/48 动作夹具；1024 动作专项仍保留在独立分级自测。
+    // 简略保留原夹具；详细用真实长列表，复用相同的 UI/历史断言而不缩减数据。
     if chapter.id == "staging" {
-        let kind = document.catalog.get("detacher-1").unwrap();
-        document.ship.parts.extend((2..=7).map(|id| {
-            kind.instantiate(
-                id,
-                (
-                    ((id - 2) % 3) as f64 * 3. - 3.,
-                    -((id - 2) / 3) as f64 * 3. - 2.,
-                ),
-            )
-        }));
-        document.ship.parts[0].pod.as_mut().unwrap().staging = Some(dr_core::StagingState {
-            current_stage: 4,
-            steps: (0..8)
-                .map(|_| dr_core::StageStep {
-                    activations: (2..=7)
-                        .map(|id| dr_core::Activation { id, moved: false })
-                        .collect(),
-                })
-                .collect(),
-        });
-        document.saved_ship = document.ship.clone();
+        staging_fixture(&mut document, demo_mode);
     }
     document.revision = world.resource::<EditorDocument>().revision.wrapping_add(1);
     world.insert_resource(document);
@@ -1421,6 +1446,59 @@ mod pacing_tests;
 mod tests {
     use super::*;
     #[test]
+    fn detailed_staging_uses_the_full_64_stage_1024_action_fixture_while_brief_stays_small() {
+        for (mode, stages, activations, parts) in
+            [(Mode::Brief, 8, 48, 7), (Mode::Detailed, 64, 1024, 17)]
+        {
+            let mut document = crate::tests::document();
+            document.catalog = dr_core::catalog_from_xml(
+                r#"<PartTypes>
+              <PartType id="pod-1" type="pod" width="4" height="3"/>
+              <PartType id="detacher-1" width="4" height="1"/>
+            </PartTypes>"#,
+            )
+            .unwrap();
+            document.ship = new_ship(&document.catalog);
+            staging_fixture(&mut document, mode);
+            let staging = document.ship.parts[0]
+                .pod
+                .as_ref()
+                .unwrap()
+                .staging
+                .as_ref()
+                .unwrap();
+            assert_eq!(staging.steps.len(), stages);
+            assert_eq!(
+                staging
+                    .steps
+                    .iter()
+                    .map(|stage| stage.activations.len())
+                    .sum::<usize>(),
+                activations
+            );
+            assert_eq!(document.ship.parts.len(), parts);
+            assert_eq!(document.ship, document.saved_ship);
+            assert!(
+                staging
+                    .steps
+                    .iter()
+                    .flat_map(|stage| &stage.activations)
+                    .all(|activation| document.ship.part(activation.id).is_some())
+            );
+            let chapter = mode
+                .chapters()
+                .into_iter()
+                .find(|chapter| chapter.id == "staging")
+                .unwrap();
+            assert_eq!(
+                chapter
+                    .artifacts
+                    .contains(&"editor-staging-performance.json"),
+                mode == Mode::Detailed
+            );
+        }
+    }
+    #[test]
     fn modes_are_explicit_and_only_detailed_removes_fixed_smoke_deadlines() {
         let old = Instant::now() - Duration::from_secs(3600);
         assert!(!within_timeout(None, old, 60));
@@ -1501,8 +1579,8 @@ mod tests {
             .iter()
             .flat_map(|chapter| chapter.evidence())
             .collect();
-        assert_eq!(evidence.len(), 89);
-        assert_eq!(evidence.iter().collect::<BTreeSet<_>>().len(), 89);
+        assert_eq!(evidence.len(), 90);
+        assert_eq!(evidence.iter().collect::<BTreeSet<_>>().len(), 90);
     }
     #[test]
     fn failed_and_unproven_success_exit_are_not_swallowed() {
