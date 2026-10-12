@@ -32,6 +32,31 @@ def complete_report(mode="brief"):
     }
 
 
+GEOMETRY_CASE_RATIOS = {
+    "overlap-below": (0.04899999871850014, 0.049),
+    "overlap-exact": (0.05000000074505806, 0.05),
+    "overlap-above": (0.050999999046325684, 0.051),
+    "overlap-rotated-mirrors": (0.05000000074505806, 0.05),
+    "overlap-relative-45": (0.05000000063678113, 0.05),
+    "overlap-contained": (1.0, 1.0),
+}
+
+
+def case_metrics(chapter_id, case_id):
+    """与 Rust 一致的最小通用指标，手势与几何再补各自的真实字段。"""
+    metrics = {"part_count": 2, "undo_len": 0, "redo_len": 0, "dirty": False}
+    if case_id in demo.GESTURE_CASE_CHECKS:
+        checks, release = demo.GESTURE_CASE_CHECKS[case_id]
+        metrics.update(same_frame_checks=checks, release_frame_checks=release,
+                       max_world_pixel_error=0.0000674079783493653,
+                       physical_display_latency_measured=False)
+    if chapter_id == "geometry-cases":
+        ratio, expected = GEOMETRY_CASE_RATIOS[case_id]
+        metrics.update(overlap_ratio=ratio, expected_ratio=expected,
+                       accepted=expected < demo.OVERLAP_THRESHOLD)
+    return metrics
+
+
 class DemoTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -67,7 +92,8 @@ class DemoTests(unittest.TestCase):
                 if name.endswith("-cases.json"):
                     artifact.write_text(json.dumps({"completed": True, "chapter": chapter["id"], "cases": [
                         {"id": case_id, "status": "passed", "title": "样例", "expected": "预期", "input_path": "内部注入",
-                         "screenshot": "case-" + case_id + ".png", "metrics": {}}
+                         "screenshot": "case-" + case_id + ".png",
+                         "metrics": case_metrics(chapter["id"], case_id)}
                         for case_id in demo.DETAILED_CASE_IDS[chapter["id"]]
                     ]}), encoding="utf-8")
                 if name == "editor-staging-performance.json":
@@ -76,6 +102,25 @@ class DemoTests(unittest.TestCase):
         path = self.output / demo.REPORT_NAME
         path.write_text(json.dumps(report), encoding="utf-8")
         os.utime(path, ns=(stamp, stamp))
+
+    def detailed_report(self):
+        report = complete_report("detailed")
+        self.write_evidence(report)
+        return report
+
+    def rewrite_case_metrics(self, chapter_id, case_id, mutate):
+        path = self.output / (chapter_id + ".json")
+        document = json.loads(path.read_text(encoding="utf-8"))
+        case = next(case for case in document["cases"] if case["id"] == case_id)
+        mutate(case["metrics"])
+        path.write_text(json.dumps(document), encoding="utf-8")
+
+    def assert_metrics_rejected(self, report, chapter_id, case_id, mutate):
+        self.write_evidence(report)  # 每个变体都从完整夹具出发，避免坏字段互相污染。
+        self.rewrite_case_metrics(chapter_id, case_id, mutate)
+        with self.subTest(chapter=chapter_id, case=case_id), self.assertRaises(demo.DemoError) as raised:
+            demo.validate_report(report, self.output, self.started_ns, "detailed")
+        self.assertIn(case_id, str(raised.exception))
 
     def options(self, *args):
         return demo.parse_args(["--no-build", "--output", str(self.output), *args])
@@ -217,6 +262,71 @@ class DemoTests(unittest.TestCase):
             if chapter["id"] == "geometry-cases":
                 chapter["artifacts"].remove("case-overlap-exact.png")
         with self.assertRaisesRegex(demo.DemoError, "截图"):
+            demo.validate_report(report, self.output, self.started_ns, "detailed")
+
+    def test_case_metrics_must_be_real_counts_and_bool_dirty(self):
+        report = self.detailed_report()
+        variants = [
+            ("placement-cases", "palette-cancel", lambda metrics: metrics.clear()),
+            ("placement-cases", "palette-cancel", lambda metrics: metrics.pop("undo_len")),
+            ("placement-cases", "palette-cancel", lambda metrics: metrics.update(part_count=True)),
+            ("placement-cases", "palette-cancel", lambda metrics: metrics.update(redo_len=-1)),
+            ("placement-cases", "palette-cancel", lambda metrics: metrics.update(part_count="2")),
+            ("placement-cases", "palette-cancel", lambda metrics: metrics.update(dirty="false")),
+            ("placement-cases", "palette-cancel", lambda metrics: metrics.update(dirty=1)),
+            ("free-cases", "manual-same", lambda metrics: metrics.pop("part_count")),
+        ]
+        for chapter_id, case_id, mutate in variants:
+            self.assert_metrics_rejected(report, chapter_id, case_id, mutate)
+        self.write_evidence(report)
+        self.assertEqual(demo.validate_report(report, self.output, self.started_ns, "detailed"), report)
+
+    def test_gesture_cases_must_report_same_frame_evidence(self):
+        report = self.detailed_report()
+        variants = [
+            ("drag-continuous", lambda metrics: metrics.update(physical_display_latency_measured=True)),
+            ("drag-continuous", lambda metrics: metrics.pop("physical_display_latency_measured")),
+            ("drag-continuous", lambda metrics: metrics.update(same_frame_checks=9)),
+            ("drag-continuous", lambda metrics: metrics.update(same_frame_checks=True)),
+            ("drag-continuous", lambda metrics: metrics.update(release_frame_checks=2)),
+            ("pan-gesture", lambda metrics: metrics.update(same_frame_checks=11)),
+            ("pan-gesture", lambda metrics: metrics.update(release_frame_checks=3)),
+            ("pan-gesture", lambda metrics: metrics.update(max_world_pixel_error=float("nan"))),
+            ("pan-gesture", lambda metrics: metrics.update(max_world_pixel_error="0.001")),
+            ("drag-continuous", lambda metrics: metrics.update(max_world_pixel_error=float("inf"))),
+            ("drag-continuous", lambda metrics: metrics.update(max_world_pixel_error=0.002)),
+            ("drag-continuous", lambda metrics: metrics.update(max_world_pixel_error=True)),
+        ]
+        for case_id, mutate in variants:
+            self.assert_metrics_rejected(report, "interaction-cases", case_id, mutate)
+        self.write_evidence(report)
+        self.assertEqual(demo.validate_report(report, self.output, self.started_ns, "detailed"), report)
+
+    def test_geometry_cases_only_check_the_ratio_fields_they_actually_carry(self):
+        report = self.detailed_report()
+        variants = [
+            ("overlap-below", lambda metrics: metrics.update(overlap_ratio=float("nan"))),
+            ("overlap-below", lambda metrics: metrics.update(expected_ratio="0.049")),
+            ("overlap-below", lambda metrics: metrics.update(expected_ratio=True)),
+            ("overlap-below", lambda metrics: metrics.update(accepted=1)),
+            ("overlap-below", lambda metrics: metrics.update(accepted="true")),
+            ("overlap-exact", lambda metrics: metrics.update(accepted=True)),
+            ("overlap-below", lambda metrics: metrics.update(accepted=False)),
+            ("overlap-below", lambda metrics: metrics.pop("expected_ratio")),
+        ]
+        for case_id, mutate in variants:
+            self.assert_metrics_rejected(report, "geometry-cases", case_id, mutate)
+
+        def common_only(metrics):
+            metrics.clear()
+            metrics.update(part_count=2, undo_len=0, redo_len=0, dirty=False)
+
+        for case_id in demo.DETAILED_CASE_IDS["geometry-cases"]:
+            self.rewrite_case_metrics("geometry-cases", case_id, common_only)
+        self.assertEqual(demo.validate_report(report, self.output, self.started_ns, "detailed"), report)
+        self.rewrite_case_metrics("geometry-cases", "overlap-below",
+                                  lambda metrics: metrics.update(expected_ratio=float("inf")))
+        with self.assertRaisesRegex(demo.DemoError, "expected_ratio"):
             demo.validate_report(report, self.output, self.started_ns, "detailed")
 
     def test_detailed_staging_must_use_the_full_list_and_edit_its_last_action(self):

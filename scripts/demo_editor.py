@@ -39,6 +39,10 @@ DETAILED_CASE_IDS = {
     "topology-cases": ("topology-self", "topology-tree-cycle", "topology-graph-cycle", "topology-cross-group"),
     "file-cases": ("file-invalid-open", "file-save-failure", "file-modal-cancel"),
 }
+# 仅这两个手势样例测量同帧视觉跟随；括号内为最少同帧核对与松手帧核对次数。
+GESTURE_CASE_CHECKS = {"drag-continuous": (10, 1), "pan-gesture": (12, 2)}
+# Rust 用严格小于该阈值判定重叠允许；样例报告里为 threshold_strict_less_than。
+OVERLAP_THRESHOLD = 0.05
 
 
 def chapter_ids(mode):
@@ -207,6 +211,60 @@ def validate_detailed_staging(chapter, output):
             raise DemoError(f"详细分级必须实际演示 64 级/1024 动作及最后一项：{field}")
 
 
+def finite_number(value):
+    """JSON 数值且有限；True/False 不算数值。"""
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def nonnegative_int(value):
+    """真实的非负整数；bool 是 int 子类，必须排除。"""
+    return type(value) is int and value >= 0
+
+
+def validate_case_metrics(chapter_id, case_id, metrics):
+    """每个样例都要有真实的最小通用指标，手势与几何再补各自的边界证据。"""
+    if not isinstance(metrics, dict) or not metrics:
+        raise DemoError(f"详细样例缺少实际验收数据：{case_id}")
+    for field in ("part_count", "undo_len", "redo_len"):
+        if not nonnegative_int(metrics.get(field)):
+            raise DemoError(f"详细样例 {case_id} 的 {field} 必须是非负整数")
+    if type(metrics.get("dirty")) is not bool:
+        raise DemoError(f"详细样例 {case_id} 的 dirty 必须是布尔值")
+    if case_id in GESTURE_CASE_CHECKS:
+        validate_gesture_metrics(case_id, metrics)
+    if chapter_id == "geometry-cases":
+        validate_geometry_metrics(case_id, metrics)
+
+
+def validate_gesture_metrics(case_id, metrics):
+    """拖拽/平移样例必须报告本帧视觉跟随、松手末段与真实世界像素误差。"""
+    min_checks, release_checks = GESTURE_CASE_CHECKS[case_id]
+    if metrics.get("physical_display_latency_measured") is not False:
+        raise DemoError(f"手势样例 {case_id} 只做内部回放，不得声称测量物理显示延迟")
+    checks = metrics.get("same_frame_checks")
+    if not nonnegative_int(checks) or checks < min_checks:
+        raise DemoError(f"手势样例 {case_id} 的同帧视觉核对次数应不少于 {min_checks}")
+    release = metrics.get("release_frame_checks")
+    if not nonnegative_int(release) or release != release_checks:
+        raise DemoError(f"手势样例 {case_id} 的松手帧核对次数应为 {release_checks}")
+    error = metrics.get("max_world_pixel_error")
+    if not finite_number(error) or not 0 <= error < 0.002:
+        raise DemoError(f"手势样例 {case_id} 的世界像素误差必须是 [0, 0.002) 内的有限数")
+
+
+def validate_geometry_metrics(case_id, metrics):
+    """几何样例只核对实际出现的字段；accepted 必须与严格 5% 判定一致。"""
+    for field in ("overlap_ratio", "expected_ratio"):
+        if field in metrics and not finite_number(metrics[field]):
+            raise DemoError(f"几何样例 {case_id} 的 {field} 必须是有限数")
+    if "accepted" in metrics:
+        if type(metrics["accepted"]) is not bool:
+            raise DemoError(f"几何样例 {case_id} 的 accepted 必须是布尔值")
+        expected = metrics.get("expected_ratio")
+        if not finite_number(expected) or metrics["accepted"] != (expected < OVERLAP_THRESHOLD):
+            raise DemoError(f"几何样例 {case_id} 的 accepted 与严格 {OVERLAP_THRESHOLD:g} 判定不一致")
+
+
 def validate_cases(chapter, output):
     """详细模式不能用十章简略报告或空边界清单冒充通过。"""
     chapter_id = chapter["id"]
@@ -231,8 +289,7 @@ def validate_cases(chapter, output):
         screenshot = "case-" + case_id + ".png"
         if case.get("screenshot") != screenshot or screenshot not in chapter["artifacts"]:
             raise DemoError(f"详细样例缺少声明的独立截图：{case_id}")
-        if not isinstance(case.get("metrics"), dict):
-            raise DemoError(f"详细样例缺少实际验收数据：{case_id}")
+        validate_case_metrics(chapter_id, case_id, case.get("metrics"))
 
 
 def read_completed_report(output, started_ns, expected_mode=None):
