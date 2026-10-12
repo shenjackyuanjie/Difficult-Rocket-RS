@@ -1,0 +1,111 @@
+# 触控与小屏适配
+
+## 范围与交付层次
+
+本轮适配同一编辑界面的鼠标、触摸与键盘输入，并按可用窗口尺寸自动排布控件。界面不提供“移动 / 桌面模式”切换，也不新增平台安装包工程。
+
+| 层次 | 当前情况 | 本轮结论 |
+| --- | --- | --- |
+| 已有交付 | [Windows x64 便携 ZIP](../target/dist/dr-editor-win64-20261012-4ef8aa7.zip) 已独立启动验收，内容是触控适配前的 `4ef8aa7` 快照 | 本轮源码改动没有覆盖该 ZIP；移动安装包留到后续 |
+| 源码适配 | Bevy `TouchInput` 桥接、双指导航、起点归属、窄屏目录与可触达操作 | 本轮实现及回归对象 |
+| 实际运行 | Release 编译、内部消息回归、真实桌面窄窗与详细演示分别验收 | 结果和图形后端条件见后文，不等同于移动设备验收 |
+| 真机与移动发布 | Android / iOS / 物理触屏设备未用于本轮验证 | 后续平台打包与设备验收单独开展 |
+
+## 审查证实的缺口
+
+1. Bevy / winit 触摸产生逻辑坐标的 `TouchInput`，不更新窗口鼠标位置、不合成画布使用的 `MouseButton`。仅沿用鼠标路径时，画布没有可用触摸指针。Windows / Android 也不能依靠通用 `PinchGesture` 获得双指缩放。
+2. egui 已处理首指指针与触摸滚动；列表若同时使用鼠标拖动感知，会与触摸拖滚竞争。画布需要锁定触摸起点归属，而不是手指每越过一次边界就换目标。原生 Bevy 按钮还可能优先使用旧鼠标位置，需要以真实触点命中避免重复操作。
+3. 原最小窗口 960×640、同时常驻的 248 / 296 像素侧栏及固定顶栏坐标会挤占手机宽度。固定画布边距不能代表目录展开后的剩余可编辑区域。
+4. 帮助与连接编辑窗口的固定尺寸、未保存确认的单行长按钮，在窄屏或横屏低高度下会裁切。撤销、删除、取消、剪贴板与适配视野也需要无硬键盘可达入口。
+
+## 统一输入语义
+
+| 操作 | 鼠标 / 键盘 | 触摸 |
+| --- | --- | --- |
+| 部件移动 | 保留原拖动、抓取偏移、快捷键与撤销事务 | 单指从部件开始拖动，抬指以最终位置提交；一次拖动对应一次撤销 |
+| 空白画布导航 | 保留框选 / 平移按钮设置与滚轮缩放 | 单指从空白画布开始平移，不受鼠标框选偏好影响 |
+| 目录部件放置 | 保留点击放置与鼠标从目录拖放 | 点选目录部件后，按住画布移动定位，抬指放置；取消 / 失焦不提交 |
+| 粘贴 | 原剪贴板捕获、预览与粘贴事务继续使用 | 从同一顶部按钮启动预览，触摸抬指放置，一次提交 |
+| 双指导航 | 保留原鼠标操作 | 第二指加入立即取消尚未提交的部件拖动 / 放置 / 粘贴预览，按两指中点平移并按距离缩放 |
+| 手势仲裁 | 真实鼠标 `ButtonInput` 保持独立 | 双指导航后要全部抬指才能重新单指编辑；第三指封锁本次手势，不重配双指造成跳变 |
+| UI 滚动 | egui 原滚动路径 | 起点在 UI 的触摸整次归 UI，越出侧栏也不拖动画布；部件行触摸用点击感知，保留滚动区拖滚 |
+| 自由模式连接选点 | 原点击事务与 8 逻辑像素命中半径 | 复用原选点事务，命中半径 22 逻辑像素，便于触达小连接点 |
+
+触摸适配维护独立的指针边沿，不写入真实鼠标状态、不伪造窗口鼠标位置。触摸期间兼容鼠标事件退出到真实左键释放后再恢复鼠标路径，避免一指触摸及兼容鼠标各提交一次。`Canceled` 与主窗口失焦都会取消未提交预览、平移锚点和手动连线起点；失焦消息即使与恢复焦点同帧出现，也按取消处理。纯鼠标、没有触摸接管的失焦沿用原鼠标取消路径，不制造触摸尾随锁；恢复焦点后的新鼠标按下边沿可正常消费。
+
+触点保持 Bevy 逻辑坐标。只有原生 UI 命中转物理像素；egui 命中再按 `pixels_per_point` 转回 egui 坐标，避免高 DPI 下重复缩放。
+
+## 小屏布局与可触达操作
+
+- 原生文件顶栏换行排列，文件、属性和帮助入口保留至少 44 逻辑像素高度；整体顶栏含空隙均归 UI。窗口最小限制下调到 320×320。
+- 窄窗口默认收起两侧目录，保留全宽画布；顶部“船体 / 部件”打开其中一侧，再点同一入口收起。选择船体或部件后收起该目录，继续在同一画布操作。
+- 顶部常驻撤销、重做、删除、全选、复制、剪切、粘贴及“适配视野”；有未提交编辑时显示取消。按钮换行、不依赖悬停或物理键盘。旋转与镜像继续使用原事务和目录控件，单部件的禁旋标志与键盘路径保持一致。
+- 目录侧栏在窄屏纵向滚动；帮助、连接编辑与未保存确认按内容矩形限宽，长内容滚动，操作按钮留在可触达区域。属性面板已有响应式限宽和滚动，本轮保留其既有实现。
+- 适配视野读取实际 UI 留下的画布矩形，计算贴图和实体范围；不按固定桌面侧栏宽度猜测当前画布。
+
+## 平台打包与运行边界
+
+当前工作区清单是原桌面 Bevy 可执行程序，尚未提供 Android activity / Gradle 工程、iOS 应用宿主或 Web 页面入口。本轮不将它们加入适配范围。
+
+后续移动发布需分别验证以下已有边界：
+
+- `rfd 0.17` 的现用原生文件选择路径没有 Android / iOS 后端；现有 `Dialogs` 抽象可作为后续系统文件选择接入点。本轮不实现 SAF 或 UIDocumentPicker。
+- 默认部件目录和资源路径依赖邻仓 / 当前工作目录，字体读取也使用普通文件系统。Android / iOS 应用资源和沙箱存储、Web 资源 URL 与浏览器文件读写应在各平台工程中明确接入。
+- 交叉编译成功、生成安装包、设备启动、触屏手势正确与保存文件成功是不同验收项目。Bevy 支持某个平台，不等于当前编辑器已经完成该平台交付。
+
+## 验收方法与记录
+
+### 无窗口回归
+
+- `mobile_input::tests`：直接发送 Bevy `TouchInput`，覆盖单指拖动、抬指放置 / 粘贴的一次提交、单指空白平移、双指锚点平移缩放、全抬解锁、第三指封锁、取消 / 同帧失焦、高 DPI、UI 起点归属、原生按钮真实触点、兼容鼠标重复输入、连接选点半径及同帧打开模态时丢弃双指导航增量。
+- `panels::tests`：复制 / 剪切 / 粘贴按钮与既有事务、撤销 / 重做、禁旋标志。
+- `panels::egui_panel::tests`：窄屏头部 / 单侧目录容器、可见控件触达、触摸列表拖滚仲裁与首次滑动的实际滚动偏移，并检查轻点选择一次与触摸前后鼠标拖出路径保持。首指按下把拖拽候选交回已有 ScrollArea，后续滚动与惯性仍使用 egui 原路径。容器回归是隔离的 egui 布局测试，不替代完整应用渲染。
+- `properties::egui_panel::tests`：属性 Modal 在 320×640、390×844 与 640×360 下的真实应用 / 取消命中矩形、44 像素高度、点击后单次应用事务与取消无事务；校验错误仍保持操作可达。保留原 Modal 实现，两项新增回归已实际通过。
+- `help::tests`、`topology_ui::tests`、`files::tests`、`view::tests`：帮助 / 连接编辑 / 未保存确认在 320×640、390×844、640×360 与桌面尺寸内的可达性，以及真实剩余画布的适配。连接线设置窗口同样限宽与滚动，窄屏正文使用 44 像素触控目标；回归分别验证正文放得下时直接点击，以及短横屏滚动后点击末尾控件。
+
+本轮实际串行执行并通过：
+
+```powershell
+cargo fmt --all
+cargo test --workspace --release
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --release -- -D warnings
+cargo build --release -p dr-editor
+uv run --no-project --python 3.12 python -B -X utf8 -m unittest discover -s scripts -p 'test_*.py' -v
+```
+
+### 本轮实际记录
+
+| 检查 | 当前记录 |
+| --- | --- |
+| 只读审查 | 已完成：TouchInput / 鼠标仲裁、窄屏 UI、平台构建边界；V41f high 子代理参与独立审查与最小 UI 实现 |
+| 差异检查 | `git diff --check` 通过，只有 Windows LF / CRLF 转换提示 |
+| Rust / fmt / Clippy / build | 最终 351 项 Rust 测试通过（core 101 / editor 250）；格式检查、严格全目标 Release Clippy 和 Release build 通过。日志：[测试](../target/validation-mobile-workspace-canvas-corrected.log)、[Clippy](../target/validation-mobile-clippy-canvas-corrected.log)、[构建](../target/validation-mobile-build-canvas-corrected.log) |
+| Python | 收尾重新执行全套 127 项并通过，含演示驱动 43 项、窄窗工具 7 项契约回归；[运行日志](../target/validation-mobile-python-closeout.log) |
+| 详细演示 | 最新构建在进程级 `WGPU_BACKEND=dx12` 下，快速 40ms 与观看 450ms 两档均完整通过：19 章、45 例、95 个证据；[快速报告](../target/demo-mobile-fast-20261012-canvas-final/demo-report.json)、[观看报告](../target/demo-mobile-watch-20261012-canvas-final/demo-report.json)。原版样本哈希未改变 |
+| 真实窄窗：较早记录 | 390×844、640×360、320×640 三种原始截图曾通过 Win32 客户区、Bevy 窗口尺寸与 PNG 像素三重核对；[已通过报告](../target/mobile-narrow-20261012-owned-window/report.json)。这是较早构建的记录，和最新复验分开使用 |
+| 真实窄窗：最新复验 | [Vulkan 报告](../target/mobile-narrow-20261012-vulkan-final/report.json)：390×844 通过，640×360 运行中变成 390×844 后截图超时，320×640 未运行；[DX12 报告](../target/mobile-narrow-20261012-canvas-final/report.json)：390×844 运行中变成 1440×900 后超时，后两例未运行。最新三尺寸全量复验未通过，尺寸变化来源保留为后续核查项 |
+| 物理触屏与 Android / iOS 真机 | 本轮未执行，不以内部消息或桌面窄窗回归替代真机结果 |
+
+### 复现入口与后续核查
+
+[窄窗验收工具](../scripts/validate_narrow_windows.py#L101-L131) 从初始 Bevy 窗口尺寸启动，仅只读测量其自建进程的 Win32 客户区，并校验原始 PNG；不改变系统窗口尺寸，不注入鼠标或触摸。输出目录要求全新，失败报告保留，不用历史截图替换。
+
+```powershell
+# 最新详细回放的已通过条件；只影响本次进程，不更改普通编辑器默认后端
+$env:WGPU_BACKEND = 'dx12'
+uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --editor-bin target/release/dr-editor.exe --mode detailed --fast --output target/demo-closeout-fast-new
+uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --editor-bin target/release/dr-editor.exe --mode detailed --step-ms 450 --exit-on-complete --output target/demo-closeout-watch-new
+
+# 窄窗对照；此命令为复现入口，最新三例并未全部通过
+$env:WGPU_BACKEND = 'vulkan'
+uv run --no-project --python 3.12 python -B -X utf8 scripts/validate_narrow_windows.py --editor target/release/dr-editor.exe --assets ../Difficult-Rocket/assets --output target/mobile-narrow-closeout-new
+```
+
+普通编辑保留默认更新策略与 `AutoVsync`；自动演示及启动冒烟使用持续更新与 `AutoNoVsync`。自动策略本身不代表交换链最终采用 Immediate，也不保证解决后端时序问题。此前默认 Vulkan 的详细回放曾出现约 1 秒按下区间，超过 egui 默认 0.8 秒短点击规则；同一真实行的 45ms / 1s 对照回归确认短点击与长按语义正确，因此没有调大点击时限或放宽放置断言。最新两档详细 DX12 回放通过，但默认 Vulkan 的回放间隔来源仍未定位；最新窄窗尺寸变化在两个后端均有记录，不归结为已确诊的单一图形后端问题。
+
+本轮按用户要求收尾，不再扩大诊断。后续窗口稳定性专项需定位尺寸变化来源，再用同一构建重新跑满三个尺寸；已有消息回归、布局回归与较早截图仍按各自验证层次使用。
+
+### 设备验收清单
+
+以后具备相应设备与平台工程时，验证横竖屏及系统缩放下的顶栏 / 单侧目录可触达；真实手指拖部件、空白平移、抬指放置、双指中点导航、第二指抢占、系统手势取消 / 应用失焦、列表拖滚不移动画布，并检查每次编辑的撤销步数。文件选择、保存与系统软键盘 / 安全区域再按目标平台实测。本轮按项目约定不开展输入法专项。

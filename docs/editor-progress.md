@@ -183,6 +183,33 @@
 - 最新详细正常与快速目录为 `target/demo-detailed-watch-20261009-110517`、`target/demo-detailed-final-fast-20261009-110330`，均在说明避让修复后重跑；已查看正常节奏下的几何边界、整组变换、连线重置、长分级、非法草稿和文件取消截图，错误及按钮完整可见。简略正常为 `target/demo-brief-watch-20261009-105128`（说明布局微调前，默认模式），微调后简略快速再通过于 `target/demo-brief-fast-20261009-111358`；普通说明位置另有回归保护。
 - 用户本轮执行 `cargo clean`，旧 `target` 产物已清理；上述早期路径仅是历史记录，本轮使用重新构建的程序和新目录验收。仍是内部 Bevy/egui 回放，不冒充系统键鼠；输入法及系统文字输入专项按要求跳过，未渲染视频，也不代表下列全项目缺口消除。
 
+## 2026-10-12 拖拽性能、连接唯一性与交互演示
+
+- 空闲和背景平移不再制造文档或相机投影的伪变更，快捷键按实际按下边沿处理；部件与相机的释放帧保留最后一段位移。连通分量计算改为分组编号计数和邻接遍历，并按文档版本与拖拽成员缓存侧栏删除提示，避免每个预览帧重复扫描全船。
+- 同一对部件的新连接按无向端点去重，方向、连接点和 Normal/Dock 类型均不能绕过；失败在写回文档前拒绝，不污染历史。新放置编号同时避开连接和分级的悬空引用，候选提示与提交保持一致；历史 XML 不因载入被自动清理。
+- 10,679 部件、单件拖动 89 帧的同规模窗口对照，平均应用帧耗时由 386.853 ms 降到 30.231 ms，中位数由 384.073 ms 降到 24.645 ms，P95 由 415.559 ms 降到 50.177 ms，重建实体均为 0。证据为[优化前帧耗时](../target/foreground-6r0hd5md/performance.json)与[优化后帧耗时](../target/foreground-yrtb_aau/performance.json)；这是应用帧耗时，不是 input-to-photon 测量。
+- 实际完成交互、连接及选择窗口专项；交互专项通过 291 次前台校验。额外系统键鼠驱动三次受到失焦干扰，按约定停止自动重试，未把它记录为完整通过；输入法和系统文字输入专项仍按要求跳过。
+- 新增详细模式的四个交互样例：非中心/反向/亚像素连续拖动、两种按键配置与两档缩放的背景平移、多连接面只显示最近合法一对、换点及反向换点重复连接拒绝。视觉期望来自实际本帧光标与抓取锚点，渲染实值来自传播后的 GlobalTransform；连接提示另精确核对实际提交的连接点，保留生产错误状态。原点反向点击已有边仍是主动断开，不能混称为拒绝。
+- 本轮交互二审完成时实际执行 `cargo test --workspace --release`：303 项通过（101 核心、202 编辑器）；当时的全目标 release Clippy 零警告、release 构建、格式检查及差异检查通过，Python 脚本全套 unittest 实际运行 114 项通过。这是后续零长路径与触控适配之前的验收基线，新增改动另行验收；Rust 测试 TEMP/TMP 使用 `target/test-temp`。
+- 最新完整详细快速回放退出码为 0，19 章、45 个新增边界样例全部通过，95 个唯一证据与 38 条章节时间线齐全；原版 [Test.xml](../../Difficult-Rocket/assets/ships/Test.xml) / [Heronb.xml](../../Difficult-Rocket/assets/ships/Heronb.xml) SHA256 未改变。[快速演示报告](../target/demo-interaction-fast-20261012/demo-report.json)与[交互逐例证据](../target/demo-interaction-fast-20261012/interaction-cases.json)记录拖动 19 次、平移 18 次同帧校验，释放帧分别为 1/2，最大世界像素误差为 0.000067408/0。随后正常 450 ms 详细回放也退出码为 0，[观看演示报告](../target/demo-interaction-watch-20261012/demo-report.json)与[观看交互逐例证据](../target/demo-interaction-watch-20261012/interaction-cases.json)记录拖动 118 次、平移 149 次同帧校验，释放帧仍为 1/2，最大误差仍为 0.000067408/0。两次均为零长路径及触控适配之前的旧构建记录，新改动以新目录回放为准。
+- 用户要求的修改已按核心、性能、提示和演示四个功能块分别提交，未推送。DeepSeek 二审建议按实际价值取舍，后续演示证据完善与验收记录继续独立提交；本轮仍使用内部 Bevy/egui 回放，不冒充系统键鼠或物理显示延迟测量，未渲染视频，也不代表以下全项目缺口消除。
+
+## 2026-10-12 Windows 小型试用包
+
+- 已生成并独立验收 [Windows x64 试用 ZIP](../target/dist/dr-editor-win64-20261012-4ef8aa7.zip)，压缩后 28.46 MiB，包含 release 程序、必需贴图、中文字体、程序与字体许可、源码快照和 Solar / R / Co13 / Gzj / Test / Heronb 六艘范例船。该包使用触控适配前的构建，后续源码修改不覆盖已交付 ZIP。
+- 实际核验 ZIP CRC、清单内 50 个文件的 SHA-256，并解压到仓库外形态的中文与空格目录；从不同当前目录调用启动脚本，免 Rust / Python 的编辑器冒烟退出码为 0。[独立启动截图](../target/portable-validation-20261012/中文%20空格目录/dr-editor-win64/target/editor-smoke.png)已人工查看。ZIP 的 SHA-256 为 `a7623769d4a523ce15480f8af079ed1cbb0c2868473a60725ef5e5908a93d045`，附[校验文件](../target/dist/dr-editor-win64-20261012-4ef8aa7.zip.sha256)。
+- 打包脚本与回归已作为 `13550b7` 提交；逐例指标严格类型与有限数值校验已作为 `fa97971` 提交。加入这些改动后，全量 Python unittest 实际运行 120 项并通过，其中演示驱动 43 项、打包脚本 3 项；这些结果不代替后续 Rust / 窗口验收。
+
+## 2026-10-12 统一触控与小屏适配收尾
+
+- 鼠标、键盘和 Bevy TouchInput 在同一编辑模式使用；独立触摸指针锁定 UI / 画布起点归属，单指拖动 / 空白平移，放置及粘贴抬指提交。第二指取消未提交编辑并切入中点导航，全部抬指解锁，第三指封锁当前手势。兼容鼠标尾锁只来自触摸接管，纯鼠标失焦后的新 Shift+Left 边沿正常消费。
+- 文件顶栏与常用编辑按钮换行，最小窗口 320×320；窄屏默认关单侧目录抽屉，主要按钮可触达。帮助、连接编辑、线设置和未保存确认限宽 / 滚动；适配视野使用真实剩余画布，窗口视图自测也按真实画布与 DPI 核对位置、比例及贴图角点。操作与平台边界见[适配说明](./mobile-support.md#L21-L54)。
+- 最终集成工作树实际执行 workspace Release 测试 351 项（core 101 / editor 250）、格式检查、严格全目标 Release Clippy、Release build，均通过；收尾再次执行 Python 全套 127 项并通过。对应日志：[Rust](../target/validation-mobile-workspace-canvas-corrected.log)、[Clippy](../target/validation-mobile-clippy-canvas-corrected.log)、[构建](../target/validation-mobile-build-canvas-corrected.log)、[Python](../target/validation-mobile-python-closeout.log)。
+- 最新构建在进程级 `WGPU_BACKEND=dx12` 下，详细快速 40ms 与观看 450ms 两档均完整通过，仍为 19 章 / 45 例 / 95 证据，源样本 SHA256 不变。分别见[快速报告](../target/demo-mobile-fast-20261012-canvas-final/demo-report.json)、[观看报告](../target/demo-mobile-watch-20261012-canvas-final/demo-report.json)。真实零长四点路径在两档均为安全跳过：长度 0、方向样本 0、提交顶点 0；[快速零长证据](../target/demo-mobile-fast-20261012-canvas-final/line-cases.json)、[观看零长证据](../target/demo-mobile-watch-20261012-canvas-final/line-cases.json)。
+- [窄窗验收工具](../scripts/validate_narrow_windows.py#L38-L98) 从初始 Bevy 尺寸启动自建进程，仅只读测量 Win32 客户区，并交叉检查 Bevy JSON 与原始 PNG。较早构建[三尺寸完整报告](../target/mobile-narrow-20261012-owned-window/report.json)已通过；最新补充复验[Vulkan 报告](../target/mobile-narrow-20261012-vulkan-final/report.json)中 390×844 通过、640×360 运行中变为 390×844 后截图超时；[DX12 报告](../target/mobile-narrow-20261012-canvas-final/report.json)中首例变为 1440×900 后超时。最新三尺寸全量未通过，不用历史结果替代；尺寸变化来源和默认 Vulkan 详细回放时序作为后续独立核查项，本轮按用户要求收尾、不再扩大诊断。
+- 修改按独立块提交：零长路径验证 `37489c0`、统一触控 / 小屏布局 `c19426a`、初始窄窗与三重验收 `534a785`；最终文档另作一个提交。未推送、未重写历史；[二审建议](./demo-review-suggestions.md#L1-L30)保留七个未实施 corner 提案，基线规模不扩张。
+- 本轮未制作 Android / iOS 安装包，未测物理触屏、移动真机或输入到显示的物理延迟；输入法专项按约定跳过。既有[Windows ZIP](../target/dist/dr-editor-win64-20261012-4ef8aa7.zip)保持适配前快照，不覆盖、不宣称包含本轮改动。
+
 ## 后续必须完成的工作
 
 1. 文件工作流、常驻船体文件列表及目录切换已实现；1,000 个小船体目录、960×640 窗口及原生对话框失败/取消回归已验收；持续检查真实大文件目录的耗时。
