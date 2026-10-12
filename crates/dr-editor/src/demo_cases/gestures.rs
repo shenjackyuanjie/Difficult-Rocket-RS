@@ -15,6 +15,7 @@ pub(super) struct Probe {
     checks: usize,
     release_checks: usize,
     max_error: f32,
+    hinted_connection: Option<Connection>,
 }
 
 const GRAB: (f64, f64) = (0.16, -0.12);
@@ -30,7 +31,7 @@ const DRAG_PATH: &[(f64, f64)] = &[
     (0.751, 0.254),
     (1.35, 0.7),
 ];
-const PAN_ANCHOR: Vec2 = Vec2::new(150., 100.);
+const PAN_ANCHOR: Vec2 = Vec2::new(170., 120.);
 const PAN_PATH: &[Vec2] = &[
     Vec2::ZERO,
     Vec2::new(0.25, 0.4),
@@ -260,7 +261,7 @@ fn pan(state: &mut Run, ctx: &mut Context) -> bool {
     false
 }
 
-fn single_hint(state: &Run, ctx: &Context) -> usize {
+fn single_hint(state: &mut Run, ctx: &Context) -> usize {
     unchanged(state, &ctx.document);
     let (source, connection, allowed) = placement::preview(&ctx.document, &ctx.cursor).unwrap();
     assert!(allowed && connection.is_some());
@@ -280,6 +281,12 @@ fn single_hint(state: &Run, ctx: &Context) -> usize {
         hints[0].target,
         dr_core::connections::segment(target, tt, &tt.attach_points[candidates[0].target_index])
     );
+    state.gesture.hinted_connection = Some(Connection::Normal {
+        parent: target.id,
+        child: source.id,
+        parent_attach: candidates[0].target_index as i32 + 1,
+        child_attach: candidates[0].source_index as i32 + 1,
+    });
     candidates.len()
 }
 
@@ -294,6 +301,11 @@ fn hint(state: &mut Run, ctx: &mut Context) -> bool {
             ctx.cursor.cancel_placement();
             assert_eq!(ctx.document.ship.parts.len(), 2);
             assert_eq!(ctx.document.ship.connections.len(), 1);
+            assert_eq!(
+                ctx.document.ship.connections.first(),
+                state.gesture.hinted_connection.as_ref(),
+                "实际提交的连接点与唯一提示不同"
+            );
             assert_eq!(ctx.document.history.undo_len(), 1);
             state.after = Some(ctx.document.ship.clone());
             ctx.key(KeyCode::KeyZ, true, false);
@@ -315,7 +327,8 @@ fn hint(state: &mut Run, ctx: &mut Context) -> bool {
         7 => {
             let count = single_hint(state, ctx);
             state.metrics = serde_json::json!({"geometric_candidates":count, "displayed_pairs":1,
-                "committed_connections":1, "undo_redo":true, "preview_unchanged":true});
+                "committed_connections":1, "hinted_connection_matches_commit":true,
+                "undo_redo":true, "preview_unchanged":true});
             return true;
         }
         _ => unreachable!(),
@@ -374,7 +387,7 @@ fn manual(state: &mut Run, ctx: &mut Context) -> bool {
         12 => click_end(state, ctx, 1, 3),
         14 => {
             duplicate_rejected(state, ctx);
-            state.metrics["reverse_direction_rejected"] = true.into();
+            state.metrics["reverse_with_other_attaches_rejected"] = true.into();
             ctx.key(KeyCode::Escape, false, false);
         }
         15 => {
@@ -392,7 +405,6 @@ fn manual(state: &mut Run, ctx: &mut Context) -> bool {
             assert!(ctx.document.dirty);
             state.metrics["committed_connections"] = 1.into();
             state.metrics["undo_redo"] = true.into();
-            ctx.document.status = "换点与反方向重复连接均已拒绝，仍只有一条连接".into();
             return true;
         }
         _ => unreachable!(),

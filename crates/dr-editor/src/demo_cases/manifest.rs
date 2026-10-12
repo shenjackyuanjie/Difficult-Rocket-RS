@@ -403,7 +403,7 @@ pub(crate) const INTERACTION: &[Case] = &[
     case!(
         "drag-continuous",
         "连续拖动：抓取偏移、反向与微移",
-        "按住左键沿连续轨迹拖动；本帧视觉跟随，松手包含末段位移且只生成一次历史。",
+        "非中心抓取后沿反向/微移轨迹拖动；独立核对本帧视觉和落点偏移，松手末段只入一次历史。",
         "内部画布鼠标 + PostUpdate 同帧 Transform 断言",
         Scenario::DragContinuous
     ),
@@ -417,14 +417,14 @@ pub(crate) const INTERACTION: &[Case] = &[
     case!(
         "hint-single-pair",
         "多连接点只显示最近合法一对",
-        "同一对部件有多个几何候选，但仅显示一条合法提示；实际放置也只有一条连接。",
+        "同一对部件有多个几何候选，只显示最近合法一对；实际提交的端点与提示相同且仅一条连接。",
         "内部放置预览/快捷键 + 真实候选与历史断言",
         Scenario::HintSinglePair
     ),
     case!(
         "manual-duplicate-pair",
-        "不同连接点、反方向均不能重复建边",
-        "自由模式先建立一条连接；换点及反向重复连接都被拒绝，文档与历史保持不变。",
+        "换点、反向换点均不能重复建边",
+        "自由模式先建立一条连接；换点及反向换点建边被拒绝，文档/历史不变，撤销重做恢复唯一连接。",
         "内部画布端点点击 + 撤销重做与原子拒绝断言",
         Scenario::ManualDuplicatePair
     ),

@@ -282,6 +282,7 @@ fn single_hint_demo_commits_one_connection_from_multiple_geometric_candidates() 
     assert!(state.metrics["geometric_candidates"].as_u64().unwrap() > 1);
     assert_eq!(state.metrics["displayed_pairs"], 1);
     assert_eq!(state.metrics["committed_connections"], 1);
+    assert_eq!(state.metrics["hinted_connection_matches_commit"], true);
     assert_eq!(state.metrics["undo_redo"], true);
 }
 
@@ -290,7 +291,7 @@ fn manual_duplicate_demo_rejects_new_attach_pairs_in_both_directions_via_canvas_
     let app = replay_gesture(3);
     let state = app.world().resource::<Run>();
     assert_eq!(state.metrics["different_attach_rejected"], true);
-    assert_eq!(state.metrics["reverse_direction_rejected"], true);
+    assert_eq!(state.metrics["reverse_with_other_attaches_rejected"], true);
     assert_eq!(state.metrics["history_unchanged_on_rejection"], true);
     let document = app.world().resource::<EditorDocument>();
     assert_eq!(document.ship.connections.len(), 1);
