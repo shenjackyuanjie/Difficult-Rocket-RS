@@ -10,6 +10,21 @@ cargo run -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml
 
 省略 `--ship` 创建与原版一致、带默认驾驶舱的新船体；自定义目录没有驾驶舱类型时才创建空白文档。可用 `--catalog <PartList.xml>`、`--assets <资源目录>` 指定资源。加载失败会报错退出，不会用空白文档代替错误输入。
 
+## Windows 试用 ZIP
+
+面向 Windows 10/11 x64 的小型试用包包含 release 程序、必需的部件贴图与中文字体，以及 Solar、R、Co13、Gzj、Test、Heronb 六艘范例船。解压后双击 `Start.cmd` 即可运行，使用者无需安装 Rust 或 Python；启动脚本使用自身目录的绝对路径，也支持中文与空格目录。
+
+构建后使用 [打包脚本](scripts/package_editor.py) 生成新包：
+
+```powershell
+cargo build -p dr-editor --release
+uv run --no-project --python 3.12 python -B -X utf8 scripts/package_editor.py --output target/dist/dr-editor-win64.zip
+```
+
+脚本从相邻 `Difficult-Rocket/assets` 收集必需资源，附带源码快照、程序与字体许可、逐文件 SHA-256 清单，以及 ZIP 的 SHA-256 校验文件；输出文件已存在时保留原文件，重新打包请换一个输出名。范例覆盖小型船体、电力/太阳能部件和大型对接船体，编辑器左侧可直接切换。`Start.cmd` 后附加的参数会传给编辑器。
+
+运行环境需要支持 Vulkan 或 DirectX 12 的显卡驱动；若系统提示缺少 `VCRUNTIME140.dll`，安装 [Microsoft Visual C++ x64 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)。该 ZIP 是 Windows 桌面试用包，移动设备支持范围另行验证。打包回归见 [test_package_editor.py](scripts/test_package_editor.py)。
+
 ## 自动功能演示
 
 `--mode brief`（默认，**简略**）保留原有十章和节奏；`--mode detailed`（**详细**）在对应功能之后穿插九章边界样例，共十九章、四十五个额外样例，默认不限时长。详细样例显示编号、预期、实际输入/调用路径及断言结果；正常节奏每例通过后另停留约 1.8s（随 `--step-ms` 缩放）。`--fast` 只加快回归节拍，不改变所选模式的样例内容。
