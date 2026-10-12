@@ -283,6 +283,7 @@ struct CameraDrag(Option<Vec2>);
 #[derive(Resource)]
 struct SmokeTest {
     enabled: bool,
+    window_size: Option<UVec2>,
     native_dialogs: bool,
     native_file_dialogs: bool,
     interaction: bool,
@@ -306,8 +307,73 @@ struct SmokeTest {
     started: std::time::Instant,
 }
 
+/// 仅窗口截图验收指定初始尺寸；普通编辑与演示保留既有窗口配置。
+fn smoke_window_size(args: &[String]) -> anyhow::Result<Option<UVec2>> {
+    use anyhow::Context as _;
+    let mut indices = args
+        .iter()
+        .enumerate()
+        .filter(|(_, arg)| *arg == "--smoke-window-size");
+    let Some((index, _)) = indices.next() else {
+        return Ok(None);
+    };
+    anyhow::ensure!(indices.next().is_none(), "--smoke-window-size 只能指定一次");
+    anyhow::ensure!(
+        args.iter().any(|arg| arg == "--smoke-test"),
+        "--smoke-window-size 需要 --smoke-test"
+    );
+    anyhow::ensure!(
+        !args.iter().any(|arg| arg == "--demo-presentation"),
+        "窄窗截图自测不能与演示录制窗口同时启用"
+    );
+    let value = args
+        .get(index + 1)
+        .context("--smoke-window-size 需要 WIDTHxHEIGHT，例如 390x844")?;
+    let (width, height) = value
+        .split_once('x')
+        .context("窗口尺寸格式应为 WIDTHxHEIGHT")?;
+    let width: u32 = width.parse().context("窗口宽度应为正整数")?;
+    let height: u32 = height.parse().context("窗口高度应为正整数")?;
+    anyhow::ensure!(width >= 320 && height >= 320, "窗口截图尺寸至少为 320x320");
+    Ok(Some(UVec2::new(width, height)))
+}
+
+fn initial_window_resolution(presentation: bool, smoke_size: Option<UVec2>) -> WindowResolution {
+    if let Some(size) = smoke_size {
+        WindowResolution::new(size.x, size.y).with_scale_factor_override(1.0)
+    } else if presentation {
+        WindowResolution::new(1920, 1080).with_scale_factor_override(1.0)
+    } else {
+        WindowResolution::new(1440, 900)
+    }
+}
+
+/// 自动回放显式持续更新并优先无同步呈现；普通编辑保留原策略。
+fn window_runtime_policy(automated: bool) -> (bevy::winit::WinitSettings, PresentMode) {
+    if automated {
+        (
+            bevy::winit::WinitSettings::continuous(),
+            PresentMode::AutoNoVsync,
+        )
+    } else {
+        (
+            bevy::winit::WinitSettings::default(),
+            PresentMode::AutoVsync,
+        )
+    }
+}
+
+fn smoke_window_matches(window: &Window, requested: UVec2) -> bool {
+    window.physical_width() == requested.x
+        && window.physical_height() == requested.y
+        && window.width() == requested.x as f32
+        && window.height() == requested.y as f32
+        && window.scale_factor() == 1.0
+}
+
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    let smoke_size = smoke_window_size(&args)?;
     let ship = args
         .windows(2)
         .find(|w| w[0] == "--ship" || w[0] == "-s")
@@ -329,7 +395,10 @@ fn main() -> anyhow::Result<()> {
         .into_owned();
     let showcase = demo::Showcase::from_args(&args)?;
     let presentation = showcase.is_some() && args.iter().any(|arg| arg == "--demo-presentation");
+    let automated = showcase.is_some() || args.iter().any(|arg| arg == "--smoke-test");
+    let (winit_settings, present_mode) = window_runtime_policy(automated);
     let mut app = App::new();
+    app.insert_resource(winit_settings);
     if let Some(showcase) = showcase {
         app.insert_resource(showcase);
     }
@@ -342,6 +411,7 @@ fn main() -> anyhow::Result<()> {
     .init_resource::<properties::Inspector>()
     .insert_resource(SmokeTest {
         enabled: args.iter().any(|arg| arg == "--smoke-test"),
+        window_size: smoke_size,
         topology: args.iter().any(|arg| arg == "--topology-smoke-test"),
         native_dialogs: args.iter().any(|arg| arg == "--native-dialog-test"),
         native_file_dialogs: args.iter().any(|arg| arg == "--native-file-dialog-test"),
@@ -407,19 +477,15 @@ fn main() -> anyhow::Result<()> {
                 primary_window: Some(Window {
                     title: "Difficult Rocket Editor".into(),
                     // 录制使用固定物理像素和无边框窗口，不随桌面 DPI 改变成片尺寸。
-                    resolution: if presentation {
-                        WindowResolution::new(1920, 1080).with_scale_factor_override(1.)
-                    } else {
-                        WindowResolution::new(1440, 900)
-                    },
+                    resolution: initial_window_resolution(presentation, smoke_size),
                     decorations: !presentation,
                     resize_constraints: bevy::window::WindowResizeConstraints {
                         min_width: 320.0,
                         min_height: 320.0,
                         ..default()
                     },
-                    present_mode: PresentMode::AutoVsync,
-                    // 保留无撕裂显示，避免交换链再积压多帧旧输入。
+                    present_mode,
+                    // 普通编辑保留无撕裂显示，避免交换链再积压多帧旧输入。
                     desired_maximum_frame_latency: std::num::NonZeroU32::new(1),
                     ..default()
                 }),
@@ -526,14 +592,43 @@ fn capture_screenshot(
     mut commands: Commands,
     mode: Res<SmokeTest>,
     keys: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut captured: Local<bool>,
+    mut stable_size_frames: Local<u8>,
 ) {
     use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
     if mode.enabled && mode.started.elapsed().as_secs() > 30 {
         panic!("窗口截图自测超时");
     }
-    let smoke = mode.enabled && !*captured && mode.started.elapsed().as_secs() >= 5;
+    let window = windows.single().ok();
+    let size_ready = if let Some(requested) = mode.window_size {
+        if window.is_some_and(|window| smoke_window_matches(window, requested)) {
+            *stable_size_frames = stable_size_frames.saturating_add(1);
+        } else {
+            *stable_size_frames = 0;
+        }
+        *stable_size_frames >= 2
+    } else {
+        true
+    };
+    let smoke = mode.enabled && !*captured && size_ready && mode.started.elapsed().as_secs() >= 5;
     if smoke || keys.just_pressed(KeyCode::F12) {
+        if smoke && let Some(window) = window {
+            let report = serde_json::json!({
+                "requested_size": mode.window_size.map(|size| [size.x, size.y]),
+                "logical_size": [window.width(), window.height()],
+                "physical_size": [window.physical_width(), window.physical_height()],
+                "scale_factor": window.scale_factor(),
+                "stable_size_frames": *stable_size_frames,
+            });
+            std::fs::create_dir_all("target").expect("创建截图证据目录");
+            std::fs::write(
+                "target/editor-smoke-window.json",
+                serde_json::to_vec_pretty(&report).unwrap(),
+            )
+            .expect("记录截图前窗口尺寸");
+            info!("截图前窗口尺寸：{report}");
+        }
         *captured = true;
         let path = if smoke {
             "target/editor-smoke.png".to_owned()
