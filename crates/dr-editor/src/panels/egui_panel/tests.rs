@@ -415,3 +415,97 @@ fn follow_toggle_real_pointer_clicks_toggle_and_disabled_input_is_ignored_with_d
         "跟随开关实际 tooltip 必须说明后代及按连接方向计算"
     );
 }
+
+#[test]
+fn deletion_hint_reuses_preview_frames_and_refreshes_roots_and_undo_redo() {
+    let mut document = crate::tests::document();
+    document.catalog = crate::panels::tests::catalog();
+    let kind = document.catalog.get("pod").unwrap();
+    document.ship.parts = (1..=3)
+        .map(|id| kind.instantiate(id, (id as f64 * 2.0, 0.0)))
+        .collect();
+    document.ship.connections = vec![Connection::Normal {
+        parent: 1,
+        child: 2,
+        parent_attach: 1,
+        child_attach: 1,
+    }];
+    document.refresh();
+    let mut state = UiState::default();
+    let mut drag = DragState {
+        id: Some(PartKey::new(0, 1, 0)),
+        ..default()
+    };
+    let expected = "× 拖入此处删除 2 个相连部件";
+    assert_eq!(state.deletion_text(&document, &drag), expected);
+    let cached_text = state.deletion_text(&document, &drag).as_ptr();
+    for index in 0..30 {
+        drag.preview = (index as f64 * 0.1, 0.2);
+        drag.turns = index % 4;
+        assert_eq!(state.deletion_text(&document, &drag), expected);
+        assert_eq!(state.deletion_text(&document, &drag).as_ptr(), cached_text);
+    }
+    drag.members.insert(PartKey::new(0, 3, 0));
+    assert_eq!(
+        state.deletion_text(&document, &drag),
+        "× 拖入此处删除 3 个相连部件"
+    );
+    drag.members.clear();
+    assert_eq!(state.deletion_text(&document, &drag), expected);
+    assert!(document.execute(EditorCommand::Disconnect(1)));
+    assert_eq!(
+        state.deletion_text(&document, &drag),
+        "× 拖入此处删除 1 个相连部件"
+    );
+    assert!(document.undo());
+    assert_eq!(state.deletion_text(&document, &drag), expected);
+    assert!(document.redo());
+    assert_eq!(
+        state.deletion_text(&document, &drag),
+        "× 拖入此处删除 1 个相连部件"
+    );
+}
+
+#[test]
+fn deletion_hint_caches_errors_and_refreshes_after_repair_or_document_replacement() {
+    let mut document = crate::tests::document();
+    document.ship.connections.push(Connection::Normal {
+        parent: 1,
+        child: 99,
+        parent_attach: 1,
+        child_attach: 1,
+    });
+    document.refresh();
+    let mut state = UiState::default();
+    let drag = DragState {
+        id: Some(PartKey::new(0, 1, 0)),
+        ..default()
+    };
+    assert_eq!(
+        state.deletion_text(&document, &drag),
+        "× 连接引用有歧义，无法删除"
+    );
+    let cached_text = state.deletion_text(&document, &drag).as_ptr();
+    assert_eq!(state.deletion_text(&document, &drag).as_ptr(), cached_text);
+    document.ship.connections.clear();
+    document.refresh();
+    assert_eq!(
+        state.deletion_text(&document, &drag),
+        "× 拖入此处删除 1 个相连部件"
+    );
+    let mut replacement = document.ship.clone();
+    let mut part = replacement.parts[0].clone();
+    part.id = 2;
+    replacement.parts.push(part);
+    replacement.connections.push(Connection::Dock {
+        parent: 1,
+        child: 2,
+        dock: 2,
+    });
+    document.ship = replacement;
+    document.refresh();
+    assert_eq!(
+        state.deletion_text(&document, &drag),
+        "× 拖入此处删除 2 个相连部件"
+    );
+}

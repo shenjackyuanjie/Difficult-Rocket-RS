@@ -605,21 +605,26 @@ fn camera_controls(
     let Ok(window) = windows.single() else {
         return;
     };
-    let Ok((mut transform, mut projection)) = cameras.single_mut() else {
+    let Ok((transform, projection)) = cameras.single_mut() else {
         return;
     };
-    let Projection::Orthographic(projection) = &mut *projection else {
+    // 只映射字段，不让无输入/纯平移帧触发投影缓存和视锥重算。
+    let Some(mut scale) = projection.filter_map_unchanged(|projection| match projection {
+        Projection::Orthographic(projection) => Some(&mut projection.scale),
+        _ => None,
+    }) else {
         return;
     };
+    let mut translation = transform.map_unchanged(|transform| &mut transform.translation);
     if pointer.blocked {
         drag.0 = None;
         wheels.clear();
         return;
     }
     if keys.just_pressed(KeyCode::Home) && window.focused {
-        transform.translation.x = 0.0;
-        transform.translation.y = 0.0;
-        projection.scale = 1.0;
+        let reset = Vec3::new(0.0, 0.0, translation.z);
+        translation.set_if_neq(reset);
+        scale.set_if_neq(1.0);
     }
     let Some(cursor) = window.cursor_position().filter(|_| window.focused) else {
         drag.0 = None;
@@ -640,8 +645,8 @@ fn camera_controls(
     if can_pan && pan_active && !keys.just_pressed(KeyCode::Escape) {
         if let Some(previous) = drag.0 {
             let delta = cursor - previous;
-            transform.translation.x -= delta.x * projection.scale;
-            transform.translation.y += delta.y * projection.scale;
+            let next = *translation + Vec3::new(-delta.x, delta.y, 0.0) * *scale;
+            translation.set_if_neq(next);
         }
         drag.0 = mouse.pressed(pan_button).then_some(cursor);
     } else {
@@ -656,11 +661,13 @@ fn camera_controls(
             MouseScrollUnit::Line => wheel.y,
             MouseScrollUnit::Pixel => wheel.y / 40.0,
         };
-        let old = projection.scale;
-        projection.scale = (old * 2.0_f32.powf(-delta * 0.25)).clamp(0.1, 100.0);
-        let shift = offset * (old - projection.scale);
-        transform.translation.x += shift.x;
-        transform.translation.y += shift.y;
+        let old = *scale;
+        let next = (old * 2.0_f32.powf(-delta * 0.25)).clamp(0.1, 100.0);
+        if scale.set_if_neq(next) {
+            let shift = offset * (old - next);
+            let next = *translation + shift.extend(0.0);
+            translation.set_if_neq(next);
+        }
     }
 }
 
@@ -706,7 +713,24 @@ fn keyboard_commands(
     palette: Res<panels::Palette>,
     pointer: Res<panels::UiPointer>,
 ) {
-    if drag.id.is_some() || drag.rectangle.is_some() {
+    if drag.id.is_some()
+        || drag.rectangle.is_some()
+        || !keys.any_just_pressed([
+            KeyCode::KeyA,
+            KeyCode::KeyC,
+            KeyCode::KeyV,
+            KeyCode::KeyZ,
+            KeyCode::KeyY,
+            KeyCode::KeyX,
+            KeyCode::KeyQ,
+            KeyCode::KeyE,
+            KeyCode::KeyR,
+            KeyCode::KeyP,
+            KeyCode::Tab,
+            KeyCode::Delete,
+        ])
+    {
+        // &mut ResMut 会标记文档变更；无快捷键边沿时保持渲染的增量路径。
         return;
     }
     let control = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
@@ -1071,6 +1095,8 @@ fn update_hud(document: Res<EditorDocument>, mut labels: Query<&mut Text, With<E
     }
 }
 
+#[cfg(test)]
+mod input_latency_tests;
 #[cfg(test)]
 mod interaction_tests;
 #[cfg(test)]

@@ -241,7 +241,8 @@ fn actual_mouse_drag_follows_sub_grid_motion_and_release_cleans_highlight_and_hi
     assert!((drag.preview.0 - 0.1).abs() < 1e-5);
     assert!((drag.preview.1 - 0.13).abs() < 1e-5);
     assert_eq!(app.world().resource::<EditorDocument>().ship, before);
-    pointer(&mut app, (0.1, 0.13));
+    // 光标在松手帧继续移动；落点应包含这一帧末段位移。
+    pointer(&mut app, (0.18, 0.21));
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .release(MouseButton::Left);
@@ -252,7 +253,9 @@ fn actual_mouse_drag_follows_sub_grid_motion_and_release_cleans_highlight_and_hi
     );
     let document = app.world().resource::<EditorDocument>();
     assert!(document.selected_keys().is_empty());
-    assert!((document.ship.parts[0].x - 0.1).abs() < 1e-5);
+    assert!((document.ship.parts[0].x - 0.18).abs() < 1e-5);
+    assert!((document.ship.parts[0].y - 0.21).abs() < 1e-5);
+    assert!(document.history.can_undo());
     app.update();
     assert!(app.world_mut().resource_mut::<EditorDocument>().undo());
     let document = app.world().resource::<EditorDocument>();

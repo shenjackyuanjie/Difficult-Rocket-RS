@@ -90,6 +90,31 @@ pub struct UiState {
     category: Option<String>,
     selection: Option<usize>,
     demo_trace: bool,
+    deletion_hint: Option<(u64, BTreeSet<PartKey>, String)>,
+}
+
+impl UiState {
+    fn deletion_text(&mut self, document: &EditorDocument, drag: &DragState) -> &str {
+        let roots = drag.keys();
+        if self
+            .deletion_hint
+            .as_ref()
+            .is_none_or(|(revision, previous, _)| {
+                *revision != document.revision || *previous != roots
+            })
+        {
+            let text = match selection::connected_keys(
+                &document.ship,
+                &roots.iter().copied().collect::<Vec<_>>(),
+            ) {
+                Ok(parts) => format!("× 拖入此处删除 {} 个相连部件", parts.len()),
+                Err(_) => "× 连接引用有歧义，无法删除".into(),
+            };
+            // 预览只改变姿态，不改变连接分量；文档提交/撤销/打开及拖拽范围变化时重算。
+            self.deletion_hint = Some((document.revision, roots, text));
+        }
+        &self.deletion_hint.as_ref().expect("删除提示已建立").2
+    }
 }
 
 fn button(
@@ -342,15 +367,11 @@ pub fn draw(
                 ui.disable();
             }
             if drag.id.is_some() {
-                let roots: Vec<_> = drag.keys().into_iter().collect();
-                let text = match selection::connected_keys(&document.ship, &roots) {
-                    Ok(parts) => format!("× 拖入此处删除 {} 个相连部件", parts.len()),
-                    Err(_) => "× 连接引用有歧义，无法删除".into(),
-                };
-                ui.colored_label(egui::Color32::LIGHT_RED, text)
+                ui.colored_label(egui::Color32::LIGHT_RED, state.deletion_text(&document, &drag))
                     .on_hover_text("拖到此列表松手删除拖拽部件及整个相连分量（包括父节点、子节点和对接连接器），Ctrl+Z 一次撤销；Esc / 右键取消。");
                 ui.disable();
             } else {
+                state.deletion_hint = None;
                 ui.heading("部件目录").on_hover_text("将画布部件拖到此列表松手，可删除它及所有相连部件；Ctrl+Z 撤销。");
             }
             if ui.button("树 / 图 · F6")

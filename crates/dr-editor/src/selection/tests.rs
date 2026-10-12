@@ -556,3 +556,101 @@ fn delete_connected_component_includes_parents_children_and_dock_but_not_other_g
     document.ship.parts.push(document.ship.parts[0].clone());
     assert!(connected_keys(&document.ship, &[key(2)]).is_err());
 }
+
+#[test]
+fn connected_component_handles_large_chain_cycles_and_repeated_roots_iteratively() {
+    let mut document = document();
+    let kind = document.catalog.get("pod").unwrap();
+    let count = 10_000;
+    document.ship.parts = (1..=count)
+        .map(|id| kind.instantiate(id, (id as f64, 0.0)))
+        .collect();
+    document.ship.connections = (1..count)
+        .map(|parent| Connection::Normal {
+            parent,
+            child: parent + 1,
+            parent_attach: 1,
+            child_attach: 1,
+        })
+        .collect();
+    document.ship.connections.push(Connection::Normal {
+        parent: count,
+        child: 1,
+        parent_attach: 1,
+        child_attach: 1,
+    });
+    let before = document.ship.clone();
+    assert_eq!(
+        connected_keys(&document.ship, &[key(1), key(count), key(1)]).unwrap(),
+        (1..=count).map(key).collect()
+    );
+    assert_eq!(document.ship, before);
+}
+
+#[test]
+fn connected_component_indexes_each_group_separately_and_reaches_dock_connector() {
+    let mut document = document();
+    let kind = document.catalog.get("pod").unwrap();
+    document.ship.disconnected.push(dr_core::ShipGroup {
+        parts: (1..=3)
+            .map(|id| kind.instantiate(id, (id as f64, 5.0)))
+            .collect(),
+        connections: vec![Connection::Dock {
+            parent: 1,
+            child: 2,
+            dock: 3,
+        }],
+    });
+    let dock = PartKey::new(1, 3, 0);
+    let group: BTreeSet<_> = (1..=3).map(|id| PartKey::new(1, id, 0)).collect();
+    assert_eq!(connected_keys(&document.ship, &[dock]).unwrap(), group);
+    assert_eq!(
+        connected_keys(&document.ship, &[key(2), dock]).unwrap(),
+        group.into_iter().chain([key(1), key(2)]).collect()
+    );
+    assert!(connected_keys(&document.ship, &[]).unwrap().is_empty());
+    assert!(connected_keys(&document.ship, &[PartKey::new(2, 1, 0)]).is_err());
+}
+
+#[test]
+fn connected_component_rejects_only_reachable_duplicate_or_missing_references() {
+    let mut document = document();
+    let kind = document.catalog.get("pod").unwrap();
+    document.ship.parts.push(kind.instantiate(4, (8.0, 0.0)));
+    document.ship.parts.push(kind.instantiate(4, (9.0, 0.0)));
+    document.ship.connections.push(Connection::Normal {
+        parent: 3,
+        child: 4,
+        parent_attach: 1,
+        child_attach: 1,
+    });
+    let component = [key(1), key(2)].into_iter().collect();
+    assert_eq!(
+        connected_keys(&document.ship, &[key(1)]).unwrap(),
+        component
+    );
+    assert!(connected_keys(&document.ship, &[key(3)]).is_err());
+    document.ship.parts.pop();
+    assert_eq!(
+        connected_keys(&document.ship, &[key(3)]).unwrap(),
+        [key(3), key(4)].into_iter().collect()
+    );
+    document.ship.connections.push(Connection::Normal {
+        parent: 3,
+        child: 99,
+        parent_attach: 1,
+        child_attach: 1,
+    });
+    assert_eq!(
+        connected_keys(&document.ship, &[key(1)]).unwrap(),
+        component
+    );
+    assert!(connected_keys(&document.ship, &[key(4)]).is_err());
+    document.ship.connections.push(Connection::Normal {
+        parent: 2,
+        child: 3,
+        parent_attach: 1,
+        child_attach: 1,
+    });
+    assert!(connected_keys(&document.ship, &[key(1)]).is_err());
+}

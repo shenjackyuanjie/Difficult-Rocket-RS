@@ -1,5 +1,5 @@
 use super::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
 mod tests;
@@ -204,12 +204,19 @@ pub(crate) fn drag_keys(ship: &Ship, roots: &[PartKey], follow: bool) -> BTreeSe
 /// 删除按无向连接分量扩展；同组重号引用有歧义时拒绝，不猜归属。
 pub(crate) fn connected_keys(ship: &Ship, roots: &[PartKey]) -> Result<BTreeSet<PartKey>, String> {
     let mut result: BTreeSet<_> = roots.iter().copied().collect();
-    let mut pending = roots.to_vec();
-    while let Some(key) = pending.pop() {
-        let Some((parts, connections)) = ship.group(key.group) else {
+    let groups: BTreeSet<_> = roots.iter().map(|key| key.group).collect();
+    for group in groups {
+        let Some((parts, connections)) = ship.group(group) else {
             return Err("拖拽部件已失效".into());
         };
-        for connection in connections.iter().filter(|edge| edge.touches(key.id)) {
+        // 拖拽侧栏每帧都需要分量大小；编号和邻接关系按组只扫描一次，
+        // 避免每个可达节点再遍历全组连接、每个端点再遍历全组部件。
+        let mut counts = HashMap::with_capacity(parts.len());
+        for part in parts {
+            *counts.entry(part.id).or_insert(0usize) += 1;
+        }
+        let mut adjacent: HashMap<_, Vec<_>> = HashMap::with_capacity(parts.len());
+        for connection in connections {
             let ids = match *connection {
                 Connection::Normal { parent, child, .. } => vec![parent, child],
                 Connection::Dock {
@@ -218,11 +225,22 @@ pub(crate) fn connected_keys(ship: &Ship, roots: &[PartKey]) -> Result<BTreeSet<
                     dock,
                 } => vec![parent, child, dock],
             };
-            for id in ids {
-                if parts.iter().filter(|part| part.id == id).count() != 1 {
+            for id in &ids {
+                adjacent.entry(*id).or_default().extend(ids.iter().copied());
+            }
+        }
+        let mut pending: Vec<_> = roots
+            .iter()
+            .filter(|key| key.group == group)
+            .copied()
+            .collect();
+        while let Some(key) = pending.pop() {
+            for &id in adjacent.get(&key.id).into_iter().flatten() {
+                // 只检查当前分量实际可达的引用，其他分量的异常不阻止删除。
+                if counts.get(&id) != Some(&1) {
                     return Err("连接引用有重复编号或缺失部件，请先修复后删除".into());
                 }
-                let next = PartKey::new(key.group, id, 0);
+                let next = PartKey::new(group, id, 0);
                 if result.insert(next) {
                     pending.push(next);
                 }
