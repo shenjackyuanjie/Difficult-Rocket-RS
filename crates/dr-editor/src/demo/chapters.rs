@@ -169,6 +169,15 @@ const DETAILED_CHAPTERS: &[(&str, Chapter)] = &[
         },
     ),
     (
+        "selection",
+        Chapter {
+            id: "interaction-cases",
+            title: "拖拽跟手与连接唯一性",
+            description: "连续拖动与平移 → 当帧视觉核对 → 多连接点只提示一对 → 换点/反向重复连接拒绝",
+            artifacts: &["interaction-cases.json"],
+        },
+    ),
+    (
         "staging",
         Chapter {
             id: "history-cases",

@@ -21,7 +21,7 @@ CHAPTER_IDS = (
 )
 DETAILED_CHAPTER_IDS = (
     "panels", "placement-cases", "connections", "geometry-cases", "transforms",
-    "free-cases", "group-cases", "line-cases", "selection", "view", "staging",
+    "free-cases", "group-cases", "line-cases", "selection", "interaction-cases", "view", "staging",
     "history-cases", "topology", "topology-cases", "repair", "browser", "unsaved", "file-cases",
 )
 DETAILED_CASE_IDS = {
@@ -33,6 +33,7 @@ DETAILED_CASE_IDS = {
     "group-cases": ("selection-empty", "selection-single", "selection-disconnected", "mirrors-involution",
                     "transform-order", "descendants-no-ancestor"),
     "line-cases": ("line-width-min", "line-width-max", "line-reset", "line-zero-length", "line-hidden-endpoint"),
+    "interaction-cases": ("drag-continuous", "pan-gesture", "hint-single-pair", "manual-duplicate-pair"),
     "history-cases": ("history-empty", "history-batch-rollback", "history-new-branch", "fuel-nan", "fuel-negative",
                       "fuel-over-capacity", "properties-stale"),
     "topology-cases": ("topology-self", "topology-tree-cycle", "topology-graph-cycle", "topology-cross-group"),

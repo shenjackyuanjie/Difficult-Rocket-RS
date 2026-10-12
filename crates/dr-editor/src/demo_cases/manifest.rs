@@ -23,6 +23,10 @@ pub(super) enum Scenario {
     ManualSelf,
     ManualMismatch,
     ManualReverse,
+    DragContinuous,
+    PanGesture,
+    HintSinglePair,
+    ManualDuplicatePair,
     EmptySelection,
     SingleFine,
     Disconnected,
@@ -395,6 +399,37 @@ pub(crate) const FILES: &[Case] = &[
     ),
 ];
 
+pub(crate) const INTERACTION: &[Case] = &[
+    case!(
+        "drag-continuous",
+        "连续拖动：抓取偏移、反向与微移",
+        "按住左键沿连续轨迹拖动；本帧视觉跟随，松手包含末段位移且只生成一次历史。",
+        "内部画布鼠标 + PostUpdate 同帧 Transform 断言",
+        Scenario::DragContinuous
+    ),
+    case!(
+        "pan-gesture",
+        "背景平移：两种按钮与两档缩放",
+        "空白画布按住平移；两种按键配置均本帧更新相机，松手保留末段且不改船体。",
+        "内部画布鼠标 + PostUpdate 相机 Transform 断言",
+        Scenario::PanGesture
+    ),
+    case!(
+        "hint-single-pair",
+        "多连接点只显示最近合法一对",
+        "同一对部件有多个几何候选，但仅显示一条合法提示；实际放置也只有一条连接。",
+        "内部放置预览/快捷键 + 真实候选与历史断言",
+        Scenario::HintSinglePair
+    ),
+    case!(
+        "manual-duplicate-pair",
+        "不同连接点、反方向均不能重复建边",
+        "自由模式先建立一条连接；换点及反向重复连接都被拒绝，文档与历史保持不变。",
+        "内部画布端点点击 + 撤销重做与原子拒绝断言",
+        Scenario::ManualDuplicatePair
+    ),
+];
+
 pub(crate) fn cases(chapter: &str) -> &'static [Case] {
     match chapter {
         "placement-cases" => PLACEMENT,
@@ -402,6 +437,7 @@ pub(crate) fn cases(chapter: &str) -> &'static [Case] {
         "free-cases" => FREE,
         "group-cases" => GROUPS,
         "line-cases" => LINES,
+        "interaction-cases" => INTERACTION,
         "topology-cases" => TOPOLOGY,
         "history-cases" => HISTORY,
         "file-cases" => FILES,

@@ -35,6 +35,7 @@ fn populate(world: &mut World) {
     });
     world.init_resource::<EditorCursor>();
     world.init_resource::<DragState>();
+    world.init_resource::<CameraDrag>();
     world.init_resource::<view::ViewOptions>();
     world.init_resource::<connection_lines::Settings>();
     world.init_resource::<connection_lines::Controls>();
@@ -52,15 +53,25 @@ fn populate(world: &mut World) {
     world.init_resource::<ButtonInput<KeyCode>>();
     world.init_resource::<Messages<files::FileAction>>();
     world.spawn((
-        Window::default(),
+        Window {
+            resolution: (1440, 900).into(),
+            focused: true,
+            ..default()
+        },
         bevy::window::PrimaryWindow,
         EguiInput::default(),
         bevy_egui::PrimaryEguiContext,
     ));
+    world.spawn((
+        Camera2d,
+        Transform::default(),
+        GlobalTransform::default(),
+        Projection::Orthographic(OrthographicProjection::default_2d()),
+    ));
 }
 
 #[test]
-fn detailed_manifest_has_41_unique_explained_cases_and_unique_evidence() {
+fn detailed_manifest_has_45_unique_explained_cases_and_unique_evidence() {
     let mut ids = BTreeSet::new();
     for chapter in [
         "placement-cases",
@@ -68,6 +79,7 @@ fn detailed_manifest_has_41_unique_explained_cases_and_unique_evidence() {
         "free-cases",
         "group-cases",
         "line-cases",
+        "interaction-cases",
         "history-cases",
         "topology-cases",
         "file-cases",
@@ -88,7 +100,7 @@ fn detailed_manifest_has_41_unique_explained_cases_and_unique_evidence() {
         state.case_index = list.len();
         assert!(state.caption().is_none());
     }
-    assert_eq!(ids.len(), 41);
+    assert_eq!(ids.len(), 45);
     assert!(Run::new("transforms").caption().is_none());
 }
 
@@ -188,4 +200,100 @@ fn an_asserted_case_does_not_advance_or_exit_until_its_screenshot_is_captured() 
     assert!(!state.verified);
     assert!(!state.capturing);
     assert_eq!(state.results[0]["status"], "passed");
+}
+
+fn gesture_frame(mut state: ResMut<Run>, mut ctx: Context) {
+    if state.verified {
+        return;
+    }
+    ctx.mouse.clear();
+    ctx.keys.reset_all();
+    let case = &cases("interaction-cases")[state.case_index];
+    if state.step == 0 {
+        setup(&mut state, &mut ctx, case);
+    } else if gestures::advance(&mut state, &mut ctx, case.scenario) {
+        gestures::report(&mut state);
+        state.verified = true;
+    }
+}
+
+fn replay_gesture(index: usize) -> App {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin))
+        .init_asset::<Image>()
+        .init_resource::<panels::Palette>()
+        .init_resource::<panels::UiPointer>()
+        .add_message::<MouseWheel>();
+    populate(app.world_mut());
+    let mut state = Run::new("interaction-cases");
+    state.case_index = index;
+    app.insert_resource(state)
+        .add_systems(
+            Update,
+            (
+                gesture_frame,
+                camera_controls,
+                mouse_editor,
+                keyboard_commands,
+                render::sync,
+            )
+                .chain(),
+        )
+        .add_systems(
+            PostUpdate,
+            gestures::verify.after(TransformSystems::Propagate),
+        );
+    for _ in 0..100 {
+        app.update();
+        if app.world().resource::<Run>().verified {
+            return app;
+        }
+    }
+    panic!("交互演示未结束：{}", cases("interaction-cases")[index].id);
+}
+
+#[test]
+fn continuous_drag_demo_checks_actual_visuals_and_release_before_atomic_undo_redo() {
+    let app = replay_gesture(0);
+    let state = app.world().resource::<Run>();
+    assert!(state.metrics["same_frame_checks"].as_u64().unwrap() >= 10);
+    assert_eq!(state.metrics["release_frame_checks"], 1);
+    assert!(state.metrics["max_world_pixel_error"].as_f64().unwrap() < 0.002);
+    assert_eq!(
+        app.world().resource::<EditorDocument>().history.undo_len(),
+        1
+    );
+}
+
+#[test]
+fn background_pan_demo_checks_both_buttons_and_scales_without_editing_document() {
+    let app = replay_gesture(1);
+    let state = app.world().resource::<Run>();
+    assert!(state.metrics["same_frame_checks"].as_u64().unwrap() >= 12);
+    assert_eq!(state.metrics["release_frame_checks"], 2);
+    assert_eq!(state.metrics["scales"], serde_json::json!([1, 2]));
+    unchanged(state, app.world().resource::<EditorDocument>());
+}
+
+#[test]
+fn single_hint_demo_commits_one_connection_from_multiple_geometric_candidates() {
+    let app = replay_gesture(2);
+    let state = app.world().resource::<Run>();
+    assert!(state.metrics["geometric_candidates"].as_u64().unwrap() > 1);
+    assert_eq!(state.metrics["displayed_pairs"], 1);
+    assert_eq!(state.metrics["committed_connections"], 1);
+    assert_eq!(state.metrics["undo_redo"], true);
+}
+
+#[test]
+fn manual_duplicate_demo_rejects_new_attach_pairs_in_both_directions_via_canvas_clicks() {
+    let app = replay_gesture(3);
+    let state = app.world().resource::<Run>();
+    assert_eq!(state.metrics["different_attach_rejected"], true);
+    assert_eq!(state.metrics["reverse_direction_rejected"], true);
+    assert_eq!(state.metrics["history_unchanged_on_rejection"], true);
+    let document = app.world().resource::<EditorDocument>();
+    assert_eq!(document.ship.connections.len(), 1);
+    assert_eq!(document.history.undo_len(), 1);
+    assert!(document.dirty);
 }

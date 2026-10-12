@@ -5,6 +5,8 @@ use bevy_egui::EguiInput;
 use std::time::Instant;
 
 mod geometry;
+mod gestures;
+pub(crate) use gestures::verify;
 mod interactions;
 mod manifest;
 #[cfg(test)]
@@ -28,6 +30,7 @@ pub(crate) struct Run {
     after: Option<Ship>,
     candidate: Option<Part>,
     metrics: serde_json::Value,
+    gesture: gestures::Probe,
     verified: bool,
     capturing: bool,
     zero_path_rendered: bool,
@@ -74,6 +77,8 @@ pub(crate) struct Context<'w, 's> {
     document: ResMut<'w, EditorDocument>,
     cursor: ResMut<'w, EditorCursor>,
     drag: ResMut<'w, DragState>,
+    camera_drag: ResMut<'w, CameraDrag>,
+    cameras: Query<'w, 's, (&'static mut Transform, &'static mut Projection), With<Camera2d>>,
     options: ResMut<'w, view::ViewOptions>,
     lines: ResMut<'w, connection_lines::Settings>,
     line_controls: Res<'w, connection_lines::Controls>,
@@ -229,6 +234,13 @@ fn setup(state: &mut Run, ctx: &mut Context, case: &Case) {
     }
     *ctx.cursor = EditorCursor::default();
     *ctx.drag = DragState::default();
+    *ctx.camera_drag = CameraDrag::default();
+    let (mut camera, mut projection) = ctx.cameras.single_mut().unwrap();
+    camera.translation.x = 0.;
+    camera.translation.y = 0.;
+    if let Projection::Orthographic(projection) = &mut *projection {
+        projection.scale = 1.;
+    }
     *ctx.options = view::ViewOptions::default();
     *ctx.lines = connection_lines::Settings::default();
     *ctx.topology = topology_ui::ConnectionEditor::default();
@@ -243,9 +255,11 @@ fn setup(state: &mut Run, ctx: &mut Context, case: &Case) {
     state.candidate = None;
     state.after = None;
     state.metrics = serde_json::json!({});
+    state.gesture = gestures::Probe::default();
     geometry::setup(state, ctx, case.scenario);
     interactions::setup(ctx, case.scenario);
     workflow::setup(ctx, case.scenario);
+    gestures::setup(ctx, case.scenario);
     ctx.document.saved_ship = ctx.document.ship.clone();
     ctx.document.history = EditorHistory::default();
     ctx.document.status.clear();
@@ -334,6 +348,10 @@ pub(crate) fn run(
         return;
     }
     let done = match case.scenario {
+        Scenario::DragContinuous
+        | Scenario::PanGesture
+        | Scenario::HintSinglePair
+        | Scenario::ManualDuplicatePair => gestures::advance(&mut state, &mut ctx, case.scenario),
         Scenario::Overlap { .. } | Scenario::Contained => {
             geometry::advance(&mut state, &mut ctx, case.scenario)
         }
@@ -351,6 +369,7 @@ pub(crate) fn run(
         _ => interactions::advance(&mut state, &mut ctx, case.scenario),
     };
     if done {
+        gestures::report(&mut state);
         state.metrics["part_count"] = ctx.document.ship.all_parts().count().into();
         state.metrics["undo_len"] = ctx.document.history.undo_len().into();
         state.metrics["redo_len"] = ctx.document.history.redo_len().into();

@@ -173,14 +173,14 @@ class DemoTests(unittest.TestCase):
 
     def test_modes_have_independent_complete_chapter_and_case_contracts(self):
         self.assertEqual(len(demo.CHAPTER_IDS), 10)
-        self.assertEqual(len(demo.DETAILED_CHAPTER_IDS), 18)
-        self.assertEqual(sum(map(len, demo.DETAILED_CASE_IDS.values())), 41)
+        self.assertEqual(len(demo.DETAILED_CHAPTER_IDS), 19)
+        self.assertEqual(sum(map(len, demo.DETAILED_CASE_IDS.values())), 45)
         self.assertEqual(tuple(chapter for chapter in demo.DETAILED_CHAPTER_IDS if chapter not in demo.DETAILED_CASE_IDS), demo.CHAPTER_IDS)
         report = complete_report("detailed")
         self.write_evidence(report)
         self.assertEqual(demo.validate_report(report, self.output, self.started_ns, "detailed"), report)
         report["chapters"] = complete_report()["chapters"]
-        with self.assertRaisesRegex(demo.DemoError, "完整 18"):
+        with self.assertRaisesRegex(demo.DemoError, "完整 19"):
             demo.validate_report(report, self.output, self.started_ns, "detailed")
 
     def test_python_contract_matches_rust_case_manifest(self):
@@ -188,8 +188,8 @@ class DemoTests(unittest.TestCase):
         manifests = {name: tuple(re.findall(r'case!\(\s*"([^"]+)"', body))
                      for name, body in re.findall(r'pub\(crate\) const (\w+):.*?= &\[(.*?)\n\];', source, re.S)}
         mapping = {"placement-cases": "PLACEMENT", "geometry-cases": "GEOMETRY", "free-cases": "FREE",
-                   "group-cases": "GROUPS", "line-cases": "LINES", "history-cases": "HISTORY",
-                   "topology-cases": "TOPOLOGY", "file-cases": "FILES"}
+                   "group-cases": "GROUPS", "line-cases": "LINES", "interaction-cases": "INTERACTION",
+                   "history-cases": "HISTORY", "topology-cases": "TOPOLOGY", "file-cases": "FILES"}
         for chapter, rust_name in mapping.items():
             self.assertEqual(demo.DETAILED_CASE_IDS[chapter], manifests[rust_name])
 

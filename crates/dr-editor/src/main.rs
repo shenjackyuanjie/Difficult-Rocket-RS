@@ -502,7 +502,9 @@ fn main() -> anyhow::Result<()> {
     )
     .add_systems(
         PostUpdate,
-        interaction_smoke::verify.after(bevy::transform::TransformSystems::Propagate),
+        (interaction_smoke::verify, demo_cases::verify)
+            .after(bevy::transform::TransformSystems::Propagate)
+            .before(demo::isolate_pointer),
     )
     .add_systems(
         PostUpdate,

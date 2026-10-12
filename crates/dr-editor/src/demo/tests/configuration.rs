@@ -112,14 +112,14 @@ fn chapters_are_unique_and_evidence_is_relative() {
         }
     }
     let detailed = Mode::Detailed.chapters();
-    assert_eq!(detailed.len(), 18);
+    assert_eq!(detailed.len(), 19);
     assert_eq!(
         detailed
             .iter()
             .map(|chapter| chapter.id)
             .collect::<BTreeSet<_>>()
             .len(),
-        18
+        19
     );
     assert_eq!(
         detailed
@@ -136,8 +136,8 @@ fn chapters_are_unique_and_evidence_is_relative() {
         .iter()
         .flat_map(|chapter| chapter.evidence())
         .collect();
-    assert_eq!(evidence.len(), 90);
-    assert_eq!(evidence.iter().collect::<BTreeSet<_>>().len(), 90);
+    assert_eq!(evidence.len(), 95);
+    assert_eq!(evidence.iter().collect::<BTreeSet<_>>().len(), 95);
 }
 
 #[test]

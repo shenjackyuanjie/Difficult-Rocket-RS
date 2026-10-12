@@ -6,14 +6,14 @@ const CANDIDATE_COLOR: Color = Color::srgb(0.67, 0.56, 0.88);
 const SNAPPED_COLOR: Color = Color::srgb(0.85, 0.74, 1.0);
 
 #[derive(Debug)]
-struct Hint {
-    source: (Vec2d, Vec2d),
-    target: (Vec2d, Vec2d),
-    contact: (Vec2d, Vec2d),
-    snapped: bool,
+pub(crate) struct Hint {
+    pub(crate) source: (Vec2d, Vec2d),
+    pub(crate) target: (Vec2d, Vec2d),
+    pub(crate) contact: (Vec2d, Vec2d),
+    pub(crate) snapped: bool,
 }
 
-fn nearby(document: &EditorDocument, source: &Part, key: Option<PartKey>) -> Vec<Hint> {
+pub(crate) fn nearby(document: &EditorDocument, source: &Part, key: Option<PartKey>) -> Vec<Hint> {
     let Some(st) = document.catalog.get(&source.part_type) else {
         return vec![];
     };
