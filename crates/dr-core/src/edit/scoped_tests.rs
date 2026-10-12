@@ -311,3 +311,105 @@ fn joining_disconnected_groups_preserves_main_and_later_scoped_edits() {
     assert_eq!(ship.disconnected[0].parts.len(), 4);
     assert!(ship.disconnected[1].parts[0].active);
 }
+
+#[test]
+fn same_pair_rejects_other_points_direction_and_kind_without_changing_history() {
+    let parent = PartKey::new(0, 1, 0);
+    let child = PartKey::new(0, 2, 0);
+    for existing in [
+        connection(1, 2),
+        Connection::Dock {
+            parent: 1,
+            child: 2,
+            dock: 3,
+        },
+    ] {
+        let mut ship = Ship {
+            parts: vec![part(1), part(2), part(3)],
+            connections: vec![existing],
+            ..Default::default()
+        };
+        let original = ship.clone();
+        let mut history = EditorHistory::default();
+        history
+            .execute(&mut ship, EditorCommand::SetActive(1, true))
+            .unwrap();
+        assert!(history.undo(&mut ship));
+        for command in [
+            link(parent, child),
+            link(child, parent),
+            EditorCommand::ConnectParts {
+                parent,
+                child,
+                kind: LinkKind::Dock {
+                    connector: PartKey::new(0, 3, 0),
+                },
+            },
+            EditorCommand::Connect(connection(1, 2)),
+            EditorCommand::FreeEdit(Box::new(link(child, parent))),
+        ] {
+            assert!(matches!(
+                history.execute(&mut ship, command),
+                Err(CommandError::InvalidConnection(_))
+            ));
+            assert_eq!(ship, original);
+            assert_eq!(history.undo_len(), 0);
+            assert_eq!(history.redo_len(), 1);
+        }
+    }
+}
+
+#[test]
+fn two_links_for_the_same_pair_roll_back_the_entire_batch() {
+    let mut ship = Ship {
+        parts: vec![part(1), part(2)],
+        ..Default::default()
+    };
+    let before = ship.clone();
+    let mut history = EditorHistory::default();
+    let command = EditorCommand::Batch(vec![
+        EditorCommand::Connect(connection(1, 2)),
+        link(PartKey::new(0, 2, 0), PartKey::new(0, 1, 0)),
+    ]);
+    assert!(matches!(
+        history.execute(&mut ship, command),
+        Err(CommandError::InvalidConnection(_))
+    ));
+    assert_eq!(ship, before);
+    assert!(!history.can_undo());
+}
+
+#[test]
+fn separate_pairs_can_share_a_part_and_dock_reference_is_not_an_endpoint() {
+    let mut ship = Ship {
+        parts: vec![part(1), part(2), part(3)],
+        connections: vec![Connection::Dock {
+            parent: 1,
+            child: 2,
+            dock: 3,
+        }],
+        ..Default::default()
+    };
+    let before = ship.clone();
+    let mut history = EditorHistory::default();
+    history
+        .execute(
+            &mut ship,
+            link(PartKey::new(0, 1, 0), PartKey::new(0, 3, 0)),
+        )
+        .unwrap();
+    history
+        .execute(
+            &mut ship,
+            link(PartKey::new(0, 2, 0), PartKey::new(0, 3, 0)),
+        )
+        .unwrap();
+    assert_eq!(ship.connections.len(), 3);
+    let after = ship.clone();
+    assert!(history.undo(&mut ship));
+    assert!(history.undo(&mut ship));
+    assert_eq!(ship, before);
+    assert!(history.redo(&mut ship));
+    assert!(history.redo(&mut ship));
+    assert_eq!(ship, after);
+}

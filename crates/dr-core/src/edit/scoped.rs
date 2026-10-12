@@ -251,8 +251,20 @@ pub(super) fn connect(
             dock: remapped_keys[&connector],
         },
     };
-    if merged.connections.iter().any(|c| c.equivalent(&connection)) {
-        return Err(CommandError::Invalid);
+    // 同一对实例只建立一条边，连接点、方向和普通/对接类型均不影响去重。
+    let p = remapped_keys[&parent];
+    let c = remapped_keys[&child];
+    if merged.connections.iter().any(|connection| {
+        let (a, b) = match *connection {
+            Connection::Normal { parent, child, .. } | Connection::Dock { parent, child, .. } => {
+                (parent, child)
+            }
+        };
+        (a == p && b == c) || (a == c && b == p)
+    }) {
+        return Err(CommandError::InvalidConnection(
+            "两个部件之间只能建立一对连接点连接".into(),
+        ));
     }
     if let Some(catalog) = catalog {
         let validate = if free {

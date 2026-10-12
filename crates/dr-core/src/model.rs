@@ -567,15 +567,35 @@ impl Ship {
         }
     }
 
-    /// 返回所有部件中可用的下一个正整数 ID。
+    /// 返回所有部件、连接和分级引用中可用的下一个正整数 ID；
+    /// 历史悬空引用保留原编号，新部件不会顶替它们。
     pub fn next_part_id(&self) -> PartId {
-        self.parts
-            .iter()
-            .chain(self.disconnected.iter().flat_map(|g| g.parts.iter()))
-            .map(|p| p.id)
-            .max()
-            .unwrap_or(0)
-            + 1
+        self.occupied_ids().max().unwrap_or(0).max(0) + 1
+    }
+
+    /// 全文档已被占用的编号：各组部件、连接两端与对接件、分级里的激活动作。
+    fn occupied_ids(&self) -> impl Iterator<Item = PartId> + '_ {
+        self.groups().flat_map(|(_, parts, connections)| {
+            let linked = connections.iter().flat_map(|connection| {
+                let (parent, child, dock) = match connection {
+                    Connection::Normal { parent, child, .. } => (*parent, *child, None),
+                    Connection::Dock {
+                        dock,
+                        parent,
+                        child,
+                    } => (*parent, *child, Some(*dock)),
+                };
+                [Some(parent), Some(child), dock].into_iter().flatten()
+            });
+            let staged = parts.iter().flat_map(|part| {
+                part.pod
+                    .iter()
+                    .flat_map(|pod| pod.staging.iter())
+                    .flat_map(|staging| staging.steps.iter())
+                    .flat_map(|step| step.activations.iter().map(|activation| activation.id))
+            });
+            parts.iter().map(|part| part.id).chain(linked).chain(staged)
+        })
     }
     pub fn part(&self, id: PartId) -> Option<&Part> {
         self.part_at(self.unique_key(id)?)

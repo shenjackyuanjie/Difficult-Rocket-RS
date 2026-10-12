@@ -150,6 +150,85 @@ fn docking_group_hint_marks_attachment_contact_not_part_centers() {
 }
 
 #[test]
+fn placing_near_a_dangling_history_edge_hints_and_commits_the_same_new_id() {
+    let mut document = document();
+    let kind = document.catalog.get("pod").unwrap();
+    document.ship.parts = vec![kind.instantiate(1, (0.0, 0.0))];
+    // 部件 2 已被删除，连接里只剩下历史悬空引用。
+    document.ship.connections = vec![Connection::Normal {
+        parent: 1,
+        child: 2,
+        parent_attach: 1,
+        child_attach: 1,
+    }];
+    let before = document.ship.clone();
+    let cursor = EditorCursor {
+        world: (1.2, 0.0),
+        placing: true,
+        valid: true,
+        ..default()
+    };
+    let (preview, connection, allowed) = placement::preview(&document, &cursor).unwrap();
+    assert!(allowed);
+    assert_eq!((preview.id, preview.x), (3, 1.0));
+    let hints = nearby(&document, &preview, None);
+    assert_eq!(hints.len(), 1);
+    assert!(hints[0].snapped);
+    assert_eq!(hints[0].contact.0, hints[0].contact.1);
+    assert_eq!(document.ship, before);
+    assert!(!document.history.can_undo());
+    let (hint_parent, hinted) = match connection {
+        Some(EditorCommand::ConnectParts {
+            parent,
+            child,
+            kind:
+                LinkKind::Normal {
+                    parent_attach,
+                    child_attach,
+                },
+        }) => (
+            parent,
+            Connection::Normal {
+                parent: parent.id,
+                child: child.id,
+                parent_attach,
+                child_attach,
+            },
+        ),
+        other => panic!("新放置的提示应给出普通连接候选: {other:?}"),
+    };
+    assert_eq!(hint_parent, PartKey::new(0, 1, 0));
+    assert!(hinted.touches(preview.id));
+
+    assert!(placement::place(&mut document, &cursor));
+    assert_eq!(document.ship.part(3).unwrap().x, 1.0);
+    // 历史悬空引用仍是 2，新部件只被提示那一对连接引用。
+    assert!(document.ship.part(2).is_none());
+    assert_eq!(document.ship.connections.len(), 2);
+    assert!(document.ship.connections.contains(&hinted));
+    assert!(document.ship.connections.contains(&Connection::Normal {
+        parent: 1,
+        child: 2,
+        parent_attach: 1,
+        child_attach: 1,
+    }));
+    assert_eq!(
+        document
+            .ship
+            .connections
+            .iter()
+            .filter(|connection| connection.touches(3))
+            .count(),
+        1
+    );
+    let after = document.ship.clone();
+    assert!(document.undo());
+    assert_eq!(document.ship, before);
+    assert!(document.redo());
+    assert_eq!(document.ship, after);
+}
+
+#[test]
 fn palette_quantity_limit_does_not_advertise_a_connection_that_cannot_be_placed() {
     let mut document = document();
     document

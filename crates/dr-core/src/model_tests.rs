@@ -74,6 +74,52 @@ fn mass_main_excludes_disconnected_while_all_keeps_existing_contract() {
 }
 
 #[test]
+fn next_part_id_avoids_connections_and_staging_of_every_group() {
+    let catalog = PartCatalog::new("ids", vec![kind("a", 1.0)]);
+    let make = |id| catalog.get("a").unwrap().instantiate(id, (0.0, 0.0));
+    let mut ship = Ship {
+        parts: vec![make(1), make(2)],
+        connections: vec![Connection::Normal {
+            parent: 2,
+            child: 3,
+            parent_attach: 1,
+            child_attach: 1,
+        }],
+        disconnected: vec![ShipGroup {
+            parts: vec![make(4)],
+            connections: vec![Connection::Dock {
+                dock: 5,
+                parent: 4,
+                child: 1,
+            }],
+        }],
+        ..Ship::default()
+    };
+    // 部件、普通连接、对接连接和断开组内的引用一起占用编号。
+    assert_eq!(ship.next_part_id(), 6);
+    let mut pod = make(1);
+    pod.pod = Some(PodState {
+        staging: Some(StagingState {
+            current_stage: 0,
+            steps: vec![StageStep {
+                activations: vec![Activation {
+                    id: 7,
+                    moved: false,
+                }],
+            }],
+        }),
+        ..Default::default()
+    });
+    ship.parts.push(pod);
+    assert_eq!(ship.next_part_id(), 8);
+    // 没有额外引用时仍沿用最大部件号加一。
+    ship.connections.clear();
+    ship.disconnected.clear();
+    ship.parts.truncate(2);
+    assert_eq!(ship.next_part_id(), 3);
+}
+
+#[test]
 fn metadata_is_atomic_persistent_and_included_in_history_budget() {
     use crate::{EditorCommand, EditorHistory, ship_from_xml, ship_to_xml};
     let mut ship = Ship::default();
