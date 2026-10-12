@@ -5,10 +5,15 @@ struct Panel {
     inspector: Inspector,
     document: EditorDocument,
     hits: Vec<(Action, egui::Rect)>,
+    size: egui::Vec2,
 }
 
 impl Panel {
     fn new() -> Self {
+        Self::at_size(egui::vec2(960.0, 640.0))
+    }
+
+    fn at_size(size: egui::Vec2) -> Self {
         let mut document = crate::tests::document();
         document.ship = dr_core::ship_from_xml(
             r#"<Ship><Parts><Part id="1" partType="pod"><Pod name="原名称" throttle="0"><Staging currentStage="0"/></Pod></Part></Parts></Ship>"#,
@@ -20,7 +25,15 @@ impl Panel {
             inspector: Inspector::default(),
             document,
             hits: vec![],
+            size,
         };
+        // 与目录 draw 的窄屏共享样式一致，不为测试改变 Modal 的布局路径。
+        if size.x < 960.0 {
+            panel.ctx.style_mut_of(panel.ctx.theme(), |style| {
+                style.spacing.interact_size =
+                    style.spacing.interact_size.max(egui::Vec2::splat(44.0));
+            });
+        }
         open(&mut panel.inspector, &panel.document);
         for _ in 0..3 {
             panel.frame(vec![]);
@@ -30,10 +43,7 @@ impl Panel {
 
     fn frame(&mut self, events: Vec<egui::Event>) {
         let input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(960.0, 640.0),
-            )),
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, self.size)),
             events,
             focused: true,
             ..Default::default()
@@ -317,4 +327,88 @@ fn disabled_stage_arrow_explains_boundary_without_exposing_hit() {
         saw_hint |= output.shapes.iter().any(|shape| has_hint(&shape.shape));
     }
     assert!(saw_hint, "禁用的首级上移按钮必须实际生成可用条件 tooltip");
+}
+
+fn assert_touch_modal_controls_visible(panel: &Panel) {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, panel.size);
+    let modal = panel
+        .ctx
+        .memory(|memory| memory.area_rect(egui::Id::new("part_properties_modal")))
+        .expect("属性 Modal 必须已完成实际布局");
+    assert!(
+        screen.expand(0.5).contains_rect(modal),
+        "{screen:?} 中属性 Modal 越界：{modal:?}"
+    );
+    for action in [Action::Apply, Action::Cancel] {
+        let rect = panel
+            .hits
+            .iter()
+            .find(|(candidate, _)| *candidate == action)
+            .expect("应用与取消必须实际注册可见命中矩形")
+            .1;
+        assert!(
+            screen.contains_rect(rect),
+            "{action:?} 在 {screen:?} 内必须可达：{rect:?}"
+        );
+        assert!(rect.height() >= 43.99, "{action:?} 触摸高度不足：{rect:?}");
+    }
+    assert!(
+        panel
+            .hits
+            .iter()
+            .all(|(_, rect)| screen.contains_rect(*rect))
+    );
+}
+
+#[test]
+fn properties_modal_apply_and_cancel_remain_reachable_on_touch_screens() {
+    for size in [
+        egui::vec2(320.0, 640.0),
+        egui::vec2(390.0, 844.0),
+        egui::vec2(640.0, 360.0),
+    ] {
+        for choice in [Action::Apply, Action::Cancel] {
+            let mut panel = Panel::at_size(size);
+            let before = panel.document.ship.clone();
+            panel.inspector.draft.as_mut().unwrap().name = "窄屏属性草稿".into();
+            panel.frame(vec![]);
+            assert_touch_modal_controls_visible(&panel);
+            panel.click(choice.clone());
+            assert!(!panel.inspector.is_open());
+            if choice == Action::Apply {
+                assert_eq!(
+                    panel.document.ship.parts[0].pod.as_ref().unwrap().name,
+                    "窄屏属性草稿"
+                );
+                assert_eq!(panel.document.history.undo_len(), 1);
+                assert!(panel.document.undo());
+            } else {
+                assert!(!panel.document.history.can_undo());
+            }
+            assert_eq!(panel.document.ship, before);
+        }
+    }
+}
+
+#[test]
+fn properties_modal_validation_error_keeps_touch_apply_cancel_reachable() {
+    for size in [
+        egui::vec2(320.0, 640.0),
+        egui::vec2(390.0, 844.0),
+        egui::vec2(640.0, 360.0),
+    ] {
+        let mut panel = Panel::at_size(size);
+        let before = panel.document.ship.clone();
+        panel.inspector.draft.as_mut().unwrap().throttle = "NaN".into();
+        panel.frame(vec![]);
+        panel.click(Action::Apply);
+        assert!(panel.inspector.is_open());
+        assert!(!panel.inspector.error.is_empty());
+        assert_touch_modal_controls_visible(&panel);
+        assert_eq!(panel.document.ship, before);
+        assert!(!panel.document.history.can_undo());
+        panel.click(Action::Cancel);
+        assert!(!panel.inspector.is_open());
+        assert_eq!(panel.document.ship, before);
+    }
 }

@@ -164,93 +164,149 @@ pub(crate) fn draw_path(
     }
 }
 
+/// 窗口外框除正文之外的高度：标题栏、内边距与描边。
+const CHROME_HEIGHT: f32 = 64.0;
+/// 宽屏下沿用的窗口宽度、左上角位置，以及贴边留白。
+const WIDE_WIDTH: f32 = 340.0;
+const WIDE_X: f32 = 800.0;
+const TOP_OFFSET: f32 = 100.0;
+const AREA_MARGIN: f32 = 12.0;
+/// 正文至少保留的高度，短横屏下仍能滚动查看。
+const MIN_BODY_HEIGHT: f32 = 60.0;
+/// 紧凑布局下的触控目标边长；控件更高时靠正文滚动保证可达。
+const TOUCH_TARGET: f32 = 44.0;
+
+/// 设置窗口的位置、宽度与正文高度上限。宽屏保持 340 宽与 (800, 100) 的既有外观，
+/// 窄窗与短横屏按可用区域收缩，正文滚动代替溢出屏幕。
+fn window_layout(area: egui::Rect) -> (egui::Pos2, f32, f32) {
+    let width = (area.width() - 2.0 * AREA_MARGIN).clamp(1.0, WIDE_WIDTH);
+    let min_x = area.left() + AREA_MARGIN;
+    let max_x = (area.right() - width - AREA_MARGIN).max(min_x);
+    // 宽屏沿用原有的 (800, 100)，只有放不下时才收进可用区域。
+    let x = (area.left() + WIDE_X).clamp(min_x, max_x);
+    let min_y = area.top() + AREA_MARGIN;
+    let lowest_y = area.bottom() - AREA_MARGIN - CHROME_HEIGHT - MIN_BODY_HEIGHT;
+    let y = (area.top() + TOP_OFFSET).min(lowest_y.max(min_y));
+    let body = (area.bottom() - AREA_MARGIN - y - CHROME_HEIGHT).max(MIN_BODY_HEIGHT);
+    (egui::pos2(x, y), width, body)
+}
+
+/// 紧凑布局下把正文控件提升到触控目标；只作用于本窗口的正文，不改全局样式。
+fn touch_spacing(ui: &mut egui::Ui) {
+    let spacing = ui.spacing_mut();
+    spacing.interact_size = spacing.interact_size.max(egui::Vec2::splat(TOUCH_TARGET));
+    spacing.item_spacing.y = spacing.item_spacing.y.max(8.0);
+}
+
 fn record(controls: &mut Controls, control: Control, response: &egui::Response) {
     controls.0.push((control, response.rect));
 }
 
-fn show(ctx: &egui::Context, settings: &mut Settings, controls: &mut Controls) {
+fn show(
+    ctx: &egui::Context,
+    settings: &mut Settings,
+    controls: &mut Controls,
+) -> Option<egui::Rect> {
     controls.0.clear();
     if !settings.open {
-        return;
+        return None;
     }
     let mut open = settings.open;
-    egui::Window::new("画布连接线设置")
+    let content = ctx.content_rect();
+    let (pos, width, body) = window_layout(content);
+    let compact = panels::compact(content.width());
+    let mut window = egui::Window::new("画布连接线设置")
         .id(egui::Id::new("connection_line_settings"))
-        .default_pos(egui::pos2(800.0, 100.0))
-        .default_width(340.0)
-        .open(&mut open)
-        .show(ctx, |ui| {
-            ui.small("仅改变显示；不修改船体、连接或撤销历史。");
-            let response = ui.checkbox(&mut settings.enabled, "显示连接线");
-            record(controls, Control::Visible, &response);
-            ui.horizontal(|ui| {
-                ui.label("颜色 / 透明度");
-                ui.color_edit_button_rgba_unmultiplied(&mut settings.rgba);
-                for (control, name, rgba) in [
-                    (Control::Green, "翡翠", [0.25, 0.9, 0.55, 1.0]),
-                    (Control::Purple, "紫色", [0.75, 0.4, 1.0, 1.0]),
-                    (Control::Orange, "橙色", [1.0, 0.65, 0.2, 1.0]),
-                ] {
-                    let response = ui.button(name);
-                    record(controls, control, &response);
-                    if response.clicked() {
-                        settings.rgba = rgba;
+        .default_pos(pos)
+        .default_width(width)
+        .max_height(body + CHROME_HEIGHT)
+        .open(&mut open);
+    // 只有可用宽度不足时才限制窗口宽度，宽屏保留原有的自由调整。
+    if width < WIDE_WIDTH {
+        window = window.max_width(width);
+    }
+    let shown = window.show(ctx, |ui| {
+        egui::ScrollArea::vertical()
+            .id_salt("connection_line_settings_body")
+            .max_height(body)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                if compact {
+                    touch_spacing(ui);
+                }
+                ui.small("仅改变显示；不修改船体、连接或撤销历史。");
+                let response = ui.checkbox(&mut settings.enabled, "显示连接线");
+                record(controls, Control::Visible, &response);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("颜色 / 透明度");
+                    ui.color_edit_button_rgba_unmultiplied(&mut settings.rgba);
+                    for (control, name, rgba) in [
+                        (Control::Green, "翡翠", [0.25, 0.9, 0.55, 1.0]),
+                        (Control::Purple, "紫色", [0.75, 0.4, 1.0, 1.0]),
+                        (Control::Orange, "橙色", [1.0, 0.65, 0.2, 1.0]),
+                    ] {
+                        let response = ui.button(name);
+                        record(controls, control, &response);
+                        if response.clicked() {
+                            settings.rgba = rgba;
+                        }
                     }
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.add(egui::Slider::new(&mut settings.width, 1.0..=12.0).text("粗细 px"));
-                for (control, label, delta) in
-                    [(Control::Thinner, "−", -1.0), (Control::Thicker, "+", 1.0)]
-                {
-                    let response = ui.button(label);
-                    record(controls, control, &response);
-                    if response.clicked() {
-                        settings.width = (settings.width + delta).clamp(1.0, 12.0);
+                });
+                ui.horizontal_wrapped(|ui| {
+                    ui.add(egui::Slider::new(&mut settings.width, 1.0..=12.0).text("粗细 px"));
+                    for (control, label, delta) in
+                        [(Control::Thinner, "−", -1.0), (Control::Thicker, "+", 1.0)]
+                    {
+                        let response = ui.button(label);
+                        record(controls, control, &response);
+                        if response.clicked() {
+                            settings.width = (settings.width + delta).clamp(1.0, 12.0);
+                        }
                     }
+                });
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("线型");
+                    for (control, name, pattern) in [
+                        (Control::Solid, "实线", Pattern::Solid),
+                        (Control::Dashed, "虚线", Pattern::Dashed),
+                        (Control::Dotted, "点线", Pattern::Dotted),
+                    ] {
+                        let response = ui.selectable_value(&mut settings.pattern, pattern, name);
+                        record(controls, control, &response);
+                    }
+                });
+                if settings.pattern == Pattern::Dashed {
+                    ui.add(egui::Slider::new(&mut settings.spacing, 1.0..=12.0).text("虚线间距"));
                 }
-            });
-            ui.horizontal(|ui| {
-                ui.label("线型");
-                for (control, name, pattern) in [
-                    (Control::Solid, "实线", Pattern::Solid),
-                    (Control::Dashed, "虚线", Pattern::Dashed),
-                    (Control::Dotted, "点线", Pattern::Dotted),
-                ] {
-                    let response = ui.selectable_value(&mut settings.pattern, pattern, name);
-                    record(controls, control, &response);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("效果");
+                    for (control, name, effect) in [
+                        (Control::Still, "静态", Effect::Still),
+                        (Control::Pulse, "呼吸", Effect::Pulse),
+                        (Control::Flow, "流动", Effect::Flow),
+                    ] {
+                        let response = ui.selectable_value(&mut settings.effect, effect, name);
+                        record(controls, control, &response);
+                    }
+                });
+                if settings.effect != Effect::Still {
+                    ui.add(egui::Slider::new(&mut settings.speed, 0.2..=4.0).text("效果速度"));
                 }
-            });
-            if settings.pattern == Pattern::Dashed {
-                ui.add(egui::Slider::new(&mut settings.spacing, 1.0..=12.0).text("虚线间距"));
-            }
-            ui.horizontal(|ui| {
-                ui.label("效果");
-                for (control, name, effect) in [
-                    (Control::Still, "静态", Effect::Still),
-                    (Control::Pulse, "呼吸", Effect::Pulse),
-                    (Control::Flow, "流动", Effect::Flow),
-                ] {
-                    let response = ui.selectable_value(&mut settings.effect, effect, name);
-                    record(controls, control, &response);
+                let response = ui.checkbox(&mut settings.arrows, "父 → 子方向箭头");
+                record(controls, Control::Arrows, &response);
+                let response = ui.button("恢复默认");
+                record(controls, Control::Reset, &response);
+                if response.clicked() {
+                    *settings = Settings {
+                        open: true,
+                        ..default()
+                    };
                 }
+                ui.small("Esc 关闭；隐藏连接线不会隐藏自由模式的端点提示。");
             });
-            if settings.effect != Effect::Still {
-                ui.add(egui::Slider::new(&mut settings.speed, 0.2..=4.0).text("效果速度"));
-            }
-            let response = ui.checkbox(&mut settings.arrows, "父 → 子方向箭头");
-            record(controls, Control::Arrows, &response);
-            let response = ui.button("恢复默认");
-            record(controls, Control::Reset, &response);
-            if response.clicked() {
-                *settings = Settings {
-                    open: true,
-                    ..default()
-                };
-            }
-            ui.small("Esc 关闭；隐藏连接线不会隐藏自由模式的端点提示。");
-        });
+    });
     settings.open = open;
+    shown.map(|shown| shown.response.rect)
 }
 
 pub(crate) fn ui(
@@ -259,7 +315,7 @@ pub(crate) fn ui(
     mut controls: ResMut<Controls>,
 ) {
     if let Ok(ctx) = contexts.ctx_mut() {
-        show(ctx, &mut settings, &mut controls);
+        let _ = show(ctx, &mut settings, &mut controls);
     }
 }
 
@@ -368,7 +424,7 @@ mod tests {
                 events,
                 ..default()
             });
-            show(&ctx, settings, controls);
+            let _ = show(&ctx, settings, controls);
             ctx.end_pass().textures_delta.clear();
         };
         for _ in 0..3 {
@@ -442,5 +498,256 @@ mod tests {
                 ..default()
             }
         );
+    }
+
+    /// 固定尺寸的 egui 帧驱动：真实 frame 与真实命中矩形，不用尺寸公式代替交互。
+    struct Frames {
+        ctx: egui::Context,
+        area: egui::Rect,
+        seconds: f64,
+    }
+
+    impl Frames {
+        fn new(width: f32, height: f32) -> Self {
+            Self {
+                ctx: egui::Context::default(),
+                area: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, height)),
+                seconds: 0.0,
+            }
+        }
+
+        fn frame(
+            &mut self,
+            events: Vec<egui::Event>,
+            settings: &mut Settings,
+            controls: &mut Controls,
+        ) -> egui::Rect {
+            self.seconds += 0.02;
+            self.ctx.begin_pass(egui::RawInput {
+                screen_rect: Some(self.area),
+                focused: true,
+                time: Some(self.seconds),
+                events,
+                ..default()
+            });
+            let window = show(&self.ctx, settings, controls).expect("设置窗口应保持打开");
+            self.ctx.end_pass().textures_delta.clear();
+            window
+        }
+
+        /// 按下再松开真实控件中心，返回点击后的窗口矩形。
+        fn click(
+            &mut self,
+            point: egui::Pos2,
+            settings: &mut Settings,
+            controls: &mut Controls,
+        ) -> egui::Rect {
+            let mut window = egui::Rect::NOTHING;
+            for pressed in [true, false] {
+                window = self.frame(
+                    vec![
+                        egui::Event::PointerMoved(point),
+                        egui::Event::PointerButton {
+                            pos: point,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                    settings,
+                    controls,
+                );
+            }
+            window
+        }
+
+        /// 指针停在指定位置向下滚轮，返回滚动后的窗口矩形。
+        fn scroll_down(
+            &mut self,
+            at: egui::Pos2,
+            settings: &mut Settings,
+            controls: &mut Controls,
+        ) -> egui::Rect {
+            let mut window = egui::Rect::NOTHING;
+            for _ in 0..24 {
+                window = self.frame(
+                    vec![
+                        egui::Event::PointerMoved(at),
+                        egui::Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            delta: egui::vec2(0.0, -120.0),
+                            modifiers: egui::Modifiers::NONE,
+                            phase: egui::TouchPhase::Move,
+                        },
+                    ],
+                    settings,
+                    controls,
+                );
+            }
+            window
+        }
+    }
+
+    fn control_rect(controls: &Controls, control: Control) -> egui::Rect {
+        controls
+            .0
+            .iter()
+            .find(|(candidate, _)| *candidate == control)
+            .unwrap_or_else(|| panic!("设置窗口缺少控件 {control:?}"))
+            .1
+    }
+
+    /// 紧凑布局（窄于 960 逻辑像素）下每个命中矩形都在窗口内且达到 44 像素触控目标。
+    fn assert_touch_targets(controls: &Controls, window: egui::Rect, label: &str) {
+        for (control, rect) in &controls.0 {
+            assert!(
+                rect.min.x >= window.min.x - 0.5 && rect.max.x <= window.max.x + 0.5,
+                "{label} 的 {control:?} 横向超出窗口：{rect:?} / {window:?}"
+            );
+            assert!(
+                rect.height() >= 44.0 - 0.01,
+                "{label} 的 {control:?} 高度不足触控目标：{rect:?}"
+            );
+        }
+    }
+
+    /// 真实的 egui 布局：运行三帧后返回窗口外框，供各尺寸断言使用。
+    fn open_window(width: f32, height: f32) -> (Frames, Settings, Controls, egui::Rect) {
+        let mut frames = Frames::new(width, height);
+        let mut settings = Settings {
+            open: true,
+            ..default()
+        };
+        let mut controls = Controls::default();
+        let mut window = egui::Rect::NOTHING;
+        for _ in 0..3 {
+            window = frames.frame(vec![], &mut settings, &mut controls);
+        }
+        (frames, settings, controls, window)
+    }
+
+    /// 在窗口内真实点击“方向箭头”和“恢复默认”，验证它们滚动后仍然生效。
+    fn click_last_controls(
+        frames: &mut Frames,
+        settings: &mut Settings,
+        controls: &mut Controls,
+        window: egui::Rect,
+        label: &str,
+    ) {
+        let arrows = control_rect(controls, Control::Arrows);
+        assert!(
+            window.contains(arrows.center()),
+            "{label} 方向箭头不在窗口内：{arrows:?} / {window:?}"
+        );
+        frames.click(arrows.center(), settings, controls);
+        assert!(settings.arrows, "{label} 方向箭头点击未生效");
+        let reset = control_rect(controls, Control::Reset);
+        assert!(
+            window.contains(reset.center()),
+            "{label} “恢复默认”不在窗口内：{reset:?} / {window:?}"
+        );
+        frames.click(reset.center(), settings, controls);
+        assert_eq!(
+            *settings,
+            Settings {
+                open: true,
+                ..default()
+            },
+            "{label} “恢复默认”点击未生效"
+        );
+    }
+
+    /// 390/1440 逻辑宽下正文放得下：窗口不超出可用区域、命中矩形不横向溢出，
+    /// 末尾控件不用滚动即可直接点；紧凑尺寸的控件同时满足 44 像素触控目标。
+    #[test]
+    fn settings_window_keeps_every_control_visible_where_content_fits() {
+        for (width, height) in [(390.0, 844.0), (1440.0, 900.0)] {
+            let label = format!("{width}x{height}");
+            let (mut frames, mut settings, mut controls, window) = open_window(width, height);
+            assert!(
+                frames.area.contains_rect(window),
+                "{label} 设置窗口超出可用区域：{window:?}"
+            );
+            if panels::compact(width) {
+                assert_touch_targets(&controls, window, &label);
+            } else {
+                for (control, rect) in &controls.0 {
+                    assert!(
+                        rect.min.x >= window.min.x - 0.5 && rect.max.x <= window.max.x + 0.5,
+                        "{label} 的 {control:?} 横向超出窗口：{rect:?} / {window:?}"
+                    );
+                }
+            }
+            let reset = control_rect(&controls, Control::Reset);
+            assert!(
+                window.contains(reset.center()),
+                "{label} 正文应当放得下：{reset:?} / {window:?}"
+            );
+            click_last_controls(&mut frames, &mut settings, &mut controls, window, &label);
+        }
+    }
+
+    /// 短横屏（640x360）加触控尺寸下正文必定超出窗口：滚动前末尾控件在窗口之外，
+    /// 滚动到底后“方向箭头”和“恢复默认”都进入窗口并被真实点击生效。
+    #[test]
+    fn settings_window_scrolls_to_the_last_controls_in_short_landscape() {
+        let (width, height) = (640.0, 360.0);
+        let label = format!("{width}x{height}");
+        assert!(panels::compact(width), "短横屏应使用紧凑触控布局");
+        let (mut frames, mut settings, mut controls, mut window) = open_window(width, height);
+        assert!(
+            frames.area.contains_rect(window),
+            "{label} 设置窗口超出可用区域：{window:?}"
+        );
+        assert_touch_targets(&controls, window, &label);
+        let reset = control_rect(&controls, Control::Reset);
+        assert!(
+            !window.contains(reset.center()),
+            "{label} 触控尺寸下正文应超出窗口：{reset:?} / {window:?}"
+        );
+        frames.scroll_down(window.center(), &mut settings, &mut controls);
+        window = frames.frame(vec![], &mut settings, &mut controls);
+        let arrows = control_rect(&controls, Control::Arrows);
+        let reset = control_rect(&controls, Control::Reset);
+        assert!(
+            window.contains(arrows.center()) && window.contains(reset.center()),
+            "{label} 滚动后仍无法触达尾部控件：{arrows:?} {reset:?} / {window:?}"
+        );
+        frames.click(arrows.center(), &mut settings, &mut controls);
+        assert!(settings.arrows, "{label} 滚动后的方向箭头点击未生效");
+        let reset = control_rect(&controls, Control::Reset);
+        assert!(
+            window.contains(reset.center()),
+            "{label} 滚动后的“恢复默认”被移出窗口：{reset:?}"
+        );
+        frames.click(reset.center(), &mut settings, &mut controls);
+        assert_eq!(
+            settings,
+            Settings {
+                open: true,
+                ..default()
+            },
+            "{label} 滚动后的“恢复默认”点击未生效"
+        );
+    }
+
+    /// 320x640 窄竖屏的正文高度接近上限，按真实布局走两条路径：放得下直接点，
+    /// 放不下先真实滚动；两条路径都必须让末尾控件可点且“恢复默认”真实生效。
+    #[test]
+    fn settings_window_reaches_the_last_control_on_a_narrow_portrait_screen() {
+        let (width, height) = (320.0, 640.0);
+        let label = format!("{width}x{height}");
+        assert!(panels::compact(width), "窄竖屏应使用紧凑触控布局");
+        let (mut frames, mut settings, mut controls, mut window) = open_window(width, height);
+        assert!(
+            frames.area.contains_rect(window),
+            "{label} 设置窗口超出可用区域：{window:?}"
+        );
+        assert_touch_targets(&controls, window, &label);
+        if !window.contains(control_rect(&controls, Control::Reset).center()) {
+            frames.scroll_down(window.center(), &mut settings, &mut controls);
+            window = frames.frame(vec![], &mut settings, &mut controls);
+        }
+        click_last_controls(&mut frames, &mut settings, &mut controls, window, &label);
     }
 }

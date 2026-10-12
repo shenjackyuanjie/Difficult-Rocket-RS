@@ -45,14 +45,15 @@ impl Default for ViewOptions {
 /// 输入在 Update 中执行，相机的 GlobalTransform/ComputedCameraValues 要到
 /// PostUpdate 才刷新。使用本帧的根相机 Transform、Projection 和窗口尺寸，
 /// 避免平移/缩放/适配后仍读取上一帧视角；不改动渲染使用的相机缓存。
-pub(crate) fn cursor_world(
+/// TouchInput 和鼠标共用逻辑窗口坐标，DPI 只用于相机及 UI 的物理坐标换算。
+pub(crate) fn point_world(
     window: &Window,
     camera: &Camera,
     transform: &Transform,
     projection: &Projection,
+    position: Vec2,
 ) -> Option<Vec2> {
     use bevy::camera::RenderTargetInfo;
-    let position = window.cursor_position()?;
     let mut camera = camera.clone();
     camera.computed.target_info = Some(RenderTargetInfo {
         physical_size: window.physical_size(),
@@ -72,15 +73,33 @@ pub(crate) fn cursor_world(
 
 /// 左右目录和顶部操作提示之外的画布，预留 16 像素边距。
 pub(crate) fn canvas(size: Vec2) -> Rect {
+    if panels::compact(size.x) {
+        let top = (panels::toolbar_height(size.x) + 112.0).min(size.y - 32.0);
+        return Rect::from_corners(
+            Vec2::new(16.0, top),
+            (size - Vec2::splat(16.0)).max(Vec2::new(17.0, top + 1.0)),
+        );
+    }
     Rect::from_corners(
         Vec2::new(264.0, 220.0),
         Vec2::new((size.x - 312.0).max(265.0), (size.y - 16.0).max(221.0)),
     )
 }
 
-pub(crate) fn fitted(
+#[cfg(test)]
+fn fitted(
     document: &EditorDocument,
     size: Vec2,
+    selected: bool,
+    texture_size: impl FnMut(&str) -> Option<Vec2>,
+) -> Option<(Vec2, f32)> {
+    fitted_in(document, size, canvas(size), selected, texture_size)
+}
+
+pub(crate) fn fitted_in(
+    document: &EditorDocument,
+    size: Vec2,
+    area: Rect,
     selected: bool,
     mut texture_size: impl FnMut(&str) -> Option<Vec2>,
 ) -> Option<(Vec2, f32)> {
@@ -121,7 +140,6 @@ pub(crate) fn fitted(
     if !low.is_finite() || !high.is_finite() {
         return None;
     }
-    let area = canvas(size);
     let available = (area.size() - Vec2::splat(32.0)).max(Vec2::splat(1.0));
     let extent = high - low;
     let scale = (extent.x / available.x)
@@ -145,6 +163,7 @@ pub(crate) fn controls(
     images: Res<Assets<Image>>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
     mut options: ResMut<ViewOptions>,
+    mut ui: Option<ResMut<panels::egui_panel::UiState>>,
 ) {
     let Ok(window) = windows.single() else {
         return;
@@ -159,16 +178,39 @@ pub(crate) fn controls(
     if keys.just_pressed(KeyCode::F4) {
         options.ship_visible = !options.ship_visible;
     }
-    if !keys.just_pressed(KeyCode::KeyF) || drag.id.is_some() || drag.rectangle.is_some() {
+    let requested = ui.as_ref().is_some_and(|state| state.fit_requested);
+    if requested && let Some(state) = ui.as_mut() {
+        state.fit_requested = false;
+    }
+    if !(keys.just_pressed(KeyCode::KeyF) || requested)
+        || drag.id.is_some()
+        || drag.rectangle.is_some()
+    {
         return;
     }
     let selected = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-    let Some((center, scale)) = fitted(
-        &document,
-        Vec2::new(window.width(), window.height()),
-        selected,
-        |texture| render::image_size(texture, &assets, &images),
-    ) else {
+    let size = Vec2::new(window.width(), window.height());
+    let area = ui
+        .as_ref()
+        .and_then(|state| {
+            state.canvas_area.map(|rect| {
+                let factor = state.pixels_per_point / window.scale_factor();
+                Rect::from_corners(
+                    Vec2::new(rect.min.x, rect.min.y) * factor + Vec2::splat(16.0),
+                    Vec2::new(rect.max.x, rect.max.y) * factor - Vec2::splat(16.0),
+                )
+            })
+        })
+        .filter(|rect| {
+            rect.min.cmpge(Vec2::ZERO).all()
+                && rect.max.cmple(size).all()
+                && rect.width() > 0.0
+                && rect.height() > 0.0
+        })
+        .unwrap_or_else(|| canvas(size));
+    let Some((center, scale)) = fitted_in(&document, size, area, selected, |texture| {
+        render::image_size(texture, &assets, &images)
+    }) else {
         return;
     };
     let Ok((mut transform, mut projection)) = cameras.single_mut() else {
@@ -354,5 +396,35 @@ mod tests {
         }
         document.ship.parts.clear();
         assert!(fitted(&document, Vec2::new(960.0, 640.0), false, |_| None).is_none());
+    }
+
+    #[test]
+    fn fitting_uses_the_actual_remaining_canvas_on_portrait_and_landscape_screens() {
+        let mut document = crate::tests::document();
+        document.catalog = panels::tests::catalog();
+        document.ship.parts[0].angle = 0.71;
+        let texture = Vec2::new(84.0, 207.0);
+        for size in [
+            Vec2::new(320.0, 640.0),
+            Vec2::new(390.0, 844.0),
+            Vec2::new(640.0, 360.0),
+            Vec2::new(1440.0, 900.0),
+        ] {
+            assert!(Rect::from_corners(Vec2::ZERO, size).contains(canvas(size).min));
+            assert!(Rect::from_corners(Vec2::ZERO, size).contains(canvas(size).max));
+            // 打开单侧目录后，真实画布偏置不能继续按固定桌面边栏估计。
+            let area = Rect::from_corners(
+                Vec2::new(size.x * 0.7, size.y * 0.4),
+                size - Vec2::splat(8.0),
+            );
+            let (center, scale) =
+                fitted_in(&document, size, area, false, |_| Some(texture)).unwrap();
+            assert!(scale.is_finite() && center.is_finite());
+            for corner in render::image_corners(&document.ship.parts[0], texture) {
+                let offset = (corner - center) / scale;
+                let screen = size * 0.5 + Vec2::new(offset.x, -offset.y);
+                assert!(area.contains(screen), "{size:?} {area:?}: {screen:?}");
+            }
+        }
     }
 }

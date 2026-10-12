@@ -8,6 +8,7 @@ mod files;
 mod free_mode;
 mod help;
 mod interaction_smoke;
+mod mobile_input;
 mod native_input;
 mod native_keys;
 mod panels;
@@ -337,6 +338,7 @@ fn main() -> anyhow::Result<()> {
     ))
     .init_resource::<panels::Palette>()
     .init_resource::<panels::UiPointer>()
+    .init_resource::<mobile_input::GestureInput>()
     .init_resource::<properties::Inspector>()
     .insert_resource(SmokeTest {
         enabled: args.iter().any(|arg| arg == "--smoke-test"),
@@ -412,8 +414,8 @@ fn main() -> anyhow::Result<()> {
                     },
                     decorations: !presentation,
                     resize_constraints: bevy::window::WindowResizeConstraints {
-                        min_width: 960.0,
-                        min_height: 640.0,
+                        min_width: 320.0,
+                        min_height: 320.0,
                         ..default()
                     },
                     present_mode: PresentMode::AutoVsync,
@@ -467,6 +469,7 @@ fn main() -> anyhow::Result<()> {
                     .chain()
                     .run_if(demo::advance_ready),
                 demo::animate,
+                (panels::layout_toolbars, mobile_input::input).chain(),
                 panels::pointer_over_ui,
                 help::input,
                 properties::actions,
@@ -603,6 +606,7 @@ fn camera_controls(
     editor_cursor: Res<EditorCursor>,
     options: Res<view::ViewOptions>,
     pointer: Res<panels::UiPointer>,
+    touch: Option<Res<mobile_input::GestureInput>>,
 ) {
     let Ok(window) = windows.single() else {
         return;
@@ -618,6 +622,25 @@ fn camera_controls(
         return;
     };
     let mut translation = transform.map_unchanged(|transform| &mut transform.translation);
+    let touch = touch.as_deref().filter(|input| input.override_mouse);
+    if let Some(delta) = touch.and_then(|input| input.navigation) {
+        // 同时保持两指中点的世界锚点和新位置；不依赖平台 PinchGesture。
+        let old = *scale;
+        let next = (old * delta.scale_ratio).clamp(0.1, 100.0);
+        let offset = |point: Vec2| {
+            Vec2::new(
+                point.x - window.width() * 0.5,
+                window.height() * 0.5 - point.y,
+            )
+        };
+        let shift = offset(delta.from) * old - offset(delta.to) * next;
+        let next_translation = *translation + shift.extend(0.0);
+        translation.set_if_neq(next_translation);
+        scale.set_if_neq(next);
+        drag.0 = None;
+        wheels.clear();
+        return;
+    }
     if pointer.blocked {
         drag.0 = None;
         wheels.clear();
@@ -628,7 +651,9 @@ fn camera_controls(
         translation.set_if_neq(reset);
         scale.set_if_neq(1.0);
     }
-    let Some(cursor) = window.cursor_position().filter(|_| window.focused) else {
+    let mouse = touch.map_or(&*mouse, |input| &input.buttons);
+    let position = touch.map_or_else(|| window.cursor_position(), |input| input.position);
+    let Some(cursor) = position.filter(|_| window.focused) else {
         drag.0 = None;
         wheels.clear();
         return;
@@ -638,7 +663,11 @@ fn camera_controls(
         && editor_drag.rectangle.is_none()
         && !editor_cursor.placing
         && editor_cursor.paste.is_none();
-    let pan_button = options.box_select_button.pan();
+    let pan_button = if touch.is_some() {
+        MouseButton::Left
+    } else {
+        options.box_select_button.pan()
+    };
     if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(pan_button) {
         drag.0 = None;
     }
@@ -653,6 +682,10 @@ fn camera_controls(
         drag.0 = mouse.pressed(pan_button).then_some(cursor);
     } else {
         drag.0 = None;
+    }
+    if touch.is_some() {
+        wheels.clear();
+        return;
     }
     let offset = Vec2::new(
         cursor.x - window.width() / 2.0,
@@ -688,6 +721,7 @@ fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
             BackgroundColor(Color::srgba(0.03, 0.04, 0.06, 0.86)),
             Name::new("Editor HUD"),
             panels::EditorPanel,
+            panels::ToolbarItem::Status,
         ))
         .with_children(|root| {
             root.spawn((
@@ -837,7 +871,14 @@ fn mouse_editor(
     options: Res<view::ViewOptions>,
     pointer: Res<panels::UiPointer>,
     mut camera_drag: ResMut<CameraDrag>,
+    touch: Option<Res<mobile_input::GestureInput>>,
 ) {
+    let touch = touch.as_deref().filter(|input| input.override_mouse);
+    let mouse = touch.map_or(&*mouse, |input| &input.buttons);
+    let position = touch.map_or_else(
+        || windows.single().ok().and_then(Window::cursor_position),
+        |input| input.position,
+    );
     if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Right) {
         drag.cancel();
         cursor.cancel_placement();
@@ -849,7 +890,7 @@ fn mouse_editor(
         return;
     };
     // 失焦或窗口外释放必须取消预览，不能让部件继续粘在鼠标上。
-    if !window.focused || window.cursor_position().is_none() {
+    if !window.focused || position.is_none() {
         cursor.valid = false;
         cursor.manual_connection = None;
         if !window.focused || !mouse.pressed(MouseButton::Left) {
@@ -860,7 +901,11 @@ fn mouse_editor(
         }
         return;
     }
-    let box_button = options.box_select_button.select();
+    let box_button = if touch.is_some() {
+        MouseButton::Middle
+    } else {
+        options.box_select_button.select()
+    };
     if pointer.palette_drop && drag.id.is_some() {
         cursor.valid = false;
         if !mouse.pressed(MouseButton::Left) {
@@ -895,15 +940,21 @@ fn mouse_editor(
     let Ok((camera, transform, projection)) = cameras.single() else {
         return;
     };
-    let Some(world) = view::cursor_world(window, camera, transform, projection) else {
+    let Some(world) = view::point_world(window, camera, transform, projection, position.unwrap())
+    else {
         return;
     };
     let logical = (world.x as f64 / 60.0, world.y as f64 / 60.0);
     cursor.world = logical;
     cursor.valid = true;
     free_mode::discard_stale(&document, &mut cursor);
+    let commit = if touch.is_some() {
+        mouse.just_released(MouseButton::Left)
+    } else {
+        mouse.just_pressed(MouseButton::Left)
+    };
     if cursor.paste.is_some() {
-        if mouse.just_pressed(MouseButton::Left) {
+        if commit {
             selection::commit_paste(&mut document, &mut cursor);
         }
         return;
@@ -914,7 +965,7 @@ fn mouse_editor(
             if !mouse.pressed(MouseButton::Left) {
                 placement::finish_palette_drag(&mut document, &mut cursor, true);
             }
-        } else if mouse.just_pressed(MouseButton::Left) {
+        } else if commit {
             placement::place(&mut document, &cursor);
         }
         return;
@@ -928,7 +979,7 @@ fn mouse_editor(
             &mut document,
             &mut cursor,
             logical,
-            8.0 * scale as f64 / 60.0,
+            if touch.is_some() { 22.0 } else { 8.0 } * scale as f64 / 60.0,
         ) {
             camera_drag.0 = None;
             return;
@@ -937,6 +988,12 @@ fn mouse_editor(
     let left_pressed = mouse.just_pressed(MouseButton::Left);
     let box_pressed = mouse.just_pressed(box_button);
     if left_pressed || box_pressed {
+        let start = touch
+            .and_then(|input| input.press_position)
+            .and_then(|point| view::point_world(window, camera, transform, projection, point))
+            .map_or(logical, |point| {
+                (point.x as f64 / 60.0, point.y as f64 / 60.0)
+            });
         let selected = document
             .ship
             .keyed_parts()
@@ -946,8 +1003,8 @@ fn mouse_editor(
                         part,
                         ty,
                         Vec2d {
-                            x: logical.0,
-                            y: logical.1,
+                            x: start.0,
+                            y: start.1,
                         },
                     )
                 })
@@ -967,7 +1024,7 @@ fn mouse_editor(
                 );
                 drag.origin = (part.x, part.y);
                 drag.preview = drag.origin;
-                drag.offset = (part.x - logical.0, part.y - logical.1);
+                drag.offset = (part.x - start.0, part.y - start.1);
             }
         } else if left_pressed && selected.is_none() {
             drag.cancel();

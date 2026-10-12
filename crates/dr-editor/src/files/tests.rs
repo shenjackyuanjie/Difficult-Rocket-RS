@@ -980,3 +980,38 @@ fn modal_buttons_escape_and_backdrop_follow_explicit_choices() {
     );
     assert_eq!(pending.choice, Some(UnsavedChoice::Cancel));
 }
+
+#[test]
+fn unsaved_confirmation_keeps_all_three_choices_inside_touch_screens() {
+    use bevy_egui::egui;
+    for size in [
+        egui::vec2(320.0, 640.0),
+        egui::vec2(390.0, 844.0),
+        egui::vec2(640.0, 360.0),
+        egui::vec2(1440.0, 900.0),
+    ] {
+        let (_, mut paths, _) = context();
+        paths.ship = Some(format!("{}.xml", "很长的船体文件名称".repeat(40)));
+        let ctx = egui::Context::default();
+        let mut pending = PendingFileAction {
+            action: Some(FileAction::Exit),
+            ..Default::default()
+        };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+        for _ in 0..3 {
+            ctx.begin_pass(egui::RawInput {
+                screen_rect: Some(screen),
+                focused: true,
+                ..Default::default()
+            });
+            show_confirmation(&ctx, &mut pending, &paths);
+            ctx.end_pass().textures_delta.clear();
+        }
+        assert_eq!(pending.hits.len(), 3);
+        for (choice, rect) in &pending.hits {
+            assert!(screen.contains_rect(*rect), "{size:?} {choice:?}: {rect:?}");
+            assert!(rect.height() >= 44.0, "{choice:?}: {rect:?}");
+        }
+        assert!(pending.choice.is_none());
+    }
+}

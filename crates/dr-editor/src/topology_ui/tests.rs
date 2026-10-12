@@ -302,3 +302,171 @@ fn disabled_unlink_shows_prerequisite_and_cannot_dispatch() {
     }
     assert!(saw_hint, "无所选边时仍应解释断开按钮的可用条件");
 }
+
+/// 触控/窄屏窗口：窗口本身与首屏控件都留在可用区域内，底部控件靠滚动到达。
+struct Responsive {
+    ctx: egui::Context,
+    state: ConnectionEditor,
+    document: EditorDocument,
+    screen: egui::Rect,
+    window: egui::Rect,
+    wide: Option<(egui::Rect, bool)>,
+    right_hit: Option<(Action, egui::Rect)>,
+    frame: u32,
+}
+
+impl Responsive {
+    fn new(width: f32, height: f32) -> Self {
+        let mut result = Self {
+            ctx: egui::Context::default(),
+            state: ConnectionEditor {
+                open: true,
+                ..Default::default()
+            },
+            document: document(),
+            screen: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, height)),
+            window: egui::Rect::NOTHING,
+            wide: None,
+            right_hit: None,
+            frame: 0,
+        };
+        for _ in 0..4 {
+            result.step(vec![]);
+        }
+        result
+    }
+
+    fn step(&mut self, events: Vec<egui::Event>) {
+        let Self {
+            ctx,
+            state,
+            document,
+            screen,
+            window,
+            wide,
+            right_hit,
+            frame,
+        } = self;
+        let time = f64::from(*frame);
+        *frame += 1;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(*screen),
+                time: Some(time),
+                focused: true,
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                if let Some(action) = show(ui.ctx(), &mut *state, &*document) {
+                    act(action, &mut *state, &mut *document);
+                }
+                *window = ui
+                    .ctx()
+                    .memory(|memory| memory.area_rect(egui::Id::new("connection_editor")))
+                    .unwrap_or(egui::Rect::NOTHING);
+            },
+        );
+        *wide = widest_shape(&output.shapes);
+        *right_hit = state
+            .hits
+            .iter()
+            .max_by(|a, b| a.1.max.x.total_cmp(&b.1.max.x))
+            .map(|(action, rect)| (action.clone(), *rect));
+        output.textures_delta.clear();
+    }
+
+    fn hit(&self, action: Action) -> Option<egui::Rect> {
+        self.state
+            .hits
+            .iter()
+            .find(|(candidate, _)| *candidate == action)
+            .map(|(_, rect)| *rect)
+    }
+
+    fn visible(&self, action: Action) -> bool {
+        self.hit(action)
+            .is_some_and(|rect| rect.is_positive() && self.screen.contains_rect(rect))
+    }
+
+    fn window_inside_screen(&self) -> bool {
+        self.window.is_positive() && self.screen.expand(1.0).contains_rect(self.window)
+    }
+
+    /// 向下滚动到底：底部控件应被滚动带到可见区域。
+    fn scroll_to_bottom(&mut self) {
+        let pointer = self.window.center();
+        self.step(vec![egui::Event::PointerMoved(pointer)]);
+        for _ in 0..12 {
+            self.step(vec![egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -240.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+        }
+        self.step(vec![]);
+        self.step(vec![]);
+    }
+}
+
+/// 最宽的图形及其是否为文本；窗口阴影向右下偏移，需据此区分装饰与内容。
+fn widest_shape(shapes: &[egui::epaint::ClippedShape]) -> Option<(egui::Rect, bool)> {
+    shapes
+        .iter()
+        .map(|clipped| {
+            (
+                clipped.shape.visual_bounding_rect(),
+                matches!(&clipped.shape, egui::epaint::Shape::Text(_)),
+            )
+        })
+        .max_by(|a, b| a.0.max.x.total_cmp(&b.0.max.x))
+}
+
+#[test]
+fn connection_editor_window_fits_touch_screens_and_keeps_controls_reachable() {
+    for (width, height) in [
+        (320.0, 640.0),
+        (390.0, 844.0),
+        (640.0, 360.0),
+        (1280.0, 800.0),
+    ] {
+        let mut panel = Responsive::new(width, height);
+        assert!(
+            panel.window_inside_screen(),
+            "{width}×{height} 的连接编辑窗口应留在可用区域内：{:?}，最宽图形（矩形, 是否文本）{:?}，最右命中 {:?}",
+            panel.window,
+            panel.wide,
+            panel.right_hit
+        );
+        // 关闭按钮在窗口标题栏左上角；窗口在屏内即可触达。
+        panel
+            .document
+            .execute(EditorCommand::DeleteSelection(vec![PartKey::new(0, 2, 0)]));
+        panel.step(vec![]);
+        for action in [
+            Action::Mode(Mode::Tree),
+            Action::Mode(Mode::Graph),
+            Action::Undo,
+        ] {
+            assert!(
+                panel.visible(action.clone()),
+                "{width}×{height} 首屏控件应可触达：{action:?}"
+            );
+        }
+        let edge = panel.state.graph.edges[0].reference.clone();
+        panel.state.edge = Some(edge);
+        panel.step(vec![]);
+        panel.scroll_to_bottom();
+        assert!(
+            panel.visible(Action::Unlink),
+            "{width}×{height} 滚动后应能点到断开按钮：{:?}",
+            panel.hit(Action::Unlink)
+        );
+        assert!(
+            panel.window_inside_screen(),
+            "{width}×{height} 滚动不应把窗口撑出可用区域：{:?}",
+            panel.window
+        );
+    }
+}

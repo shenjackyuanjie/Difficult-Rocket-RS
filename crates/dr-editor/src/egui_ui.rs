@@ -67,8 +67,12 @@ pub fn prepare_input(
     pending: Option<Res<files::PendingFileAction>>,
     help: Option<Res<help::HelpState>>,
     lines: Option<ResMut<connection_lines::Settings>>,
+    mut touch: Option<ResMut<mobile_input::GestureInput>>,
 ) {
     if help.is_some_and(|state| state.open || state.suppress_frame) {
+        if let Some(touch) = touch.as_mut() {
+            touch.navigation = None;
+        }
         return;
     }
     let mut line_open = false;
@@ -79,6 +83,9 @@ pub fn prepare_input(
         line_open = lines.open;
     }
     if pending.is_some_and(|state| state.is_blocked()) {
+        if let Some(touch) = touch.as_mut() {
+            touch.navigation = None;
+        }
         cursor.manual_connection = None;
         drag.cancel();
         cursor.cancel_placement();
@@ -103,6 +110,9 @@ pub fn prepare_input(
         properties::open(&mut inspector, &document);
     }
     if inspector.is_open() || topology_open || line_open {
+        if let Some(touch) = touch.as_mut() {
+            touch.navigation = None;
+        }
         cursor.manual_connection = None;
         drag.cancel();
         cursor.cancel_placement();

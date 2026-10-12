@@ -11,17 +11,21 @@ pub(crate) struct HelpState {
 #[derive(Component)]
 pub(crate) struct HelpButton;
 
+/// 顶栏按钮标签与最小触控高度；F1 / Esc 的说明留在帮助正文里。
+pub(crate) const HELP_LABEL: &str = "? 帮助";
+pub(crate) const HELP_MIN_HEIGHT: f32 = 44.0;
+
 pub(crate) fn setup(mut commands: Commands, assets: Res<AssetServer>) {
     let font = assets.load("fonts/HarmonyOS_Sans/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ttf");
     commands
         .spawn((
             Button,
             HelpButton,
+            panels::ToolbarItem::Help,
             panels::EditorPanel,
             Node {
                 position_type: PositionType::Absolute,
-                top: px(12),
-                right: px(16),
+                min_height: px(HELP_MIN_HEIGHT),
                 padding: UiRect::axes(px(12), px(7)),
                 ..default()
             },
@@ -29,7 +33,7 @@ pub(crate) fn setup(mut commands: Commands, assets: Res<AssetServer>) {
         ))
         .with_children(|button| {
             button.spawn((
-                Text::new("? 帮助 · F1"),
+                Text::new(HELP_LABEL),
                 TextFont {
                     font: bevy::text::FontSource::Handle(font),
                     font_size: FontSize::Px(16.0),
@@ -51,6 +55,7 @@ pub(crate) fn input(
     inspector: Res<properties::Inspector>,
     topology: Res<topology_ui::ConnectionEditor>,
     pending: Res<files::PendingFileAction>,
+    touch: Option<Res<mobile_input::GestureInput>>,
     mut drag: ResMut<DragState>,
     mut cursor: ResMut<EditorCursor>,
     mut camera_drag: ResMut<CameraDrag>,
@@ -61,16 +66,27 @@ pub(crate) fn input(
         state.open = false;
         return;
     }
-    let mut toggle = keys.just_pressed(KeyCode::F1);
-    for (interaction, mut color) in &mut buttons {
-        color.0 = match interaction {
-            Interaction::Pressed => {
-                toggle = true;
-                Color::srgb(0.3, 0.5, 0.65)
-            }
-            Interaction::Hovered => Color::srgb(0.22, 0.32, 0.43),
-            Interaction::None => Color::srgb(0.13, 0.18, 0.24),
-        };
+    let touch = touch.as_deref();
+    // 触摸接管指针（override_mouse）时，Bevy UI 的 Interaction 会把触摸误映射成
+    // 悬停或点击，这里不再采信它，只用原生手势报出的点击。
+    let mut toggle = keys.just_pressed(KeyCode::F1)
+        || touch.is_some_and(|input| {
+            matches!(
+                input.native_click.as_ref(),
+                Some(mobile_input::NativeClick::Help)
+            )
+        });
+    if !touch.is_some_and(|input| input.override_mouse) {
+        for (interaction, mut color) in &mut buttons {
+            color.0 = match interaction {
+                Interaction::Pressed => {
+                    toggle = true;
+                    Color::srgb(0.3, 0.5, 0.65)
+                }
+                Interaction::Hovered => Color::srgb(0.22, 0.32, 0.43),
+                Interaction::None => Color::srgb(0.13, 0.18, 0.24),
+            };
+        }
     }
     let was_open = state.open;
     if toggle {
@@ -109,6 +125,16 @@ const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+Z / Y", "撤销 / 重做"),
     ("Ctrl+N / O / S / Shift+S", "新建 / 打开 / 保存 / 另存为"),
     ("滚轮 · 空白拖动", "鼠标位置缩放 · 平移（框选键之外的键）"),
+    ("触控 · 单指", "拖部件移动；空白处拖动平移画布"),
+    (
+        "触控 · 选目录后",
+        "按住画布移动，抬指时在该处放置；取消或失焦不提交",
+    ),
+    (
+        "触控 · 双指",
+        "第二指加入即取消未提交编辑，并转为双指平移 / 缩放",
+    ),
+    ("触控 · 全抬指", "所有手指抬起后才能重新单指操作"),
     ("Home · F / Shift+F", "视图复位 · 适配整船 / 选区"),
     ("F2 · F6", "属性与分级 · 连接树 / 图"),
     ("F3 · F4 · F12", "调试轮廓 · 显隐贴图 · 截图"),
@@ -119,16 +145,29 @@ fn show(ctx: &egui::Context, open: &mut bool) {
     if !*open {
         return;
     }
+    // 触控/窄屏：窗口收窄到可用区域，两列按剩余宽度换行，正文超出高度时滚动。
+    let size = topology_ui::window_size(ctx, egui::vec2(880.0, 560.0));
+    // 两列各分一半可用宽度，给窗口装饰留出余量，窄屏宁窄不溢出。
+    let column = ((size.x - 80.0) / 2.0).clamp(96.0, 420.0);
     egui::Window::new("? 操作帮助")
         .id(egui::Id::new("editor_help"))
         .open(open)
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .max_width(size.x)
+        .max_height(size.y)
+        .vscroll(true)
         .show(ctx, |ui| {
+            // 先给内容一个宽度硬上界（滚动区内容 ui 的可用宽度可能是无限），再强制换行，
+            // 否则长行会按自然宽度把自适应窗口撑宽。
+            ui.set_max_width(size.x);
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
             egui::Grid::new("editor_shortcuts")
                 .striped(true)
                 .spacing([20.0, 9.0])
+                .num_columns(2)
+                .max_col_width(column)
                 .show(ui, |ui| {
                     for (key, meaning) in SHORTCUTS {
                         ui.strong(*key);
@@ -305,6 +344,13 @@ mod tests {
     fn help_is_opt_in_and_explains_fine_rotation_and_drag_mirroring() {
         assert!(!HelpState::default().open);
         assert!(SHORTCUTS.iter().any(|(key, _)| key.contains("Shift+Q/E")));
+        assert_eq!(HELP_LABEL, "? 帮助");
+        const { assert!(HELP_MIN_HEIGHT >= 44.0) };
+        assert!(
+            SHORTCUTS
+                .iter()
+                .any(|(_, text)| text.contains("第二指") && text.contains("取消"))
+        );
         assert!(
             SHORTCUTS
                 .iter()
@@ -316,5 +362,159 @@ mod tests {
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty());
         assert!(open);
+    }
+
+    fn help_frame(
+        ctx: &egui::Context,
+        open: &mut bool,
+        screen: egui::Rect,
+        frame: u32,
+        events: Vec<egui::Event>,
+    ) -> (egui::FullOutput, egui::Rect) {
+        let mut window = egui::Rect::NOTHING;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                time: Some(f64::from(frame)),
+                focused: true,
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                show(ctx, open);
+                window = ui
+                    .ctx()
+                    .memory(|memory| memory.area_rect(egui::Id::new("editor_help")))
+                    .unwrap_or(egui::Rect::NOTHING);
+            },
+        );
+        output.textures_delta.clear();
+        (output, window)
+    }
+
+    fn text_visible(shapes: &[egui::epaint::ClippedShape], needle: &str) -> bool {
+        shapes.iter().any(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Text(text) if text.galley.job.text.contains(needle) => clipped
+                .shape
+                .visual_bounding_rect()
+                .intersect(clipped.clip_rect)
+                .is_positive(),
+            _ => false,
+        })
+    }
+
+    /// 触控/窄屏：帮助窗口留在可用区域内，长文本换行不横向溢出，正文可滚到最后一条。
+    #[test]
+    fn help_window_fits_touch_screens_and_scrolls_to_the_last_shortcut() {
+        for (width, height) in [
+            (320.0, 640.0),
+            (390.0, 844.0),
+            (640.0, 360.0),
+            (1280.0, 800.0),
+        ] {
+            let ctx = egui::Context::default();
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, height));
+            let mut open = true;
+            let mut window = egui::Rect::NOTHING;
+            let mut output = None;
+            for frame in 0..4 {
+                let (current, rect) = help_frame(&ctx, &mut open, screen, frame, vec![]);
+                window = rect;
+                output = Some(current);
+            }
+            let output = output.unwrap();
+            assert!(
+                open,
+                "{width}×{height} 帮助窗口应保持打开，关闭按钮由标题栏提供"
+            );
+            assert!(
+                window.is_positive() && screen.expand(1.0).contains_rect(window),
+                "{width}×{height} 帮助窗口应留在可用区域内：{window:?}"
+            );
+            // 两列网格在窄屏要换行：正文文本不能横向溢出屏幕。
+            // 窗口阴影默认 offset [10, 20] + blur 15，会向右扩 17.5px，属装饰不参与本断言。
+            for clipped in &output.shapes {
+                if let egui::epaint::Shape::Text(text) = &clipped.shape {
+                    let rect = text.visual_bounding_rect();
+                    assert!(
+                        rect.min.x >= screen.min.x - 1.0 && rect.max.x <= screen.max.x + 1.0,
+                        "{width}×{height} 帮助长行横向溢出：{rect:?}"
+                    );
+                }
+            }
+            // 正文超出窗口高度时靠滚动读完。
+            let pointer = window.center();
+            let mut output = None;
+            for frame in 4..18 {
+                let events = if frame == 4 {
+                    vec![egui::Event::PointerMoved(pointer)]
+                } else {
+                    vec![egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, -240.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    }]
+                };
+                let (current, rect) = help_frame(&ctx, &mut open, screen, frame, events);
+                window = rect;
+                output = Some(current);
+            }
+            let output = output.unwrap();
+            assert!(
+                text_visible(&output.shapes, "F1 / Esc"),
+                "{width}×{height} 滚动后应能看到最后一条快捷键说明"
+            );
+            assert!(
+                window.is_positive() && screen.expand(1.0).contains_rect(window),
+                "{width}×{height} 滚动不应把帮助窗口撑出可用区域：{window:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn native_help_click_toggles_while_override_mouse_skips_bevy_interaction() {
+        let mut app = app();
+        let entity = app
+            .world_mut()
+            .spawn((HelpButton, Interaction::None, BackgroundColor(Color::BLACK)))
+            .id();
+        // 触摸接管指针并报出原生 Help 点击：帮助打开。
+        let mut touch = mobile_input::GestureInput::default();
+        touch.native_click = Some(mobile_input::NativeClick::Help);
+        touch.override_mouse = true;
+        app.insert_resource(touch);
+        app.update();
+        assert!(app.world().resource::<HelpState>().open);
+        // 触摸接管时 Bevy UI 的 Interaction::Pressed 不再重复触发。
+        app.world_mut()
+            .resource_mut::<mobile_input::GestureInput>()
+            .native_click = None;
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(Interaction::Pressed);
+        app.update();
+        assert!(app.world().resource::<HelpState>().open);
+        // 松开接管后鼠标路径恢复：Pressed 仍然切换。
+        app.world_mut()
+            .resource_mut::<mobile_input::GestureInput>()
+            .override_mouse = false;
+        app.world_mut().entity_mut(entity).insert(Interaction::None);
+        app.update();
+        assert!(app.world().resource::<HelpState>().open);
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(Interaction::Pressed);
+        app.update();
+        assert!(!app.world().resource::<HelpState>().open);
+        // 原生点击在触摸接管下仍可重新打开。
+        app.world_mut()
+            .resource_mut::<mobile_input::GestureInput>()
+            .override_mouse = true;
+        app.world_mut()
+            .resource_mut::<mobile_input::GestureInput>()
+            .native_click = Some(mobile_input::NativeClick::Help);
+        app.update();
+        assert!(app.world().resource::<HelpState>().open);
     }
 }

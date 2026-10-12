@@ -211,12 +211,14 @@ pub fn setup(mut commands: Commands, assets: Res<AssetServer>) {
                 top: px(12),
                 left: px(500),
                 padding: UiRect::axes(px(12), px(7)),
+                min_height: px(44),
                 ..default()
             },
             panels::EditorPanel,
+            panels::ToolbarItem::Properties,
         ))
         .with_children(|root| {
-            root.spawn(label("≡ 属性 / 分级 · F2", &font, 16.0));
+            root.spawn(label("≡ 属性 / 分级", &font, 16.0));
         });
 }
 
@@ -420,6 +422,7 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Bevy 系统参数分别声明资源访问，保持调度依赖可见。
 pub fn actions(
     buttons: Query<(&Interaction, &Action), Changed<Interaction>>,
     mut inspector: ResMut<Inspector>,
@@ -428,10 +431,23 @@ pub fn actions(
     mut cursor: ResMut<EditorCursor>,
     pending: Option<Res<files::PendingFileAction>>,
     help: Option<Res<help::HelpState>>,
+    touch: Option<Res<mobile_input::GestureInput>>,
 ) {
     if help.is_some_and(|state| state.open || state.suppress_frame)
         || pending.is_some_and(|state| state.is_blocked())
     {
+        return;
+    }
+    if let Some(touch) = touch.as_deref().filter(|input| input.override_mouse) {
+        if matches!(
+            touch.native_click.as_ref(),
+            Some(mobile_input::NativeClick::Properties)
+        ) {
+            act(&Action::Open, &mut inspector, &mut document);
+            drag.cancel();
+            cursor.cancel_placement();
+            cursor.paste = None;
+        }
         return;
     }
     for (interaction, action) in &buttons {

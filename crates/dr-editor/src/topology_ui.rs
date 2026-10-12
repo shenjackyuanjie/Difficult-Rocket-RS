@@ -126,6 +126,23 @@ impl ConnectionEditor {
         }
     }
 }
+/// 浮动窗口按 egui 当前可用区域收窄，并给窗口边框与默认阴影（向右下偏移 + blur）留余量。
+pub(crate) fn window_size(ctx: &egui::Context, default: egui::Vec2) -> egui::Vec2 {
+    let available =
+        (ctx.content_rect().size() - egui::vec2(40.0, 40.0)).max(egui::vec2(160.0, 120.0));
+    egui::vec2(default.x.min(available.x), default.y.min(available.y))
+}
+
+/// 窗口内容的宽度硬上界：按屏幕宽度减去窗口边距与装饰，不跟随窗口自身尺寸。
+fn screen_width_limit(ui: &egui::Ui) -> f32 {
+    (ui.ctx().content_rect().width() - 64.0).max(96.0)
+}
+
+/// 下拉框宽度按屏幕可用宽度收缩，避免内容反过来把自适应窗口越撑越宽。
+fn field_width(ui: &egui::Ui, default: f32) -> f32 {
+    default.min(screen_width_limit(ui))
+}
+
 fn label(document: &EditorDocument, key: PartKey) -> String {
     let name = document
         .ship
@@ -197,7 +214,7 @@ fn choose(
                 .map(|key| label(document, key))
                 .unwrap_or_else(|| "请选择".into()),
         )
-        .width(210.0)
+        .width(field_width(ui, 210.0))
         .show_ui(ui, |ui| {
             egui::ScrollArea::vertical().max_height(200.0).show_rows(
                 ui,
@@ -224,7 +241,7 @@ fn attach(
         .and_then(|part| document.catalog.get(&part.part_type));
     egui::ComboBox::from_id_salt(id)
         .selected_text(format!("连接点 {selected}"))
-        .width(112.0)
+        .width(field_width(ui, 112.0))
         .show_ui(ui, |ui| {
             if let Some(kind) = kind {
                 for (i, point) in kind.attach_points.iter().enumerate() {
@@ -340,8 +357,9 @@ fn tree(
             );
         }
     }
-    egui::ScrollArea::vertical()
+    egui::ScrollArea::both()
         .id_salt("link_tree")
+        .max_width(screen_width_limit(ui))
         .max_height(270.0)
         .show_rows(ui, 24.0, rows.len(), |ui, range| {
             for i in range {
@@ -349,7 +367,10 @@ fn tree(
                 let key = state.graph.nodes[node];
                 ui.push_id(("tree_node", key), |ui| {
                     ui.horizontal(|ui| {
-                        ui.add_space(depth.min(18) as f32 * 13.0);
+                        // 缩进不挤掉节点按钮，窄屏内仍能点到。
+                        let indent =
+                            (depth.min(18) as f32 * 13.0).min(screen_width_limit(ui) * 0.4);
+                        ui.add_space(indent);
                         if !state.forest.children[node].is_empty() {
                             if ui
                                 .small_button(if state.collapsed.contains(&key) {
@@ -436,7 +457,7 @@ fn graph(
     document: &EditorDocument,
     action: &mut Option<Action>,
 ) {
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.add(egui::Slider::new(&mut state.zoom, 0.4..=1.5).text("图缩放"));
         if let Some(a) = control(ui, &mut state.hits, Action::Layout, "排版", true) {
             *action = Some(a);
@@ -445,6 +466,7 @@ fn graph(
     });
     egui::ScrollArea::both()
         .id_salt("link_graph")
+        .max_width(screen_width_limit(ui))
         .max_height(270.0)
         .show(ui, |ui| {
             let extent = state
@@ -584,18 +606,29 @@ pub fn show(
     state.refresh(document);
     let mut open = state.open;
     let mut action = None;
+    // 触控/窄屏：窗口与最小宽度都收窄到可用区域，超出高度的正文由窗口滚动。
+    let size = window_size(ctx, egui::vec2(870.0, 520.0));
     egui::Window::new("连接编辑 · 树 / 图（F6）")
         .id(egui::Id::new("connection_editor"))
         .open(&mut open)
         .default_pos(egui::pos2(30.0, 60.0))
-        .default_size(egui::vec2(870.0, 520.0))
-        .min_width(650.0)
+        .default_size(size)
+        .min_width(size.x.min(650.0))
+        .max_width(size.x)
+        .max_height(size.y)
+        .vscroll(true)
+        // egui 的滚动区在未启用滚动的方向上会把视口撑到内容宽度，而窗口 outer 又取内容尺寸；
+        // 打开水平滚动后视口宽度才受 max_width 约束，超宽内容改为横向滚动而不是顶开窗口。
+        .hscroll(true)
         .collapsible(false)
         .show(ctx, |ui| {
+            // 内容宽度硬上界 + 强制换行：任何一行都不许反过来把自适应窗口撑宽。
+            ui.set_max_width(size.x);
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
             if document.free_mode {
                 ui.label("自由模式：不检查距离、重叠或占用；移动和旋转保留已有连接。");
             }
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 for (mode, name) in [(Mode::Tree, "连接树"), (Mode::Graph, "连接图")] {
                     let response = ui.add(egui::Button::new(name).selected(state.mode == mode));
                     state.hits.push((Action::Mode(mode), response.rect));
@@ -722,7 +755,7 @@ pub fn show(
                 .on_hover_text(control_hint(&Action::Connect));
             ui.horizontal_wrapped(|ui| {
                 egui::ComboBox::from_id_salt("edge_picker")
-                    .width(420.0)
+                    .width(field_width(ui, 420.0))
                     .selected_text(
                         state
                             .edge

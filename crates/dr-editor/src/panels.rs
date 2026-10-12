@@ -7,6 +7,95 @@ pub(crate) mod smoke;
 
 #[derive(Component)]
 pub(crate) struct EditorPanel;
+/// 原生顶栏只调整布局，不引入另一套移动界面。
+#[derive(Component, Clone, Copy)]
+pub(crate) enum ToolbarItem {
+    Files,
+    Properties,
+    Help,
+    Status,
+}
+
+pub(crate) fn compact(width: f32) -> bool {
+    width < 960.0
+}
+
+pub(crate) fn file_toolbar_width(width: f32) -> f32 {
+    (width - 32.0).clamp(160.0, 476.0)
+}
+
+pub(crate) fn file_toolbar_height(width: f32) -> f32 {
+    let available = file_toolbar_width(width);
+    let mut rows = 1;
+    let mut used = 0.0;
+    for item in [84.0, 84.0, 84.0, 116.0, 84.0] {
+        let next = if used == 0.0 { item } else { used + 6.0 + item };
+        if next > available {
+            rows += 1;
+            used = item;
+        } else {
+            used = next;
+        }
+    }
+    rows as f32 * 44.0 + (rows - 1) as f32 * 6.0
+}
+
+pub(crate) fn toolbar_height(width: f32) -> f32 {
+    if compact(width) {
+        12.0 + file_toolbar_height(width) + 6.0 + 44.0 + 12.0
+    } else {
+        64.0
+    }
+}
+
+pub(crate) fn layout_toolbars(
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    mut items: Query<(&ToolbarItem, &mut Node)>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let width = window.width();
+    for (item, mut node) in &mut items {
+        let mut next = node.clone();
+        let top = if compact(width) {
+            12.0 + file_toolbar_height(width) + 6.0
+        } else {
+            12.0
+        };
+        match item {
+            ToolbarItem::Files => {
+                next.width = px(file_toolbar_width(width));
+                next.top = px(12);
+                next.left = px(16);
+                next.flex_wrap = FlexWrap::Wrap;
+                next.row_gap = px(6);
+            }
+            ToolbarItem::Properties => {
+                next.top = px(top);
+                next.left = px(if compact(width) { 16.0 } else { 500.0 });
+                next.width = px(172);
+                next.min_height = px(44);
+            }
+            ToolbarItem::Help => {
+                next.top = px(top);
+                next.right = px(16);
+                next.width = px(100);
+                next.min_height = px(44);
+            }
+            ToolbarItem::Status => {
+                next.display = if compact(width) {
+                    Display::None
+                } else {
+                    Display::Flex
+                };
+                next.top = px(126);
+            }
+        }
+        node.set_if_neq(next);
+    }
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct UiPointer {
     pub blocked: bool,
@@ -105,6 +194,34 @@ pub enum PanelButton {
     Folder,
     Refresh,
     CancelPlacement,
+    Undo,
+    Redo,
+    Delete,
+    SelectAll,
+    Copy,
+    Cut,
+    Paste,
+    Rotate,
+    FlipX,
+    FlipY,
+}
+
+pub(crate) fn over_ui(
+    position: Vec2,
+    panels: &Query<(&ComputedNode, &UiGlobalTransform), With<EditorPanel>>,
+    egui_state: Option<&egui_panel::UiState>,
+) -> bool {
+    let over_egui = egui_state.is_some_and(|state| {
+        let point = position / state.pixels_per_point.max(f32::EPSILON);
+        state
+            .areas
+            .iter()
+            .any(|rect| rect.contains(bevy_egui::egui::pos2(point.x, point.y)))
+    });
+    over_egui
+        || panels
+            .iter()
+            .any(|(node, transform)| node.contains_point(*transform, position))
 }
 
 pub(crate) fn pointer_over_ui(
@@ -112,34 +229,34 @@ pub(crate) fn pointer_over_ui(
     panels: Query<(&ComputedNode, &UiGlobalTransform), With<EditorPanel>>,
     mut pointer: ResMut<UiPointer>,
     egui_state: Option<Res<egui_panel::UiState>>,
+    touch: Option<Res<mobile_input::GestureInput>>,
 ) {
-    let position = windows
-        .single()
-        .ok()
-        .and_then(Window::physical_cursor_position);
-    let blocked = position.is_some_and(|position| {
-        let over_egui = egui_state.as_ref().is_some_and(|state| {
-            let point = position / state.pixels_per_point.max(f32::EPSILON);
-            state
-                .areas
-                .iter()
-                .any(|rect| rect.contains(bevy_egui::egui::pos2(point.x, point.y)))
-        });
-        over_egui
-            || panels
-                .iter()
-                .any(|(node, transform)| node.contains_point(*transform, position))
+    let touch = touch.as_deref().filter(|input| input.override_mouse);
+    let position = windows.single().ok().and_then(|window| {
+        touch.map_or_else(
+            || window.physical_cursor_position(),
+            |input| {
+                input
+                    .position
+                    .map(|position| position * window.scale_factor())
+            },
+        )
     });
-    pointer.palette_drop = position.is_some_and(|position| {
+    let blocked = touch.is_some_and(|input| input.blocked())
+        || position.is_some_and(|position| over_ui(position, &panels, egui_state.as_deref()));
+    let palette_drop = position.is_some_and(|position| {
         egui_state.as_ref().is_some_and(|state| {
             let point = position / state.pixels_per_point.max(f32::EPSILON);
             state
                 .palette_area
                 .is_some_and(|rect| rect.contains(bevy_egui::egui::pos2(point.x, point.y)))
         })
-    });
+    }) && !touch.is_some_and(|input| input.blocked());
     if pointer.blocked != blocked {
         pointer.blocked = blocked;
+    }
+    if pointer.palette_drop != palette_drop {
+        pointer.palette_drop = palette_drop;
     }
 }
 
@@ -150,7 +267,7 @@ pub(crate) fn panel_actions(
     mut browser: ResMut<ShipBrowser>,
     mut cursor: ResMut<EditorCursor>,
     mut drag: ResMut<DragState>,
-    document: Res<EditorDocument>,
+    mut document: ResMut<EditorDocument>,
     mut files: MessageWriter<files::FileAction>,
     pending: Option<Res<files::PendingFileAction>>,
     help: Option<Res<help::HelpState>>,
@@ -205,7 +322,95 @@ pub(crate) fn panel_actions(
                 let folder = browser.folder.clone();
                 browser.set_folder(folder);
             }
-            PanelButton::CancelPlacement => cursor.placing = false,
+            PanelButton::CancelPlacement => {
+                drag.cancel();
+                cursor.cancel_placement();
+                cursor.paste = None;
+                cursor.manual_connection = None;
+                cursor.valid = false;
+            }
+            PanelButton::Undo | PanelButton::Redo => {
+                drag.cancel();
+                cursor.cancel_placement();
+                cursor.paste = None;
+                cursor.manual_connection = None;
+                if matches!(action, PanelButton::Undo) {
+                    document.undo();
+                } else {
+                    document.redo();
+                }
+            }
+            PanelButton::Delete => {
+                let selected = document.selected_keys();
+                if !selected.is_empty()
+                    && drag.id.is_none()
+                    && document.execute(EditorCommand::DeleteSelection(selected))
+                {
+                    document.clear_selection();
+                }
+            }
+            PanelButton::SelectAll | PanelButton::Copy | PanelButton::Cut | PanelButton::Paste => {
+                if drag.id.is_some() || drag.rectangle.is_some() {
+                    continue;
+                }
+                let mut keys = ButtonInput::default();
+                keys.press(KeyCode::ControlLeft);
+                keys.press(match action {
+                    PanelButton::SelectAll => KeyCode::KeyA,
+                    PanelButton::Copy => KeyCode::KeyC,
+                    PanelButton::Cut => KeyCode::KeyX,
+                    PanelButton::Paste => KeyCode::KeyV,
+                    _ => unreachable!(),
+                });
+                selection::keyboard(&mut document, &mut cursor, &keys, false);
+                if matches!(action, PanelButton::Paste) && cursor.paste.is_some() {
+                    cursor.manual_connection = None;
+                    document.status =
+                        "粘贴预览：指针定位，鼠标单击或触摸抬指放置，取消按钮 / Esc 取消".into();
+                }
+            }
+            PanelButton::Rotate | PanelButton::FlipX | PanelButton::FlipY => {
+                if drag.id.is_some() || drag.rectangle.is_some() {
+                    continue;
+                }
+                let mut keys = ButtonInput::default();
+                keys.press(match action {
+                    PanelButton::Rotate => KeyCode::KeyR,
+                    PanelButton::FlipX => KeyCode::KeyX,
+                    PanelButton::FlipY => KeyCode::KeyY,
+                    _ => unreachable!(),
+                });
+                if selection::keyboard(&mut document, &mut cursor, &keys, false) {
+                    continue;
+                }
+                if cursor.placing {
+                    match action {
+                        PanelButton::Rotate => {
+                            cursor.rotation = (cursor.rotation + 1).rem_euclid(4)
+                        }
+                        PanelButton::FlipX => cursor.flip_x = !cursor.flip_x,
+                        PanelButton::FlipY => cursor.flip_y = !cursor.flip_y,
+                        _ => unreachable!(),
+                    }
+                } else if let Some(id) = document.selected {
+                    if matches!(action, PanelButton::Rotate)
+                        && !document
+                            .ship
+                            .part_at(id)
+                            .and_then(|part| document.catalog.get(&part.part_type))
+                            .is_some_and(|kind| !kind.disable_editor_rotation)
+                    {
+                        continue;
+                    }
+                    let command = match action {
+                        PanelButton::Rotate => EditorCommand::Rotate(id.id),
+                        PanelButton::FlipX => EditorCommand::FlipX(id.id),
+                        PanelButton::FlipY => EditorCommand::FlipY(id.id),
+                        _ => unreachable!(),
+                    };
+                    placement::transform(&mut document, id, command);
+                }
+            }
         }
     }
 }

@@ -12,6 +12,21 @@ pub(crate) struct State {
     help_started: Option<std::time::Instant>,
 }
 
+// 烟雾验收直接读取实际 UI 留出的画布，缺失或越界时明确失败，不回退旧固定侧栏。
+fn actual_canvas(ui: &panels::egui_panel::UiState, window: &Window) -> Rect {
+    let area = ui.canvas_area.expect("视图验收必须取得真实画布矩形");
+    let factor = ui.pixels_per_point / window.scale_factor();
+    assert!(factor.is_finite() && factor > 0.0);
+    let area = Rect::from_corners(
+        Vec2::new(area.min.x, area.min.y) * factor + Vec2::splat(16.0),
+        Vec2::new(area.max.x, area.max.y) * factor - Vec2::splat(16.0),
+    );
+    let size = Vec2::new(window.width(), window.height());
+    assert!(area.min.cmpge(Vec2::ZERO).all() && area.max.cmple(size).all());
+    assert!(area.width() > 0.0 && area.height() > 0.0);
+    area
+}
+
 fn view_description(phase: u8) -> &'static str {
     match phase {
         0..=2 => "F 适配整船到可用画布，保留贴图真实尺寸；窗口适配不修改船体。",
@@ -29,6 +44,7 @@ pub(crate) fn run(
     mut state: Local<State>,
     mut document: ResMut<EditorDocument>,
     options: Res<view::ViewOptions>,
+    ui: Res<panels::egui_panel::UiState>,
     assets: Res<AssetServer>,
     images: Res<Assets<Image>>,
     mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
@@ -128,9 +144,10 @@ pub(crate) fn run(
                 return;
             }
             state.delay = 0;
-            let (center, scale) = view::fitted(
+            let (center, scale) = view::fitted_in(
                 &document,
                 Vec2::new(window.width(), window.height()),
+                actual_canvas(&ui, &window),
                 false,
                 |texture| render::image_size(texture, &assets, &images),
             )
@@ -152,9 +169,13 @@ pub(crate) fn run(
             keys.press(KeyCode::KeyF);
         }
         3 => {
-            let (center, scale) = view::fitted(&document, fitted_size, false, |texture| {
-                render::image_size(texture, &assets, &images)
-            })
+            let (center, scale) = view::fitted_in(
+                &document,
+                fitted_size,
+                actual_canvas(&ui, &window),
+                false,
+                |texture| render::image_size(texture, &assets, &images),
+            )
             .unwrap();
             assert!(camera.translation.truncate().abs_diff_eq(center, 1e-4));
             assert!((projection.scale - scale).abs() < 1e-4);
@@ -230,8 +251,8 @@ pub(crate) fn run(
                         let screen = Vec2::new(window.width(), window.height()) * 0.5
                             + Vec2::new(offset.x, -offset.y);
                         assert!(
-                            view::canvas(Vec2::new(window.width(), window.height()))
-                                .contains(screen)
+                            actual_canvas(&ui, &window).contains(screen),
+                            "选中贴图角点必须位于真实剩余画布：{screen:?}"
                         );
                     }
                 }
@@ -290,4 +311,43 @@ pub(crate) fn run(
         _ => return,
     }
     state.phase += 1;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn smoke_fit_reads_the_actual_canvas_and_converts_egui_dpi() {
+        let mut ui = panels::egui_panel::UiState::default();
+        ui.canvas_area = Some(bevy_egui::egui::Rect::from_min_max(
+            bevy_egui::egui::pos2(100.0, 120.0),
+            bevy_egui::egui::pos2(380.0, 800.0),
+        ));
+        for (egui_scale, window_scale) in [(1.0, 1.0), (2.0, 2.0)] {
+            ui.pixels_per_point = egui_scale;
+            let window = Window {
+                resolution: bevy::window::WindowResolution::new(
+                    (390.0 * window_scale) as u32,
+                    (844.0 * window_scale) as u32,
+                )
+                .with_scale_factor_override(window_scale),
+                ..default()
+            };
+            assert_eq!(
+                actual_canvas(&ui, &window),
+                Rect::from_corners(Vec2::new(116.0, 136.0), Vec2::new(364.0, 784.0))
+            );
+        }
+        ui.pixels_per_point = 2.0;
+        let window = Window {
+            resolution: bevy::window::WindowResolution::new(780, 1688)
+                .with_scale_factor_override(1.0),
+            ..default()
+        };
+        assert_eq!(
+            actual_canvas(&ui, &window),
+            Rect::from_corners(Vec2::new(216.0, 256.0), Vec2::new(744.0, 1584.0))
+        );
+    }
 }

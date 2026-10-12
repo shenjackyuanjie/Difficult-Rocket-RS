@@ -387,3 +387,88 @@ fn dragging_a_catalog_row_starts_only_a_ghost_and_regular_click_resets_drag_mode
     assert!(cursor.placing && !cursor.palette_drag);
     assert_eq!(cursor.catalog_index, 2);
 }
+
+#[test]
+fn touch_accessible_clipboard_buttons_reuse_keyboard_transactions_and_undo() {
+    let mut document = crate::tests::document();
+    document.catalog = catalog();
+    let before = document.ship.clone();
+    let mut app = App::new();
+    app.insert_resource(document)
+        .init_resource::<Palette>()
+        .init_resource::<ShipBrowser>()
+        .init_resource::<EditorCursor>()
+        .init_resource::<DragState>()
+        .add_message::<files::FileAction>()
+        .add_message::<PanelButton>()
+        .add_systems(Update, panel_actions);
+    app.world_mut().write_message(PanelButton::SelectAll);
+    app.world_mut().write_message(PanelButton::Copy);
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<EditorDocument>()
+            .selected_keys()
+            .len(),
+        1
+    );
+    assert!(app.world().resource::<EditorCursor>().clipboard.is_some());
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(!app.world().resource::<EditorDocument>().history.can_undo());
+    app.world_mut().write_message(PanelButton::Paste);
+    app.update();
+    assert!(app.world().resource::<EditorCursor>().paste.is_some());
+    app.world_mut().write_message(PanelButton::CancelPlacement);
+    app.update();
+    assert!(app.world().resource::<EditorCursor>().paste.is_none());
+    app.world_mut().write_message(PanelButton::Cut);
+    app.update();
+    assert!(
+        app.world()
+            .resource::<EditorDocument>()
+            .ship
+            .parts
+            .is_empty()
+    );
+    app.world_mut().write_message(PanelButton::Undo);
+    app.update();
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(!app.world().resource::<EditorDocument>().history.can_undo());
+    app.world_mut().write_message(PanelButton::Redo);
+    app.update();
+    assert!(
+        app.world()
+            .resource::<EditorDocument>()
+            .ship
+            .parts
+            .is_empty()
+    );
+}
+
+#[test]
+fn touch_rotate_button_respects_the_same_disabled_rotation_flag_as_keyboard() {
+    let mut document = crate::tests::document();
+    document.catalog = catalog();
+    document.ship.parts = vec![
+        document
+            .catalog
+            .get("tank")
+            .unwrap()
+            .instantiate(1, (0.0, 0.0)),
+    ];
+    document.selected = Some(PartKey::new(0, 1, 0));
+    let before = document.ship.clone();
+    let mut app = App::new();
+    app.insert_resource(document)
+        .init_resource::<Palette>()
+        .init_resource::<ShipBrowser>()
+        .init_resource::<EditorCursor>()
+        .init_resource::<DragState>()
+        .add_message::<files::FileAction>()
+        .add_message::<PanelButton>()
+        .add_systems(Update, panel_actions);
+    app.world_mut().write_message(PanelButton::Rotate);
+    app.update();
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(!app.world().resource::<EditorDocument>().history.can_undo());
+}

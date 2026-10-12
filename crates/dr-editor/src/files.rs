@@ -290,19 +290,25 @@ pub(crate) fn show_confirmation(
     };
     let mut choice = None;
     let response = egui::Modal::new(egui::Id::new("unsaved_file_confirmation")).show(ctx, |ui| {
-        ui.set_max_width(440.0);
-        ui.heading("保存未保存的修改？");
-        ui.add_space(8.0);
-        let name = paths
-            .ship
-            .as_deref()
-            .and_then(|path| Path::new(path).file_name())
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "未命名船体".into());
-        ui.label(format!("“{name}”有未保存的修改。继续{next}前是否保存？"));
-        ui.label("放弃修改无法撤销；取消将返回当前文档。");
+        let available = ctx.content_rect();
+        ui.set_width((available.width() - 40.0).clamp(160.0, 440.0));
+        ui.spacing_mut().interact_size = egui::Vec2::splat(44.0);
+        egui::ScrollArea::vertical()
+            .max_height((available.height() - 148.0).max(40.0))
+            .show(ui, |ui| {
+                ui.heading("保存未保存的修改？");
+                ui.add_space(8.0);
+                let name = paths
+                    .ship
+                    .as_deref()
+                    .and_then(|path| Path::new(path).file_name())
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "未命名船体".into());
+                ui.label(format!("“{name}”有未保存的修改。继续{next}前是否保存？"));
+                ui.label("放弃修改无法撤销；取消将返回当前文档。");
+            });
         ui.add_space(12.0);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             for (label, value) in [
                 ("保存后继续", UnsavedChoice::Save),
                 ("放弃修改并继续", UnsavedChoice::Discard),
@@ -517,7 +523,7 @@ pub(crate) fn file_actions(
 }
 
 #[derive(Component)]
-pub(crate) struct FileButton(FileAction);
+pub(crate) struct FileButton(pub(crate) FileAction);
 
 pub(crate) fn setup_file_toolbar(mut commands: Commands, assets: Res<AssetServer>) {
     let font = assets.load("fonts/HarmonyOS_Sans/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ttf");
@@ -532,6 +538,7 @@ pub(crate) fn setup_file_toolbar(mut commands: Commands, assets: Res<AssetServer
             },
             Name::new("文件工具栏"),
             panels::EditorPanel,
+            panels::ToolbarItem::Files,
         ))
         .with_children(|root| {
             for (label, action) in [
@@ -544,7 +551,16 @@ pub(crate) fn setup_file_toolbar(mut commands: Commands, assets: Res<AssetServer
                 root.spawn((
                     Button,
                     Node {
-                        padding: UiRect::axes(px(12), px(7)),
+                        width: px(if matches!(action, FileAction::SaveAs) {
+                            116.0
+                        } else {
+                            84.0
+                        }),
+                        min_height: px(44),
+                        flex_shrink: 0.0,
+                        padding: UiRect::axes(px(8), px(7)),
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
                         ..default()
                     },
                     BackgroundColor(Color::srgb(0.13, 0.18, 0.24)),
@@ -570,10 +586,17 @@ pub(crate) fn toolbar_actions(
     mut actions: MessageWriter<FileAction>,
     pending: Option<Res<PendingFileAction>>,
     help: Option<Res<crate::help::HelpState>>,
+    touch: Option<Res<mobile_input::GestureInput>>,
 ) {
     if help.is_some_and(|state| state.open || state.suppress_frame)
         || pending.is_some_and(|state| state.is_waiting())
     {
+        return;
+    }
+    if let Some(touch) = touch.as_deref().filter(|input| input.override_mouse) {
+        if let Some(mobile_input::NativeClick::File(action)) = &touch.native_click {
+            actions.write(action.clone());
+        }
         return;
     }
     for (interaction, button, mut color) in &mut buttons {
