@@ -282,8 +282,8 @@ pub(crate) const LINES: &[Case] = &[
     case!(
         "line-zero-length",
         "重合零件与零长度路径",
-        "自由连接的同位置部件启用流动箭头：渲染无 NaN、无除零、不中断回放。",
-        "显示资源设置 + 实际画布渲染",
+        "中心挂点临时夹具启用流动与箭头：真实零长路径被安全跳过，无 NaN、无除零，回放继续。",
+        "真实连接路径 + Gizmos 顶点与方向采样断言",
         Scenario::ZeroLength
     ),
     case!(

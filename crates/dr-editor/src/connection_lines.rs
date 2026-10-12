@@ -104,7 +104,7 @@ fn color(settings: &Settings, seconds: f32) -> Color {
 }
 
 /// 按总弧长移动，而不是在不同长度的线段上突然跳速。
-fn along(points: &[Vec2], fraction: f32) -> Option<(Vec2, Vec2)> {
+pub(crate) fn along(points: &[Vec2], fraction: f32) -> Option<(Vec2, Vec2)> {
     let length: f32 = points.windows(2).map(|p| p[0].distance(p[1])).sum();
     if length < 1e-4 {
         return None;

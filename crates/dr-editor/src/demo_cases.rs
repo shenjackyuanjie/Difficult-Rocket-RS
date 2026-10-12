@@ -33,7 +33,7 @@ pub(crate) struct Run {
     gesture: gestures::Probe,
     verified: bool,
     capturing: bool,
-    zero_path_rendered: bool,
+    zero_path_checked: bool,
     read_until: Option<Instant>,
     results: Vec<serde_json::Value>,
 }
@@ -268,7 +268,7 @@ fn setup(state: &mut Run, ctx: &mut Context, case: &Case) {
     state.step = 1;
     state.verified = false;
     state.capturing = false;
-    state.zero_path_rendered = false;
+    state.zero_path_checked = false;
     state.read_until = None;
     info!(
         "详细样例 {}：{}；预期 {}",
@@ -419,8 +419,29 @@ pub(crate) fn draw(state: Res<Run>, document: Res<EditorDocument>, mut gizmos: G
     }
 }
 
+/// 与生产渲染一致，按父中心→父挂点→子挂点→子中心构造真实连接路径。
+fn connection_path(document: &EditorDocument) -> [Vec2; 4] {
+    let connection = &document.ship.connections[0];
+    let Connection::Normal { parent, child, .. } = connection else {
+        panic!("零长夹具需要普通连接");
+    };
+    let parent = document.ship.part(*parent).unwrap();
+    let child = document.ship.part(*child).unwrap();
+    let (a, b) =
+        dr_core::connections::positions_between(&document.catalog, connection, parent, child)
+            .unwrap();
+    [
+        Vec2::new(parent.x as f32, parent.y as f32),
+        Vec2::new(a.x as f32, a.y as f32),
+        Vec2::new(b.x as f32, b.y as f32),
+        Vec2::new(child.x as f32, child.y as f32),
+    ]
+    .map(|point| point * 60.0)
+}
+
 pub(crate) fn draw_degenerate(
     mut state: ResMut<Run>,
+    document: Res<EditorDocument>,
     lines: Res<connection_lines::Settings>,
     mut gizmos: Gizmos<connection_lines::LineGizmos>,
 ) {
@@ -431,8 +452,36 @@ pub(crate) fn draw_degenerate(
         .get(state.case_index)
         .is_some_and(|case| matches!(case.scenario, Scenario::ZeroLength))
         && state.step > 0
+        && !state.zero_path_checked
     {
-        connection_lines::draw_path(&mut gizmos, &lines, &[Vec2::ZERO; 4], 0.5, 1.0);
-        state.zero_path_rendered = true;
+        let points = connection_path(&document);
+        assert!(points.iter().all(|point| point.is_finite()));
+        let length: f32 = points
+            .windows(2)
+            .map(|pair| pair[0].distance(pair[1]))
+            .sum();
+        assert_eq!(length, 0.0);
+        let directions = [0.0, 0.5, 1.0]
+            .into_iter()
+            .filter_map(|fraction| connection_lines::along(&points, fraction))
+            .count();
+        assert_eq!(directions, 0);
+        assert!(lines.enabled && lines.arrows && lines.effect == connection_lines::Effect::Flow);
+        assert!(gizmos.config.enabled);
+        let before = gizmos.list_positions.len() + gizmos.strip_positions.len();
+        connection_lines::draw_path(&mut gizmos, &lines, &points, 0.5, 1.0);
+        let queued = gizmos.list_positions.len() + gizmos.strip_positions.len() - before;
+        assert_eq!(queued, 0, "退化路径不应提交连线或箭头顶点");
+        state.metrics = serde_json::json!({
+            "coincident_parts": points[0] == points[3],
+            "path_point_count": points.len(),
+            "path_length": length,
+            "direction_sample_count": directions,
+            "queued_vertex_count": queued,
+            "degenerate_path_safely_skipped": queued == 0 && directions == 0,
+            "flow_enabled": lines.effect == connection_lines::Effect::Flow,
+            "arrows_enabled": lines.arrows,
+        });
+        state.zero_path_checked = true;
     }
 }

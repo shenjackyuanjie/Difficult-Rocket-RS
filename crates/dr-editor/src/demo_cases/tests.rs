@@ -128,6 +128,118 @@ fn exact_geometry_demo_fixtures_execute_real_transactions_and_keep_failed_histor
 }
 
 #[test]
+fn coincident_parts_with_surface_mounts_still_have_a_nonzero_render_path() {
+    let mut world = world();
+    let mut params = SystemState::<Context>::new(&mut world);
+    let mut ctx = params.get_mut(&mut world).unwrap();
+    let mut state = Run::new("line-cases");
+    setup(&mut state, &mut ctx, &cases("line-cases")[0]);
+    let kind = ctx.document.catalog.get("fuselage-1").unwrap();
+    ctx.document.ship.parts = vec![
+        kind.instantiate(1, (2.0, -1.0)),
+        kind.instantiate(2, (2.0, -1.0)),
+    ];
+    ctx.document.ship.connections = vec![Connection::Normal {
+        parent: 1,
+        child: 2,
+        parent_attach: 1,
+        child_attach: 1,
+    }];
+    let points = connection_path(&ctx.document);
+    assert_eq!(points[0], points[3]);
+    assert!(
+        points
+            .windows(2)
+            .map(|pair| pair[0].distance(pair[1]))
+            .sum::<f32>()
+            > 0.0
+    );
+    assert!(connection_lines::along(&points, 0.5).is_some());
+}
+
+#[test]
+fn zero_length_case_checks_real_mount_path_and_queues_no_gizmo_vertices() {
+    let mut world = world();
+    let index = cases("line-cases")
+        .iter()
+        .position(|case| matches!(case.scenario, Scenario::ZeroLength))
+        .unwrap();
+    let mut state = Run::new("line-cases");
+    state.case_index = index;
+    {
+        let mut params = SystemState::<Context>::new(&mut world);
+        let mut ctx = params.get_mut(&mut world).unwrap();
+        setup(&mut state, &mut ctx, &cases("line-cases")[index]);
+        let points = connection_path(&ctx.document);
+        assert_ne!(points[0], Vec2::ZERO, "真实夹具不依赖世界原点");
+        assert!(points.iter().all(|point| *point == points[0]));
+        assert!(!interactions::advance(
+            &mut state,
+            &mut ctx,
+            Scenario::ZeroLength
+        ));
+        assert!(ctx.document.catalog.get("demo-zero-length").is_some());
+        assert!(
+            !ctx.document
+                .catalog
+                .get("fuselage-1")
+                .unwrap()
+                .attach_points[0]
+                .location
+                .is_empty()
+        );
+    }
+    world.resource_mut::<GizmoConfigStore>().insert(
+        bevy::gizmos::config::GizmoConfig::default(),
+        connection_lines::LineGizmos,
+    );
+    world.insert_resource(state);
+    {
+        let mut params = SystemState::<(
+            ResMut<Run>,
+            Res<EditorDocument>,
+            Res<connection_lines::Settings>,
+            Gizmos<connection_lines::LineGizmos>,
+        )>::new(&mut world);
+        let (state, document, lines, mut gizmos) = params.get_mut(&mut world).unwrap();
+        // 正常路径确实会提交顶点，不能把未启用的 Gizmos 误当退化路径安全跳过。
+        connection_lines::draw_path(&mut gizmos, &lines, &[Vec2::ZERO, Vec2::X * 60.0], 0.5, 1.0);
+        let before = (gizmos.list_positions.len(), gizmos.strip_positions.len());
+        assert!(before.0 > 0 && before.1 > 0);
+        draw_degenerate(state, document, lines, gizmos);
+        let (_, _, _, gizmos) = params.get_mut(&mut world).unwrap();
+        assert_eq!(
+            (gizmos.list_positions.len(), gizmos.strip_positions.len()),
+            before
+        );
+    }
+    let mut state = world.remove_resource::<Run>().unwrap();
+    assert!(state.zero_path_checked);
+    assert_eq!(state.metrics["path_point_count"], 4);
+    assert_eq!(state.metrics["path_length"], 0.0);
+    assert_eq!(state.metrics["queued_vertex_count"], 0);
+    assert_eq!(state.metrics["direction_sample_count"], 0);
+    assert_eq!(state.metrics["degenerate_path_safely_skipped"], true);
+    assert!(
+        state
+            .metrics
+            .get("zero_length_path_actually_drawn")
+            .is_none()
+    );
+    let mut params = SystemState::<Context>::new(&mut world);
+    let mut ctx = params.get_mut(&mut world).unwrap();
+    assert!(interactions::advance(
+        &mut state,
+        &mut ctx,
+        Scenario::ZeroLength
+    ));
+    unchanged(&state, &ctx.document);
+    setup(&mut state, &mut ctx, &cases("free-cases")[0]);
+    assert!(!state.zero_path_checked);
+    assert!(ctx.document.catalog.get("demo-zero-length").is_none());
+}
+
+#[test]
 fn independent_cases_reset_configuration_selection_and_document_history() {
     let mut world = world();
     let mut params = SystemState::<Context>::new(&mut world);

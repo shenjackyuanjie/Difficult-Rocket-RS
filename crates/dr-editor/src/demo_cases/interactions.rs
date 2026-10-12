@@ -86,10 +86,18 @@ pub(super) fn setup(ctx: &mut Context, scenario: Scenario) {
             };
         }
         Scenario::ZeroLength => {
+            // 同中心的普通边仍包含中心到连接面的线段；中心挂点才能得到真实退化路径。
             let center = (ctx.document.ship.parts[0].x, ctx.document.ship.parts[0].y);
-            ctx.document.ship.parts.truncate(2);
-            ctx.document.ship.parts[1].x = center.0;
-            ctx.document.ship.parts[1].y = center.1;
+            let mut kind = ctx.document.catalog.get("fuselage-1").unwrap().clone();
+            kind.id = "demo-zero-length".into();
+            kind.name = "中心挂点（临时夹具）".into();
+            kind.attach_points.truncate(1);
+            kind.attach_points[0].location.clear();
+            kind.attach_points[0].x = 0.0;
+            kind.attach_points[0].y = 0.0;
+            ctx.document.ship.parts =
+                vec![kind.instantiate(1, center), kind.instantiate(2, center)];
+            ctx.document.catalog.types.push(kind);
             ctx.document.ship.connections = vec![Connection::Normal {
                 parent: 1,
                 child: 2,
@@ -461,11 +469,10 @@ pub(super) fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) ->
             _ => unreachable!(),
         },
         Scenario::ZeroLength => {
-            if !state.zero_path_rendered {
+            if !state.zero_path_checked {
                 return false;
             }
             unchanged(state, &ctx.document);
-            state.metrics = serde_json::json!({"coincident_parts":true, "zero_length_path_actually_drawn":true, "rendered_flow_and_arrows":true});
             return true;
         }
         _ => unreachable!(),
