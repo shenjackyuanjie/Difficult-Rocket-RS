@@ -64,6 +64,8 @@ fn nearby(document: &EditorDocument, source: &Part, key: Option<PartKey>) -> Vec
                 contact: dr_core::connections::closest_points(a, b),
                 snapped: candidate.distance < 1e-6,
             });
+            // 候选按距离稳定排序，每对部件只展示最近的一对合法连接点。
+            break;
         }
     }
     hints

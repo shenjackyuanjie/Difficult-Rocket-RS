@@ -245,3 +245,78 @@ fn palette_quantity_limit_does_not_advertise_a_connection_that_cannot_be_placed(
         .instantiate(2, (1.5, 0.0));
     assert!(nearby(&document, &source, None).is_empty());
 }
+
+fn multi_attachment_document() -> EditorDocument {
+    let mut document = document();
+    document.catalog = dr_core::catalog_from_xml(
+        r#"<PartTypes>
+        <PartType id="source" type="strut" width="8" height="2"><AttachPoints>
+            <AttachPoint location="BottomCenter"/>
+            <AttachPoint location="BottomSide"/>
+        </AttachPoints></PartType>
+        <PartType id="target" type="strut" width="2" height="2"><AttachPoints>
+            <AttachPoint location="TopCenter"/>
+            <AttachPoint location="TopSide"/>
+        </AttachPoints></PartType>
+    </PartTypes>"#,
+    )
+    .unwrap();
+    let target = document.catalog.get("target").unwrap();
+    document.ship.parts = vec![target.instantiate(1, (0.0, 0.0))];
+    document
+}
+
+#[test]
+fn multiple_attachment_candidates_show_one_pair_and_match_committed_snap() {
+    let mut document = multi_attachment_document();
+    let mut source = document
+        .catalog
+        .get("source")
+        .unwrap()
+        .instantiate(2, (0.0, 1.1));
+    let st = document.catalog.get("source").unwrap();
+    let target = &document.ship.parts[0];
+    let tt = document.catalog.get("target").unwrap();
+    let candidates = dr_core::connections::candidates(&source, st, target, tt, 0.75);
+    assert!(candidates.len() > 1);
+    let hints = nearby(&document, &source, None);
+    assert_eq!(hints.len(), 1);
+    assert_eq!(
+        hints[0].source,
+        dr_core::connections::segment(&source, st, &st.attach_points[candidates[0].source_index])
+    );
+    assert_eq!(
+        hints[0].target,
+        dr_core::connections::segment(target, tt, &tt.attach_points[candidates[0].target_index])
+    );
+    let command = placement::snap(&document.ship, &document.catalog, &mut source, None).unwrap();
+    assert!(document.execute(EditorCommand::Batch(vec![
+        EditorCommand::Place(Box::new(source)),
+        command
+    ])));
+    assert_eq!(document.ship.connections.len(), 1);
+    assert!(document.undo());
+    assert!(document.ship.connections.is_empty());
+    assert!(document.redo());
+    assert_eq!(document.ship.connections.len(), 1);
+}
+
+#[test]
+fn reducing_attachment_hints_keeps_one_candidate_for_each_different_target() {
+    let mut document = multi_attachment_document();
+    let target = document.catalog.get("target").unwrap();
+    document.ship.parts = vec![
+        target.instantiate(1, (-1.0, 0.0)),
+        target.instantiate(2, (1.0, 0.0)),
+    ];
+    let source = document
+        .catalog
+        .get("source")
+        .unwrap()
+        .instantiate(3, (0.0, 1.1));
+    let hints = nearby(&document, &source, None);
+    assert_eq!(hints.len(), 2);
+    assert!(hints[0].contact.1.x < 0.0);
+    assert!(hints[1].contact.1.x > 0.0);
+    assert!(!document.history.can_undo());
+}
