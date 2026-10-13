@@ -47,7 +47,7 @@
 
 模块迁移首次 fmt 因自动提取误加可见性到 anyhow 宏报错；首次 Rust 编译暴露原入口隐式 imports（58 项缺失），第二次编译暴露 HUD 系统签名的私有类型。均以显式所有者导入及适当模块内可见性修正，未压制警告、未放宽断言。[首次编译](../target/cleanup-20261013/refactor-compile-first.log)、[第二次编译](../target/cleanup-20261013/refactor-compile-second.log)、[迁移后回归](../target/cleanup-20261013/rust-first.log)、[测试归位后回归](../target/cleanup-20261013/rust-final.log)。
 
-Python 两轮首次回归均为 147 通过/1 失败：视频字幕已同步组折叠，测试仍要求旧“分类筛选/恢复全部”文字。同步两条断言至现行“独立收起/全部展开”，其余真实三键与显示说明不变，全套 148 项复跑通过。[首轮](../target/cleanup-20261013/python.log)、[第二轮](../target/cleanup-20261013/python-final.log)。文档活动链接及章节已核对；历史 30 个缺失 target 链接明确保留，不伪造日志。
+Python 两轮首次回归均为 147 通过/1 失败：视频字幕已同步组折叠，测试仍要求旧“分类筛选/恢复全部”文字。同步两条断言至现行“独立收起/全部展开”，其余真实三键与显示说明不变，全套 148 项复跑通过。[首轮](../target/cleanup-20261013/python.log)、[第二轮](../target/cleanup-20261013/python-final.log)。文档活动链接及章节已核对；历史 30 个缺失 target 链接明确保留，不伪造日志。记录勘误：`7de95b8` 提交正文将链接数误写为 229，实际报告为 215；这里只更正记录，不重写历史提交。
 
 ## 未完成与兼容边界
 
