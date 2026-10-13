@@ -2,7 +2,7 @@
 
 独立的 Bevy 编辑器及可复用的 SR1 数据核心。当前仍在补齐功能，完整复刻尚未完成；差异与验证记录见 [编辑器进度](docs/editor-progress.md)。
 
-当前使用 Bevy 0.20.0 / bevy_egui 0.43.1 与 quick-xml 0.42.0。原生按钮直接使用 `ui_widgets::Button`、picking 和 `Activate`，鼠标左键按下触发、触摸抬指一次；不保留旧 `Interaction` 兼容层。依赖升级的逐阶段验证见[升级记录](docs/editor-progress.md#2026-10-13-依赖升级与原生按钮迁移)。
+当前使用 Bevy 0.20.0 / bevy_egui 0.43.1、quick-xml 0.42.0 与 serde_json 1.0.154。原生按钮直接使用 `ui_widgets::Button`、picking 和 `Activate`，鼠标左键按下触发、触摸抬指一次；不保留旧 `Interaction` 兼容层。依赖升级的逐阶段验证见[升级记录](docs/editor-progress.md#2026-10-13-依赖升级与原生按钮迁移)。
 
 原生顶栏与 egui 共用深色配色、16px 按钮字号和 6px 圆角；继续保留至少 44px 的触控目标。配置归入现有 `native_buttons` / `egui_ui`，复用按钮构造、状态反馈及 egui 原生布局，不另起主题系统。
 

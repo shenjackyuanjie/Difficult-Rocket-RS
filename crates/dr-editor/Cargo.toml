@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-serde_json = "1"
+serde_json = "1.0.154"
 bevy.workspace = true
 dr-core = { path = "../dr-core" }
 rfd = "0.17"
