@@ -108,7 +108,7 @@ pub(crate) fn restore_pointer(
     }
 }
 /// 线性插值的是编辑器实际使用的指针；按键/按钮边沿在到达目标时再应用。
-/// egui 点击采用短按，观看节拍只控制下一动作，不把按钮一直按到下一节拍。
+/// egui 短点击由共享驱动成对交付；观看节拍只控制下一动作。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn animate(
     showcase: Option<ResMut<Showcase>>,
@@ -210,28 +210,6 @@ pub(crate) fn animate(
             .events
             .push(egui::Event::PointerMoved(egui::pos2(point.x, point.y)));
         showcase.ui_pointer = Some(egui::pos2(point.x, point.y));
-    }
-    if let Some((deadline, point)) = showcase.click_release
-        && now >= deadline
-    {
-        input.0.events.push(egui::Event::PointerButton {
-            pos: point,
-            button: egui::PointerButton::Primary,
-            pressed: false,
-            modifiers: egui::Modifiers::NONE,
-        });
-        showcase.click_release = None;
-    }
-    for event in &events {
-        if let egui::Event::PointerButton {
-            pos,
-            button: egui::PointerButton::Primary,
-            pressed: true,
-            ..
-        } = event
-        {
-            showcase.click_release = Some((now + input_hold(showcase.step), *pos));
-        }
     }
     if let Some(action) = applied_action {
         // 停顿从边沿实际重播/指针抵达后开始，而不是从注入帧开始。

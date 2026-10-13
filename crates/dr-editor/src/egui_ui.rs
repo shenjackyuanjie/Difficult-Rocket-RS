@@ -253,26 +253,12 @@ pub fn draw(
 /// 窗口自测共享驱动：通过真实 egui 指针/滚轮事件操作可见控件。
 #[derive(Default)]
 pub struct UiTestInput {
-    release: Option<egui::Pos2>,
     settle: u8,
 }
 
 impl UiTestInput {
     pub fn tick(&mut self, input: &mut bevy_egui::EguiInput) -> bool {
         input.0.focused = true;
-        if let Some(pos) = self.release.take() {
-            input.0.events.extend([
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: false,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ]);
-            self.settle = 1;
-            return true;
-        }
         if self.settle > 0 {
             self.settle -= 1;
             return true;
@@ -281,6 +267,8 @@ impl UiTestInput {
     }
 
     pub fn click_rect(&mut self, rect: egui::Rect, input: &mut bevy_egui::EguiInput) {
+        // 一次短点击的两条边沿成对交付，如同系统在一帧间收到完整短按。
+        // 不让观看停顿或慢帧把自测短点击变成长按；长按/拖动另用真实分帧输入。
         let pos = rect.center();
         input.0.events.extend([
             egui::Event::PointerMoved(pos),
@@ -290,8 +278,14 @@ impl UiTestInput {
                 pressed: true,
                 modifiers: egui::Modifiers::NONE,
             },
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
         ]);
-        self.release = Some(pos);
+        self.settle = 2;
     }
 
     pub fn click(
@@ -305,17 +299,7 @@ impl UiTestInput {
             return false;
         }
         if let Some((_, rect)) = hits.0.iter().find(|(candidate, _)| *candidate == action) {
-            let pos = rect.center();
-            input.0.events.extend([
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: true,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ]);
-            self.release = Some(pos);
+            self.click_rect(*rect, input);
             true
         } else {
             // 应用/取消固定在正文外，取其上方作为模态内的滚动位置。
@@ -397,30 +381,58 @@ mod tests {
             clicked
         }
 
-        fn press(&mut self, driver: &mut UiTestInput) {
-            let mut input = EguiInput::default();
-            driver.click_rect(self.rect, &mut input);
-            assert!(!self.frame(0.1, input.0.events));
+        fn pointer_button(&self, pressed: bool) -> Vec<egui::Event> {
+            let pos = self.rect.center();
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
         }
 
-        fn release(&mut self, time: f64, driver: &mut UiTestInput) -> bool {
+        fn press(&mut self) {
+            assert!(!self.frame(0.1, self.pointer_button(true)));
+        }
+
+        fn release(&mut self, time: f64) -> bool {
+            self.frame(time, self.pointer_button(false))
+        }
+    }
+
+    #[test]
+    fn shared_short_click_packet_survives_slow_frames_and_is_not_repeated() {
+        for gap in [0.016, 1.0, 10.0] {
+            let mut frames = ButtonFrames::new();
+            let mut driver = UiTestInput::default();
             let mut input = EguiInput::default();
-            assert!(driver.tick(&mut input));
-            self.frame(time, input.0.events)
+            driver.click_rect(frames.rect, &mut input);
+            assert!(
+                frames.frame(0.1 + gap, std::mem::take(&mut input.0.events)),
+                "短点击应以完整事件对交给同一次 pass，不能被 {gap}s 的帧间隔变成长按"
+            );
+            for time in [0.2 + gap, 1.2 + gap] {
+                assert!(driver.tick(&mut input));
+                assert!(input.0.events.is_empty(), "等待帧不能重复注入释放");
+                assert!(!frames.frame(time, std::mem::take(&mut input.0.events)));
+            }
+            assert!(!driver.tick(&mut input));
         }
     }
 
     #[test]
     fn clean_450ms_hold_across_empty_frames_still_clicks() {
         let mut frames = ButtonFrames::new();
-        let mut driver = UiTestInput::default();
-        frames.press(&mut driver);
+        frames.press();
         // 真实界面在 smoke 的两个步骤之间仍持续执行 pass。
         for frame in 1..27 {
             assert!(!frames.frame(0.1 + f64::from(frame) / 60.0, vec![]));
         }
         assert!(
-            frames.release(0.55, &mut driver),
+            frames.release(0.55),
             "干净的 450ms 按住低于 egui 默认 800ms 阈值，不应自行丢失点击"
         );
     }
@@ -428,12 +440,11 @@ mod tests {
     #[test]
     fn pointer_gone_in_an_intermediate_pass_cancels_click() {
         let mut frames = ButtonFrames::new();
-        let mut driver = UiTestInput::default();
-        frames.press(&mut driver);
+        frames.press();
         assert!(!frames.frame(0.116, vec![egui::Event::PointerGone]));
         assert!(!frames.frame(0.132, vec![]));
         assert!(
-            !frames.release(0.55, &mut driver),
+            !frames.release(0.55),
             "后续回到原点并释放不能恢复被 PointerGone 清掉的点击归属"
         );
     }
@@ -441,8 +452,7 @@ mod tests {
     #[test]
     fn distant_move_then_virtual_move_back_still_cancels_short_click() {
         let mut frames = ButtonFrames::new();
-        let mut driver = UiTestInput::default();
-        frames.press(&mut driver);
+        frames.press();
         let pos = frames.rect.center();
         assert!(!frames.frame(
             0.115,
@@ -453,7 +463,7 @@ mod tests {
         ));
         assert!(!frames.frame(0.13, vec![]));
         assert!(
-            !frames.release(0.145, &mut driver),
+            !frames.release(0.145),
             "即使只按住 45ms，末尾补虚拟坐标也不能撤销曾经超过点击距离的记录"
         );
     }
@@ -475,8 +485,7 @@ mod tests {
         let entity = app.world_mut().spawn(EguiInput::default()).id();
 
         let mut frames = ButtonFrames::new();
-        let mut driver = UiTestInput::default();
-        frames.press(&mut driver);
+        frames.press();
         let pos = frames.rect.center();
         for time in [0.115, 0.13] {
             app.world_mut()
@@ -506,7 +515,7 @@ mod tests {
             assert!(!frames.frame(time, events));
         }
         assert!(
-            frames.release(0.145, &mut driver),
+            frames.release(0.145),
             "隔离原生指针后持续补虚拟 Move，45ms 短点击应成功"
         );
     }

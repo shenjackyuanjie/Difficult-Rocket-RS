@@ -1099,12 +1099,19 @@ fn palette_short_replay_click_selects_once_but_one_second_hold_is_not_a_click() 
         }
         let identity = row.first_row.expect("预热后必须存在可见的首个目录行");
         assert!(identity.1.is_positive());
-        let mut state = UiState::default();
-        state.hits.push((PanelButton::Part(0), identity.1));
-        let mut driver = crate::egui_ui::UiTestInput::default();
-        let mut input = bevy_egui::EguiInput::default();
-        assert!(driver.click_panel(PanelButton::Part(0), &state, &mut input));
-        let pressed = palette_scroll_frame(&ctx, std::mem::take(&mut input.0.events), 0.1);
+        let pos = identity.1.center();
+        let pointer_button = |pressed| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
+        };
+        let pressed = palette_scroll_frame(&ctx, pointer_button(true), 0.1);
         assert_eq!(
             pressed.first_row,
             Some(identity),
@@ -1114,8 +1121,7 @@ fn palette_short_replay_click_selects_once_but_one_second_hold_is_not_a_click() 
         assert!(!pressed.clicked && !pressed.drag_started);
 
         // 与失败日志同构：按下/释放分属两次 pass，两次之间没有额外指针移动。
-        assert!(driver.tick(&mut input));
-        let released = palette_scroll_frame(&ctx, std::mem::take(&mut input.0.events), 0.1 + hold);
+        let released = palette_scroll_frame(&ctx, pointer_button(false), 0.1 + hold);
         assert_eq!(
             released.first_row,
             Some(identity),
@@ -1130,11 +1136,33 @@ fn palette_short_replay_click_selects_once_but_one_second_hold_is_not_a_click() 
         }
         assert!(released.offset.abs() < 0.5, "原位点击/长按不应滚动目录");
 
-        assert!(driver.tick(&mut input));
-        let settled = palette_scroll_frame(&ctx, std::mem::take(&mut input.0.events), 0.116 + hold);
+        let settled = palette_scroll_frame(&ctx, vec![], 0.116 + hold);
         assert!(!settled.clicked, "释放后的等待 pass 不能再次选择目录行");
-        assert!(!driver.tick(&mut input));
     }
+}
+
+#[test]
+fn palette_shared_short_click_packet_selects_once_after_a_slow_frame() {
+    let ctx = crate::egui_ui::test_context();
+    let mut row = PaletteGesture::default();
+    for time in [0.0, 0.016, 0.032] {
+        row = palette_scroll_frame(&ctx, vec![], time);
+    }
+    let identity = row.first_row.expect("预热后的目录行");
+    let mut state = UiState::default();
+    state.hits.push((PanelButton::Part(0), identity.1));
+    let mut driver = crate::egui_ui::UiTestInput::default();
+    let mut input = bevy_egui::EguiInput::default();
+    assert!(driver.click_panel(PanelButton::Part(0), &state, &mut input));
+    let clicked = palette_scroll_frame(&ctx, std::mem::take(&mut input.0.events), 1.0);
+    assert!(clicked.clicked && !clicked.drag_started);
+    assert_eq!(clicked.first_row, Some(identity));
+    for time in [2.0, 3.0] {
+        assert!(driver.tick(&mut input));
+        assert!(input.0.events.is_empty());
+        assert!(!palette_scroll_frame(&ctx, vec![], time).clicked);
+    }
+    assert!(!driver.tick(&mut input));
 }
 
 #[test]

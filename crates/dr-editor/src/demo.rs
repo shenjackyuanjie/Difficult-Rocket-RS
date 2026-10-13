@@ -63,7 +63,6 @@ pub(crate) struct Showcase {
     before_keys: ButtonInput<KeyCode>,
     replay: ReplayInput,
     display_pointer: Option<Vec2>,
-    click_release: Option<(Instant, bevy_egui::egui::Pos2)>,
     key_hints: KeyHints,
     mouse_hints: MouseHints,
     description: Option<&'static str>,
@@ -124,7 +123,6 @@ impl Showcase {
             before_keys: default(),
             replay: default(),
             display_pointer: None,
-            click_release: None,
             key_hints: KeyHints::default(),
             mouse_hints: MouseHints::default(),
             description: None,
@@ -158,7 +156,6 @@ pub(crate) fn advance_ready(showcase: Option<Res<Showcase>>) -> bool {
             && !showcase.initialize
             && showcase.finishing.is_none()
             && showcase.motion.is_none()
-            && showcase.click_release.is_none()
             && showcase.key_release.is_none()
             && Instant::now() >= showcase.next_tick
     })

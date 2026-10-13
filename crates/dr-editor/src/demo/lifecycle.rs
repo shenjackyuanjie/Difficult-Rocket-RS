@@ -97,7 +97,6 @@ pub(crate) fn begin(world: &mut World) {
     showcase.ui_pointer = None;
     showcase.motion = None;
     showcase.replay = ReplayInput::default();
-    showcase.click_release = None;
     showcase.key_hints = KeyHints::default();
     showcase.mouse_hints = MouseHints::default();
     showcase.description = None;

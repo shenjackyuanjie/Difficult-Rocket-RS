@@ -136,7 +136,6 @@ fn key_hints_capture_direct_inputs_in_fast_and_stationary_modes() {
             let showcase = app.world().resource::<Showcase>();
             assert!(showcase.motion.is_none());
             assert_eq!(showcase.key_hints.latest.as_ref().unwrap().text, "Ctrl+Z");
-            assert!(showcase.click_release.is_none());
         }
     }
 }

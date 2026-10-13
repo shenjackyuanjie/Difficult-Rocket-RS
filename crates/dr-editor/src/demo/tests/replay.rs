@@ -244,12 +244,6 @@ fn configuration_click_then_home_resets_camera_only_after_returning_to_canvas() 
             .0
             .events
             .clear();
-        app.world_mut()
-            .resource_mut::<Showcase>()
-            .click_release
-            .as_mut()
-            .unwrap()
-            .0 = Instant::now();
         app.update();
         assert_eq!(
             app.world().get::<Transform>(camera).unwrap().translation,
@@ -316,7 +310,7 @@ fn configuration_click_then_home_resets_camera_only_after_returning_to_canvas() 
 }
 
 #[test]
-fn egui_click_release_keeps_explicit_target_when_smoke_window_pointer_is_stale() {
+fn egui_short_click_packet_waits_for_arrival_and_keeps_explicit_target() {
     use bevy_egui::egui;
     for step in [40, 450] {
         let ctx = crate::egui_ui::test_context();
@@ -350,7 +344,6 @@ fn egui_click_release_keeps_explicit_target_when_smoke_window_pointer_is_stale()
         let target = Vec2::new(pos.x, pos.y);
         let (mut app, entity, folder) = animation_app(step, target);
         app.add_systems(Update, pace.after(animate));
-        app.world_mut().resource_mut::<Showcase>().display_pointer = Some(target);
         app.world_mut()
             .get_mut::<Window>(entity)
             .unwrap()
@@ -364,7 +357,7 @@ fn egui_click_release_keeps_explicit_target_when_smoke_window_pointer_is_stale()
                 .unwrap(),
         );
         app.update();
-        let press_events = std::mem::take(
+        let initial_events = std::mem::take(
             &mut app
                 .world_mut()
                 .get_mut::<bevy_egui::EguiInput>(entity)
@@ -372,9 +365,30 @@ fn egui_click_release_keeps_explicit_target_when_smoke_window_pointer_is_stale()
                 .0
                 .events,
         );
-        assert!(!frame(0.1, press_events).1);
+        if step == 450 {
+            assert!(!frame(1.0, initial_events).1, "抵达前不能发布点击");
+            assert_eq!(action_log(folder.path()).len(), 0);
+            app.world_mut()
+                .resource_mut::<Showcase>()
+                .motion
+                .as_mut()
+                .unwrap()
+                .started -= Duration::from_secs(1);
+            app.update();
+            let arrived_events = std::mem::take(
+                &mut app
+                    .world_mut()
+                    .get_mut::<bevy_egui::EguiInput>(entity)
+                    .unwrap()
+                    .0
+                    .events,
+            );
+            assert!(frame(2.0, arrived_events).1, "慢帧抵达后短点击仍应生效");
+        } else {
+            assert!(frame(2.0, initial_events).1, "快速模式直接交付完整短点击");
+        }
         // main 在非 smoke 步骤的空帧仍执行 restore → animate → pace。
-        // pace 必须保存实际 egui 抵达位置，否则短按期间会先回到旧窗口位置。
+        // pace 必须保存实际 egui 抵达位置，而不是 smoke 原有的画布坐标。
         assert_eq!(
             app.world().get::<Window>(entity).unwrap().cursor_position(),
             Some(target)
@@ -389,57 +403,16 @@ fn egui_click_release_keeps_explicit_target_when_smoke_window_pointer_is_stale()
                 .0
                 .events,
         );
-        assert!(!frame(0.11, idle_events).1);
+        assert!(!frame(3.0, idle_events).1);
         assert_eq!(
             app.world().resource::<Showcase>().display_pointer,
             Some(target)
-        );
-        // restore 仅处理原生输入，模拟 main 中位于其后的 smoke release。
-        app.edit_schedule(Update, |schedule| {
-            *schedule = Schedule::new(Update);
-        });
-        app.add_systems(Update, (animate, pace).chain());
-        // smoke 在下一步骤会恢复它保存的旧画布/滚轮坐标，而 egui release 仍指向控件。
-        app.world_mut()
-            .get_mut::<Window>(entity)
-            .unwrap()
-            .set_cursor_position(Some(target + Vec2::new(0., 200.)));
-        assert!(
-            driver.tick(
-                &mut app
-                    .world_mut()
-                    .get_mut::<bevy_egui::EguiInput>(entity)
-                    .unwrap()
-            )
-        );
-        // 模拟短按已到自动释放时间，不能让先注入的旧坐标取消同帧 release。
-        app.world_mut().resource_mut::<Showcase>().click_release = Some((Instant::now(), pos));
-        app.update();
-        assert!(
-            app.world().resource::<Showcase>().motion.is_none(),
-            "release 不应向旧窗口坐标移动"
-        );
-        assert_eq!(
-            app.world().resource::<Showcase>().display_pointer,
-            Some(target)
-        );
-        let release_events = std::mem::take(
-            &mut app
-                .world_mut()
-                .get_mut::<bevy_egui::EguiInput>(entity)
-                .unwrap()
-                .0
-                .events,
-        );
-        assert!(
-            frame(0.14, release_events).1,
-            "分类控件应收到有效的短按点击：step={step}"
         );
         assert!(selected);
         assert_eq!(
             action_log(folder.path()).len(),
             1,
-            "自动/驱动释放不应额外写动作"
+            "同帧按下/释放只记录一次动作"
         );
     }
 }
