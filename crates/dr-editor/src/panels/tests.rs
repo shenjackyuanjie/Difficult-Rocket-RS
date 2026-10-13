@@ -72,12 +72,12 @@ fn same_id_parts_in_different_groups_snap_and_merge_atomically() {
 }
 
 #[test]
-fn category_and_keyboard_navigation_exclude_hidden_parts() {
+fn category_collapse_and_keyboard_navigation_exclude_hidden_parts() {
     let mut document = crate::tests::document();
     document.catalog = catalog();
     let mut palette = Palette::default();
     assert_eq!(palette.indices(&document.catalog), vec![0, 1, 2]);
-    palette.category = Some("推进".into());
+    palette.collapsed.insert("Gizmos".into());
     assert_eq!(palette.indices(&document.catalog), vec![1, 2]);
     let mut cursor = EditorCursor {
         catalog_index: 1,
@@ -90,6 +90,120 @@ fn category_and_keyboard_navigation_exclude_hidden_parts() {
     assert_eq!(cursor.catalog_index, 1);
     cycle_part(&document, &palette, &mut cursor, true);
     assert_eq!(cursor.catalog_index, 2);
+}
+
+#[test]
+fn original_category_defaults_respect_explicit_metadata_without_rewriting_it() {
+    let mut kind = catalog().get("pod").unwrap().clone();
+    for (part_kind, expected) in [
+        (PartKind::Tank, "Fuel Tanks"),
+        (PartKind::Engine, "Engines"),
+        (PartKind::Detacher, "Gizmos"),
+        (PartKind::Unknown, "Gizmos"),
+    ] {
+        kind.kind = part_kind;
+        kind.category.clear();
+        assert_eq!(category_name(&kind), expected);
+        assert!(kind.category.is_empty(), "显示推断不能写回 XML 字段");
+    }
+    kind.kind = PartKind::Tank;
+    for explicit in ["Satellite", "自定义推进"] {
+        kind.category = explicit.into();
+        assert_eq!(category_name(&kind), explicit, "显式分类优先于类型");
+    }
+}
+
+#[test]
+fn original_groups_keep_catalog_indices_and_order_then_append_custom_categories() {
+    let mut catalog = catalog();
+    let base = catalog.types[0].clone();
+    catalog.types = [
+        ("tank", PartKind::Tank, "", false),
+        ("sat-tank", PartKind::Tank, "Satellite", false),
+        ("engine", PartKind::Engine, "", false),
+        ("detacher", PartKind::Detacher, "", false),
+        ("hidden", PartKind::Pod, "", true),
+        ("strut", PartKind::Strut, "", false),
+        ("custom", PartKind::Engine, "自定义", false),
+    ]
+    .into_iter()
+    .map(|(id, kind, category, hidden)| {
+        let mut part = base.clone();
+        part.id = id.into();
+        part.kind = kind;
+        part.category = category.into();
+        part.hidden = hidden;
+        part
+    })
+    .collect();
+    let before = catalog.clone();
+    let palette = Palette::default();
+    assert_eq!(
+        palette.groups(&catalog),
+        vec![
+            ("Gizmos", vec![3, 4]),
+            ("Fuel Tanks", vec![0]),
+            ("Engines", vec![2]),
+            ("Satellite", vec![1]),
+            ("自定义", vec![5]),
+        ]
+    );
+    assert_eq!(palette.indices(&catalog), vec![3, 4, 0, 2, 1, 5]);
+    assert_eq!(catalog.types, before.types);
+}
+
+#[test]
+fn category_commands_collapse_independently_expand_all_and_preserve_document_history() {
+    let mut document = crate::tests::document();
+    document.catalog = catalog();
+    let before = document.ship.clone();
+    let mut app = App::new();
+    app.insert_resource(document)
+        .init_resource::<Palette>()
+        .init_resource::<ShipBrowser>()
+        .init_resource::<EditorCursor>()
+        .init_resource::<DragState>()
+        .add_message::<files::FileAction>()
+        .add_message::<PanelButton>()
+        .add_systems(Update, panel_actions);
+    app.world_mut()
+        .write_message(PanelButton::ToggleCategory("Gizmos".into()));
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<Palette>()
+            .indices(&app.world().resource::<EditorDocument>().catalog),
+        vec![1, 2]
+    );
+    app.world_mut()
+        .write_message(PanelButton::ToggleCategory("推进".into()));
+    app.update();
+    assert!(
+        app.world()
+            .resource::<Palette>()
+            .indices(&app.world().resource::<EditorDocument>().catalog)
+            .is_empty()
+    );
+    app.world_mut()
+        .write_message(PanelButton::ToggleCategory("Gizmos".into()));
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<Palette>()
+            .indices(&app.world().resource::<EditorDocument>().catalog),
+        vec![0]
+    );
+    app.world_mut().write_message(PanelButton::ExpandCategories);
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<Palette>()
+            .indices(&app.world().resource::<EditorDocument>().catalog),
+        vec![0, 1, 2]
+    );
+    let document = app.world().resource::<EditorDocument>();
+    assert_eq!(document.ship, before);
+    assert!(!document.dirty && !document.history.can_undo());
 }
 
 #[test]

@@ -106,29 +106,59 @@ pub(crate) struct UiPointer {
 
 #[derive(Resource, Default)]
 pub(crate) struct Palette {
-    category: Option<String>,
+    collapsed: BTreeSet<String>,
 }
 
 impl Palette {
+    /// 分组仅用于显示，保留目录中的可见索引及每组原始顺序，不修改 XML category。
+    fn groups<'a>(&self, catalog: &'a PartCatalog) -> Vec<(&'a str, Vec<usize>)> {
+        let mut groups = std::collections::BTreeMap::<&str, Vec<usize>>::new();
+        for (index, kind) in catalog.visible().enumerate() {
+            groups.entry(category_name(kind)).or_default().push(index);
+        }
+        let mut groups: Vec<_> = groups.into_iter().collect();
+        groups.sort_by_key(|(name, _)| category_order(name));
+        groups
+    }
+
     fn indices(&self, catalog: &PartCatalog) -> Vec<usize> {
-        catalog
-            .visible()
-            .enumerate()
-            .filter(|(_, kind)| {
-                self.category
-                    .as_deref()
-                    .is_none_or(|category| category == category_name(kind))
-            })
-            .map(|(index, _)| index)
+        self.groups(catalog)
+            .into_iter()
+            .filter(|(name, _)| !self.collapsed.contains(*name))
+            .flat_map(|(_, indices)| indices)
             .collect()
     }
 }
 
 fn category_name(kind: &dr_core::PartType) -> &str {
-    if kind.category.is_empty() {
-        "常规"
-    } else {
-        &kind.category
+    if !kind.category.is_empty() {
+        return &kind.category;
+    }
+    match kind.kind {
+        PartKind::Tank => "Fuel Tanks",
+        PartKind::Engine => "Engines",
+        _ => "Gizmos",
+    }
+}
+
+fn category_order(name: &str) -> (u8, &str) {
+    let order = match name {
+        "Gizmos" => 0,
+        "Fuel Tanks" => 1,
+        "Engines" => 2,
+        "Satellite" => 3,
+        _ => 4,
+    };
+    (order, name)
+}
+
+fn category_label(name: &str) -> &str {
+    match name {
+        "Gizmos" => "通用组件",
+        "Fuel Tanks" => "燃料罐",
+        "Engines" => "发动机",
+        "Satellite" => "卫星部件",
+        _ => name,
     }
 }
 
@@ -191,7 +221,8 @@ fn read_ship_folder(folder: &Path) -> std::io::Result<(Vec<PathBuf>, usize)> {
 pub enum PanelButton {
     Part(usize),
     DragPart(usize),
-    Category(Option<String>),
+    ToggleCategory(String),
+    ExpandCategories,
     Open(PathBuf),
     Folder,
     Refresh,
@@ -297,8 +328,14 @@ pub(crate) fn panel_actions(
                     drag.cancel();
                 }
             }
-            PanelButton::Category(category) => {
-                palette.category = category.clone();
+            PanelButton::ToggleCategory(_) | PanelButton::ExpandCategories => {
+                if let PanelButton::ToggleCategory(category) = action {
+                    if !palette.collapsed.remove(category) {
+                        palette.collapsed.insert(category.clone());
+                    }
+                } else {
+                    palette.collapsed.clear();
+                }
                 let indices = palette.indices(&document.catalog);
                 if !indices.contains(&cursor.catalog_index)
                     && let Some(index) = indices.first()
@@ -417,7 +454,7 @@ pub(crate) fn panel_actions(
     }
 }
 
-/// Tab 沿当前分类循环；选择状态与鼠标目录共用。
+/// Tab 按目录的分组顺序循环，跳过已收起的组；选择状态与鼠标目录共用。
 pub(crate) fn cycle_part(
     document: &EditorDocument,
     palette: &Palette,

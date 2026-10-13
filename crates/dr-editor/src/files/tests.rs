@@ -501,7 +501,7 @@ fn toolbar_touch_release_emits_once_and_drops_compatible_mouse_activation() {
     ));
     assert_eq!(
         app.world().get::<BackgroundColor>(entity).unwrap().0,
-        Color::srgb(0.3, 0.5, 0.65)
+        native_buttons::PRESSED
     );
     {
         let mut touch = app.world_mut().resource_mut::<mobile_input::GestureInput>();
@@ -514,7 +514,7 @@ fn toolbar_touch_release_emits_once_and_drops_compatible_mouse_activation() {
     assert!(take_toolbar_actions(&mut app).is_empty());
     assert_eq!(
         app.world().get::<BackgroundColor>(entity).unwrap().0,
-        Color::srgb(0.13, 0.18, 0.24)
+        native_buttons::BUTTON
     );
     app.world_mut()
         .resource_mut::<mobile_input::GestureInput>()
@@ -526,7 +526,7 @@ fn toolbar_touch_release_emits_once_and_drops_compatible_mouse_activation() {
     );
     assert_eq!(
         app.world().get::<BackgroundColor>(entity).unwrap().0,
-        Color::srgb(0.3, 0.5, 0.65)
+        native_buttons::PRESSED
     );
     app.world_mut().entity_mut(entity).remove::<Pressed>();
     app.world_mut()

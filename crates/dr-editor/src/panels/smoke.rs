@@ -8,7 +8,7 @@ pub(crate) struct State {
     after: Option<Ship>,
     palette_before_scroll: f32,
     input: crate::egui_ui::UiTestInput,
-    filtered_category: Option<String>,
+    collapsed_category: Option<String>,
 }
 
 fn placement_point(window: &Window) -> Vec2 {
@@ -35,8 +35,8 @@ fn panel_description(phase: u8) -> &'static str {
         6..=7 => "移到空白处，左键放置部件并提交一步历史。",
         8..=9 => "Ctrl+Z / Ctrl+Y 撤销与重做整个放置操作。",
         10..=11 => "侧栏阻挡画布输入；滚轮只滚部件目录，Esc 取消待放置预览。",
-        12 => "已有分类筛选：左键点击一个类别，只显示该类别部件。",
-        _ => "分类筛选已生效；点击「全部」恢复完整目录，筛选不修改船体。",
+        12 => "原版分组：左键点击标题收起一个类别，其他类别继续显示。",
+        _ => "类别已收起；点击「全部展开」恢复完整目录，折叠不修改船体。",
     }
 }
 
@@ -250,39 +250,28 @@ pub(crate) fn run(
             };
             assert_eq!(projection.scale, 1.0, "目录滚轮意外缩放了画布");
             assert_eq!(state.after.as_ref(), Some(&document.ship));
-            let Some(category) = ui.hits.iter().find_map(|(action, _)| match action {
-                PanelButton::Category(Some(category)) => Some(category.clone()),
-                _ => None,
-            }) else {
-                return;
-            };
+            // 分组标题也在滚动区里，不能只等当前可见命中。
+            // 复用 click_panel 的现有滚动寻址，让末组标题进入视口后再真实点击。
+            let category = palette
+                .groups(&document.catalog)
+                .last()
+                .expect("自测目录需要可见部件分组")
+                .0
+                .to_owned();
             if !state.input.click_panel(
-                PanelButton::Category(Some(category.clone())),
+                PanelButton::ToggleCategory(category.clone()),
                 &ui,
                 &mut input,
             ) {
                 return;
             }
-            if showcase.is_some() {
-                let rect = ui
-                    .hits
-                    .iter()
-                    .find(|(action, _)| *action == PanelButton::Category(Some(category.clone())))
-                    .map(|(_, rect)| rect);
-                info!(phase = state.phase, ?category, ?rect, window_pointer = ?window.cursor_position(),
-                    palette_offset = ui.palette_offset, scrolling = ui.scrolling,
-                    "演示分类控件注入按下");
-            }
-            state.filtered_category = Some(category);
+            state.collapsed_category = Some(category);
         }
         13 => {
-            if showcase.is_some() {
-                info!(phase = state.phase, category = ?palette.category,
-                    expected = ?state.filtered_category, "演示分类动作消费后验证");
-            }
-            assert_eq!(
-                palette.category, state.filtered_category,
-                "真实分类按钮应改变目录筛选"
+            let category = state.collapsed_category.as_deref().unwrap();
+            assert!(
+                palette.collapsed.contains(category),
+                "真实分组标题应收起当前类别"
             );
             let indices = palette.indices(&document.catalog);
             assert!(!indices.is_empty());
@@ -290,23 +279,23 @@ pub(crate) fn run(
             assert!(
                 indices
                     .iter()
-                    .all(|index| Some(category_name(kinds[*index])) == palette.category.as_deref())
+                    .all(|index| category_name(kinds[*index]) != category)
             );
-            assert!(indices.len() < kinds.len(), "选定分类应确实隐藏其他类别");
+            assert!(indices.len() < kinds.len(), "被收起的组应确实隐藏部件");
             assert_eq!(
                 state.after.as_ref(),
                 Some(&document.ship),
-                "目录筛选不应改文档"
+                "目录折叠不应改文档"
             );
             if !state
                 .input
-                .click_panel(PanelButton::Category(None), &ui, &mut input)
+                .click_panel(PanelButton::ExpandCategories, &ui, &mut input)
             {
                 return;
             }
         }
         14 => {
-            assert!(palette.category.is_none(), "全部按钮应清除分类筛选");
+            assert!(palette.collapsed.is_empty(), "全部展开应恢复所有类别");
             assert_eq!(
                 palette.indices(&document.catalog).len(),
                 document.catalog.visible().count()
@@ -371,7 +360,7 @@ mod tests {
             );
             ui.hits = vec![
                 (
-                    PanelButton::Category(None),
+                    PanelButton::ExpandCategories,
                     egui::Rect::from_min_size(egui::pos2(left + 8., 100.), egui::vec2(60., 20.)),
                 ),
                 (

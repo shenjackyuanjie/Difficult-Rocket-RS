@@ -1,6 +1,6 @@
 # 演示评审建议（第二轮只读二审汇总）
 
-本文件汇总四路历史只读二审的结论，作为后续演示改动与验收的输入。「驱动契约」已实施并提交；零长路径修正已作为 `37489c0` 提交，并由触控适配阶段（Bevy 0.19）的完整 DX12 两档回放验收。三个依赖升级已独立提交；Bevy 0.20.0 / bevy_egui 0.43.1、serde_json 1.0.154 与统一风格的最终程序通过 373 项 Rust、148 项 Python、严格 Release Clippy / build、完整详细 DX12 40ms / 450ms 两档及三个 DX12 窄窗。失败过程与验证范围见[最终集成记录](./editor-progress.md#2026-10-13-最终集成验收)。本轮不再增加 corner 样例或委派审查；其余新增 corner 均为提案、尚未实现，已有覆盖不重复提需求。
+本文件汇总四路历史只读二审的结论，作为后续演示改动与验收的输入。「驱动契约」已实施并提交；零长路径修正已作为 `37489c0` 提交，并由触控适配阶段（Bevy 0.19）的完整 DX12 两档回放验收。三个依赖升级已独立提交；Bevy 0.20.0 / bevy_egui 0.43.1、serde_json 1.0.154 与首次统一风格的阶段程序通过 373 项 Rust、148 项 Python、严格 Release Clippy / build、完整详细 DX12 40ms / 450ms 两档及三个 DX12 窄窗，见[阶段集成记录](./editor-progress.md#2026-10-13-最终集成验收)。随后原版 sandbox 风格与四组分类的当前程序通过 379 项 Rust / 148 项 Python、严格 Release、完整详细 DX12 40ms 及三个串行窄窗；450ms 未复跑，首次目录演示夹具停滞与修正过程见[本次记录](./editor-progress.md#2026-10-13-原版-sandbox-风格与分组验收)。不增加 corner 样例或委派审查；其余新增 corner 均为提案、尚未实现，已有覆盖不重复提需求。
 
 部分历史 `target` 证据已不在当前工作区，旧链接仅定位当时记录；最终 2026-10-13 证据已独立核对存在，不补造历史产物。
 
@@ -12,6 +12,7 @@
 - 历史阶段验收（触控适配 / Bevy 0.19，已冻结）：351 项 Rust 测试通过（core 101 / editor 250）、127 项 Python 回归通过、严格 Release Clippy 与 Release build 通过；纯鼠标与触控失焦仲裁两项回归通过。该阶段的完整 DX12 快速 40ms 与观看 450ms 两档均通过，分别见[快速报告](../target/demo-mobile-fast-20261012-canvas-final/demo-report.json)、[观看报告](../target/demo-mobile-watch-20261012-canvas-final/demo-report.json)。三种真实窄窗[较早完整记录](../target/mobile-narrow-20261012-owned-window/report.json)保留；最新复验 Vulkan 仅首例通过、第二例尺寸变化后超时，DX12 首例尺寸变化后超时，未计为全量通过，详见[适配验收边界](./mobile-support.md#L77-L111)。
 - 阶段边界：XML 已独立提交 `9e47977`，其后 354 项 Rust（core 104 / editor 250）属 XML 加旧 Bevy 0.19 阶段。Bevy 0.20.0 / bevy_egui 0.43.1 本阶段为 366 项 Rust（core 104 / editor 262）和 148 项 Python，通过严格 Release Clippy / build、详细 DX12 40ms 与三尺寸窄窗；没有沿用旧阶段的通过结论。原生按钮已直接迁至 [ui_widgets / picking / Activate](../crates/dr-editor/src/native_buttons.rs)，不再有自持 Button 标记、弃用别名或旧 `Interaction` 兼容层；`smoke_window_size` 使用全限定 `anyhow::Context`。
 - 最终复验另行记录：`980abe0` 复用 `UiTestInput` 的完整短点击，删除重复释放状态，普通长按 / 拖动 / 触摸语义不变；没有靠延长点击阈值或放宽断言通过。最终 373 项 Rust（core 104 / editor 269）与 148 项 Python、同一 Release 程序的两档详细回放和三个窄窗通过，不拿基础迁移的 366 项记录代替。
+- 当前 sandbox 分类演示仍保持 19 / 45 / 95：旧独占筛选改为真实组标题收起 / 全部展开，标题不在视口时复用 `click_panel` 现有滚动寻址，不另加演示状态或延长超时；当前 [40ms 报告](../target/demo-sandbox-fast-final-20261013/demo-report.json)完整通过，观看档仍须与历史构建区别。
 
 ## 已采纳
 

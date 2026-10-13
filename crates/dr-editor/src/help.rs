@@ -326,7 +326,7 @@ mod tests {
         assert!(app.world().resource::<HelpState>().open);
         assert_eq!(
             app.world().get::<BackgroundColor>(entity).unwrap().0,
-            Color::srgb(0.3, 0.5, 0.65)
+            native_buttons::PRESSED
         );
         app.update();
         assert!(
@@ -341,7 +341,7 @@ mod tests {
         );
         assert_eq!(
             app.world().get::<BackgroundColor>(entity).unwrap().0,
-            Color::srgb(0.13, 0.18, 0.24)
+            native_buttons::BUTTON
         );
         app.world_mut().entity_mut(entity).insert(Pressed);
         app.world_mut()
@@ -558,7 +558,7 @@ mod tests {
         assert!(app.world().resource::<HelpState>().open);
         assert_eq!(
             app.world().get::<BackgroundColor>(entity).unwrap().0,
-            Color::srgb(0.13, 0.18, 0.24)
+            native_buttons::BUTTON
         );
         {
             let mut touch = app.world_mut().resource_mut::<mobile_input::GestureInput>();
@@ -571,7 +571,7 @@ mod tests {
         assert!(app.world().resource::<HelpState>().open);
         assert_eq!(
             app.world().get::<BackgroundColor>(entity).unwrap().0,
-            Color::srgb(0.3, 0.5, 0.65)
+            native_buttons::PRESSED
         );
         app.world_mut()
             .resource_mut::<mobile_input::GestureInput>()
@@ -582,7 +582,7 @@ mod tests {
         assert!(app.world().resource::<HelpState>().open);
         assert_eq!(
             app.world().get::<BackgroundColor>(entity).unwrap().0,
-            Color::srgb(0.13, 0.18, 0.24)
+            native_buttons::BUTTON
         );
         // 接管解除后的首帧不补旧消息；新鼠标激活仍然可用。
         app.world_mut()

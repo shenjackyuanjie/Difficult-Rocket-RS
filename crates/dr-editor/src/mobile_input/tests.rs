@@ -488,7 +488,7 @@ fn native_toolbar_touch_uses_its_real_position_and_fires_once_on_release() {
     );
     assert_eq!(
         app.world().get::<BackgroundColor>(button).unwrap().0,
-        Color::srgb(0.3, 0.5, 0.65)
+        native_buttons::PRESSED
     );
     touch(&mut app, 1, TouchPhase::Moved, 200.0, 34.0);
     assert_eq!(app.world().resource::<GestureInput>().native_pressed, None);

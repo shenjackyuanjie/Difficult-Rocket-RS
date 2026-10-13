@@ -16,15 +16,17 @@ use bevy::prelude::*;
 use bevy::ui::Pressed;
 use bevy::ui_widgets::{Activate, ActivateOnPress, Button};
 
-pub(crate) const BUTTON: Color = Color::srgb(0.13, 0.18, 0.24);
-pub(crate) const HOVERED: Color = Color::srgb(0.22, 0.32, 0.43);
-pub(crate) const PRESSED: Color = Color::srgb(0.3, 0.5, 0.65);
-pub(crate) const SELECTED: Color = Color::srgb(0.2, 0.42, 0.53);
-pub(crate) const TEXT: Color = Color::srgb(0.92, 0.95, 1.0);
-pub(crate) const PANEL: Color = Color::srgb(0.10, 0.13, 0.17);
-pub(crate) const BORDER: Color = Color::srgb(0.23, 0.29, 0.36);
+// 原版 sandbox 的中性灰控件与青柠强调色；原生入口和 egui 仍共用这一份配置。
+pub(crate) const BUTTON: Color = Color::srgb(0.19, 0.19, 0.19);
+pub(crate) const HOVERED: Color = Color::srgb(0.27, 0.27, 0.27);
+pub(crate) const PRESSED: Color = Color::srgb(0.31, 0.38, 0.09);
+pub(crate) const SELECTED: Color = Color::srgb(0.24, 0.29, 0.10);
+pub(crate) const TEXT: Color = Color::srgb(0.90, 0.90, 0.90);
+pub(crate) const PANEL: Color = Color::srgb(0.13, 0.13, 0.13);
+pub(crate) const BORDER: Color = Color::srgb(0.07, 0.07, 0.07);
+pub(crate) const ACCENT: Color = Color::srgb(0.70, 0.86, 0.02);
 pub(crate) const BUTTON_FONT_SIZE: f32 = 16.0;
-pub(crate) const RADIUS: u8 = 6;
+pub(crate) const RADIUS: u8 = 2;
 
 /// 0.20 的圆角是 Node 的字段；尺寸、触控高度和命中范围仍由调用方决定。
 pub(crate) fn native_corners() -> BorderRadius {
@@ -46,11 +48,19 @@ pub(crate) fn label(value: impl Into<String>, font: Handle<Font>) -> impl Bundle
 }
 
 /// 顶栏所有原生按钮共用状态色，包括属性入口；反馈本身不产生 Activate。
+type ButtonVisuals = (
+    Entity,
+    Has<Pressed>,
+    &'static Hovered,
+    &'static mut BackgroundColor,
+    &'static mut BorderColor,
+);
+
 pub(crate) fn update_native_buttons(
-    mut buttons: Query<(Entity, Has<Pressed>, &Hovered, &mut BackgroundColor), With<Button>>,
+    mut buttons: Query<ButtonVisuals, With<Button>>,
     touch: Option<Res<mobile_input::GestureInput>>,
 ) {
-    for (entity, pressed, hovered, mut color) in &mut buttons {
+    for (entity, pressed, hovered, mut color, mut border) in &mut buttons {
         let next = if let Some(touch) = touch.as_deref().filter(|input| input.override_mouse) {
             if touch.native_pressed == Some(entity) {
                 PRESSED
@@ -67,6 +77,11 @@ pub(crate) fn update_native_buttons(
         if color.0 != next {
             color.0 = next;
         }
+        border.set_if_neq(BorderColor::all(if next == BUTTON {
+            BORDER
+        } else {
+            ACCENT
+        }));
     }
 }
 

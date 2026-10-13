@@ -4,7 +4,7 @@
 
 2026-10-05 新增 [DRRS 与 dr-core 功能覆盖核对](drrs-core-coverage.md)，并按用户编号补齐 1/2/3/6、明确 5 的 main/all 合同。原审计记录已标为历史基线；第 4 项旧保存策略及 Python/平台适配不属于本轮实现，不能据此宣称 DRRS 全功能迁移完成。
 
-2026-10-13 收尾核对发现部分旧 `target` 日志、报告及 ZIP 已不在当前工作区；历史链接仅用于定位原记录，不保证本机仍可打开，也不作为本次验收证据。本次新增证据链接均已检查存在，见“最终集成验收”。
+2026-10-13 收尾核对发现部分旧 `target` 日志、报告及 ZIP 已不在当前工作区；历史链接仅用于定位原记录，不保证本机仍可打开，也不作为本次验收证据。依赖升级与后续 sandbox 风格改动分别记录在“最终集成验收”和“原版 sandbox 风格与分组验收”，不混用程序及结果。
 
 ## 对照来源
 
@@ -12,6 +12,7 @@
 - `Difficult-Rocket/mods/dr_game/Difficult_Rocket_rs/src/src/sr1_parse/raw/ship.rs`：SR1 XML 结构、默认值、部件运行状态、分级与两类连接。
 - `Difficult-Rocket/mods/dr_game/Difficult_Rocket_rs/src/src/python/editor.rs`：编辑区域命中形状。
 - `Difficult-Rocket/assets/builtin/PartList.xml`、`assets/ships`：真实目录及船体样本。
+- `SimpleRockets-PC-1.6.11`：通过用户提供的既有 `gui-auto/gui-auto.ps1` 实际打开 sandbox / Builder，观察控件风格、部件组顺序、成员及独立折叠行为；不只根据静态资源推断。
 
 ## 当前已实现并验证
 
@@ -254,6 +255,29 @@
 - 两档详细回放都保持 Test.xml / Heronb.xml 源哈希不变；64 级 / 1,024 动作的末项编辑、应用、撤销重做及 XML 往返均通过。两份 `line-cases.json` 的真实零长路径均为四点、长度 0、方向采样 0、提交顶点 0、安全跳过，流动 / 箭头开启且文档 / 历史不变。
 - 观看回放前段仍观察到约 1s 的慢帧，后段恢复较快更新；用户协助保持窗口可见，未自动抢占前台。耗时包含观看节拍、滚轮与截图等待，不是性能或物理输入延迟测量；未确诊慢帧来源，也不宣称呈现策略已经解决所有后端时序问题。运行日志仍有 `DockingConnector.PNG` 的多 AssetLoader 警告，本轮未改资源加载管线。
 - 本次窗口结果限定 DX12；默认 Vulkan 未复验。物理触屏、Android / iOS 真机、系统键鼠、原生路径选择、输入法与系统文字输入专项未执行；不以内部输入或窄窗截图替代。旧 Windows ZIP 仅保留适配前的历史记录，当前工作区未找到该归档，本次未重新打包、不宣称旧包包含改动。全历史证据链接首次检查[失败日志](../target/validation-closeout-doc-links-first-20261013.log)保留；缺失的是旧本地证据，不抹去历史执行记录或伪造旧产物。当前依赖升级目标已完成，项目整体复刻的下列缺口仍继续保留。
+
+## 2026-10-13 原版 sandbox 风格与分组验收
+
+- 本次实际从原版主菜单进入 sandbox → Smolar System → Builder → 部件目录，滚动观察四组并点击折叠。原版为中性灰黑底、青柠标题 / 图标、方正连续行和固定图片列；Gizmos / Fuel Tanks / Engines / Satellite 分别为 8 / 4 / 6 / 7 项，两个隐藏类型不显示。原版观察截图保留在本地 `target/sr1-sandbox-reference-20261013`，有效分组记录为 `10-parts-top.png`、`11-parts-middle.png`、`12-parts-fuel-collapsed.png`、`13-parts-bottom.png`、`14-satellite-tail.png`；一次旧窗口几何截图无效，不作证据。桌面不可见时两次恢复未成功，已通知 `sr1` 并等待，用户恢复后继续；观察结束正常关闭本任务启动的原版游戏，不和编辑器窗口并行。
+- 原生入口与 egui 继续共享 `native_buttons` / `egui_ui`，改为灰黑控件、青柠状态描边和 2px 圆角，按钮字号仍为 16px；部件行改为 64px，图片列 64px、等比缩略图 48px，名称左对齐、长名称截断。复用原有反馈、图片加载、拖放、滚动与原生 `ui_widgets` / picking / `Activate`，未引入主题框架或新资产。保留当前编辑器布局，不为复刻原版底栏另加一套界面。
+- 移除旧“常规 / Satellite”独占筛选、旧分类消息及 `UiState` 分类镜像字段；`Palette` 唯一维护收起的组，复用 egui `CollapsingHeader` 标题与裁剪动画，关闭动画中的旧行不可交互。四组按原版顺序显示，可独立收起并全部展开；目录与 Tab / Shift+Tab 使用同一可见集合，组内顺序与原可见索引不变。显式 XML `category` 优先（包括 Satellite 的油罐），未知自定义组保留原名并追加；默认分类只在视图推断，不写回目录或船体。实际目录成员核对见[分组记录](../target/validation-sandbox-categories-20261013.json)。
+- 新增六项回归：默认分类 / 显式元数据优先、分组顺序与隐藏项、独立折叠与历史不变、主题视觉契约、自定义长组名限宽 / 44px 高度、真实标题点击与全部展开共享 `Palette`。已有图片比例、鼠标按下、触摸抬指一次及长按不重复等断言保留；不增加详细演示 corner 或独立自动化框架。
+- 首轮 Rust 为 core 104 通过、editor 262 通过 / 7 失败，原因是测试仍写死旧配色与 40px 图 / 52px 行规格；更新为共享角色色及新尺寸，行为断言不变，[失败日志](../target/validation-sandbox-first-rust-20261013.log)保留。新增测试首次比较 `PartCatalog` 因没有 `PartialEq` 编译失败，改为比较已有 `types`，不为测试改核心 API，[编译日志](../target/validation-sandbox-tests-compile-20261013.log)保留；随后一项标题限宽测试错误假设 `run_ui` 有 16px 根边距，274 / 1 的[失败日志](../target/validation-sandbox-rust-final-20261013.log)保留，改正测试视口宽度而不放宽边界断言。严格 Clippy 首轮报按钮 Query 类型过长，提取本模块局部类型别名，不增加 suppress，[日志](../target/validation-sandbox-clippy-first-failed-20261013.log)保留。
+- 首次详细快速回放在滚轮验证之后等待“当前可见的分组标题”，标题已经滚出视口，夹具停滞。仅终止已核对路径的本次 EXE 副本，编辑器退出 `4294967295`、驱动退出 1，[终止原因](../target/demo-sandbox-fast-20261013/agent-abort.json)与[日志](../target/validation-sandbox-fast-20261013.log)保留，不记为焦点失败。修正为指定目录末组并复用既有 `click_panel` 滚动寻址，进入视口后真实点击；未延长超时、放宽文档 / 历史断言或新增驱动状态。
+
+以下为修正后的最新 Release 程序实际结果，SHA-256 为 `b8b8497d2bb61c80160161e40cf97ed283de66bc3870c084f62bca8387e0af35`；各窗口先核对源 / 唯一副本一致，所有窗口串行运行，不拿上节旧程序的两档记录代替。本次[汇总](../target/validation-sandbox-summary-20261013.json)独立核对报告、逐例状态及非空产物：
+
+| 检查 | 本次结果与证据 |
+| --- | --- |
+| Rust | `TEMP/TMP=target/test-temp` 下执行 `cargo test --workspace --release --locked`，379 项通过（core 104 / editor 275）；[日志](../target/validation-sandbox-rust-complete-20261013.log) |
+| Python | `uv run --no-project --python 3.12 python -B -X utf8 -m unittest discover -s scripts -p 'test_*.py' -v`，148 项通过；[日志](../target/validation-sandbox-python-20261013.log) |
+| fmt / Release | `cargo fmt --all --check`、`cargo clippy --workspace --all-targets --release --locked -- -D warnings`、`cargo build --workspace --release --locked` 均通过；[fmt](../target/validation-sandbox-fmt-20261013.log)、[Clippy](../target/validation-sandbox-clippy-passed-20261013.log)、[build](../target/validation-sandbox-build-20261013.log) |
+| DX12 详细快速 40ms | 19 章 / 45 例 / 95 个唯一非空证据，编辑器与驱动退出码均为 0，Test.xml / Heronb.xml 源哈希不变；[报告](../target/demo-sandbox-fast-final-20261013/demo-report.json)、[日志](../target/validation-sandbox-fast-final-20261013.log) |
+| DX12 窄窗 | 随后串行运行 390×844、640×360、320×640，三例均通过 Win32 客户区 / Bevy 窗口尺寸及 scale factor 1 / 原始 PNG 三重核对，退出码均为 0；[报告](../target/narrow-sandbox-dx12-20261013/report.json) |
+| XML | `verify_catalog` 27 类 / 793 字段往返通过，退出 0；`verify_ships` 185 船体 / 125,856 部件往返通过，另 5 个既有异常输入仍拒绝，实际退出 1；191 份源 XML 前后哈希不变；[目录](../target/validation-sandbox-catalog-20261013.log)、[船体](../target/validation-sandbox-ships-20261013.log)、[哈希](../target/validation-sandbox-xml-20261013.json) |
+
+- 已实际查看当前[目录](../target/demo-sandbox-fast-final-20261013/editor-panels-smoke.png)、[连接编辑窗口](../target/demo-sandbox-fast-final-20261013/editor-topology-smoke.png)、三个窄窗原始 PNG；又串行用同一程序运行 1440×900 普通 `--smoke-test`，退出 0，并查看[无演示遮罩预览](../target/sandbox-preview-20261013/target/editor-smoke.png)。原生顶栏与 egui 共用同一灰黑 / 青柠风格，顶栏入口和窄屏触控尺寸保留。320×640 / 640×360 初始船体仍被顶部 UI 裁切，需既有“适配视野”；本次没有宣称默认相机自动取景通过，也未扩大范围改变相机。
+- 本次只复跑 DX12 40ms，**450ms 观看档未复跑**，上节通过记录属于风格改动前程序；默认 Vulkan、物理触屏、移动真机、系统键鼠、原生路径选择、输入法与系统文字输入专项未测。没有修改依赖版本、原版游戏文件或 XML 数据格式，不新增平台打包工程、不重新打包、不推送、不重写历史；本次风格 / 分类完成不代表全项目复刻缺口消除。
 
 ## 后续必须完成的工作
 

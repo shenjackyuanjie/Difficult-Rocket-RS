@@ -151,14 +151,14 @@ fn configure_chinese_font(ctx: &egui::Context, paths: &EditorPaths) {
     }
 }
 
-fn ui_color(color: Color) -> egui::Color32 {
+pub(crate) fn ui_color(color: Color) -> egui::Color32 {
     let [r, g, b, a] = color.to_srgba().to_u8_array();
     egui::Color32::from_rgba_unmultiplied(r, g, b, a)
 }
 
 fn configure_theme(ctx: &egui::Context) {
     use crate::native_buttons::{
-        BORDER, BUTTON, BUTTON_FONT_SIZE, HOVERED, PANEL, PRESSED, RADIUS, SELECTED, TEXT,
+        ACCENT, BORDER, BUTTON, BUTTON_FONT_SIZE, HOVERED, PANEL, PRESSED, RADIUS, SELECTED, TEXT,
     };
     // 原生顶栏始终是深色，egui 不随系统主题变成另一套界面。
     ctx.set_theme(egui::Theme::Dark);
@@ -180,15 +180,15 @@ fn configure_theme(ctx: &egui::Context) {
         let visuals = &mut style.visuals;
         visuals.panel_fill = ui_color(PANEL);
         visuals.window_fill = ui_color(PANEL);
-        visuals.extreme_bg_color = ui_color(Color::srgb(0.07, 0.09, 0.12));
+        visuals.extreme_bg_color = ui_color(Color::srgb(0.08, 0.08, 0.08));
         visuals.faint_bg_color = ui_color(BUTTON);
         visuals.window_stroke = egui::Stroke::new(1.0, ui_color(BORDER));
         visuals.window_corner_radius = egui::CornerRadius::same(RADIUS);
         visuals.menu_corner_radius = egui::CornerRadius::same(RADIUS);
-        visuals.weak_text_color = Some(ui_color(Color::srgb(0.62, 0.69, 0.78)));
+        visuals.weak_text_color = Some(ui_color(Color::srgb(0.62, 0.62, 0.62)));
         visuals.selection.bg_fill = ui_color(SELECTED);
-        visuals.selection.stroke = egui::Stroke::new(1.0, ui_color(TEXT));
-        visuals.hyperlink_color = ui_color(PRESSED);
+        visuals.selection.stroke = egui::Stroke::new(1.0, ui_color(ACCENT));
+        visuals.hyperlink_color = ui_color(ACCENT);
         for (widget, background) in [
             (&mut visuals.widgets.noninteractive, PANEL),
             (&mut visuals.widgets.inactive, BUTTON),
@@ -198,7 +198,16 @@ fn configure_theme(ctx: &egui::Context) {
         ] {
             widget.bg_fill = ui_color(background);
             widget.weak_bg_fill = ui_color(background);
-            widget.bg_stroke = egui::Stroke::new(1.0, ui_color(BORDER));
+            widget.bg_stroke = egui::Stroke::new(
+                1.0,
+                ui_color(
+                    if background == HOVERED || background == PRESSED || background == SELECTED {
+                        ACCENT
+                    } else {
+                        BORDER
+                    },
+                ),
+            );
             widget.fg_stroke = egui::Stroke::new(1.0, ui_color(TEXT));
             widget.corner_radius = egui::CornerRadius::same(RADIUS);
             widget.expansion = 0.0;
@@ -553,6 +562,29 @@ mod tests {
         assert_eq!(
             world.get::<BorderColor>(entity),
             Some(&BorderColor::all(BORDER))
+        );
+    }
+
+    #[test]
+    fn sandbox_palette_is_neutral_with_lime_accent_and_small_corners() {
+        let ctx = test_context();
+        let style = ctx.style_of(egui::Theme::Dark);
+        assert_eq!(style.visuals.panel_fill, egui::Color32::from_gray(33));
+        assert_eq!(
+            style.visuals.widgets.inactive.bg_fill,
+            egui::Color32::from_gray(48)
+        );
+        assert_eq!(
+            style.visuals.hyperlink_color,
+            egui::Color32::from_rgb(179, 219, 5)
+        );
+        assert_eq!(
+            style.visuals.widgets.hovered.bg_stroke.color,
+            style.visuals.hyperlink_color
+        );
+        assert_eq!(
+            style.visuals.widgets.inactive.corner_radius,
+            egui::CornerRadius::same(2)
         );
     }
 

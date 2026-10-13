@@ -1,15 +1,18 @@
-//! 两个目录边栏使用 egui 内置布局及虚拟滚动，不重建 Bevy UI 实体。
+//! 两个目录边栏使用 egui 内置布局与滚动，不重建 Bevy UI 实体。
 use super::*;
 use bevy_egui::{EguiContexts, egui};
 
 #[cfg(test)]
 mod tests;
 
-/// 缩略图容纳在 40×40 的区域内，但纹理尺寸必须使用真实像素宽高。
+const PREVIEW_SIZE: f32 = 48.0;
+const PART_ROW_HEIGHT: f32 = 64.0;
+
+/// 缩略图使用真实像素宽高，缩放到固定图片列，不挤成方形。
 fn preview_image(texture: egui::TextureId, size: Vec2) -> egui::Image<'static> {
     egui::Image::new((texture, egui::vec2(size.x, size.y)))
         .maintain_aspect_ratio(true)
-        .fit_to_exact_size(egui::Vec2::splat(40.0))
+        .fit_to_exact_size(egui::Vec2::splat(PREVIEW_SIZE))
 }
 
 /// 内置 Button 负责整行交互，图片和 Label 放入各自固定的列区域。
@@ -28,21 +31,21 @@ fn part_row(
         egui::Sense::click_and_drag()
     };
     let response = ui.add_sized(
-        [width, 52.0],
+        [width, PART_ROW_HEIGHT],
         egui::Button::new("").selected(selected).sense(sense),
     );
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &name)
     });
     let rect = response.rect;
-    let image_size = size / size.max_element().max(1.0) * 40.0;
+    let image_size = size / size.max_element().max(1.0) * PREVIEW_SIZE;
     let image_rect = egui::Rect::from_center_size(
-        egui::pos2(rect.left() + 28.0, rect.center().y),
+        egui::pos2(rect.left() + 32.0, rect.center().y),
         egui::vec2(image_size.x, image_size.y),
     );
     preview_image(texture, size).paint_at(ui, image_rect);
     let text_rect = egui::Rect::from_min_max(
-        egui::pos2(rect.left() + 64.0, rect.top()),
+        egui::pos2(rect.left() + 72.0, rect.top()),
         egui::pos2(rect.right() - 8.0, rect.bottom()),
     );
     let color = ui
@@ -55,7 +58,7 @@ fn part_row(
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
         |ui| {
             ui.add(
-                egui::Label::new(egui::RichText::new(name).color(color))
+                egui::Label::new(egui::RichText::new(name).size(18.0).color(color))
                     .halign(egui::Align::Min)
                     .selectable(false)
                     .truncate(),
@@ -63,11 +66,34 @@ fn part_row(
         },
     );
     ui.painter().vline(
-        rect.left() + 56.0,
+        rect.left() + 64.0,
         rect.y_range(),
         ui.visuals().widgets.noninteractive.bg_stroke,
     );
     response
+}
+
+/// 展开状态由 Palette 唯一维护；egui 只负责标题、箭头和裁剪动画。
+fn category_group<R>(
+    ui: &mut egui::Ui,
+    category: &str,
+    open: bool,
+    add_body: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::CollapsingResponse<R> {
+    ui.visuals_mut().collapsing_header_frame = true;
+    let text: egui::WidgetText = egui::RichText::new(category_label(category))
+        .color(crate::egui_ui::ui_color(crate::native_buttons::ACCENT))
+        .into();
+    let text = text.into_galley(
+        ui,
+        Some(egui::TextWrapMode::Truncate),
+        (ui.available_width() - ui.spacing().indent - ui.spacing().button_padding.x).max(0.0),
+        egui::TextStyle::Button,
+    );
+    egui::CollapsingHeader::new(text)
+        .id_salt(("palette_category", category))
+        .open(Some(open))
+        .show_unindented(ui, |ui| ui.add_enabled_ui(open, add_body).inner)
 }
 
 /// 首指按下时把拖拽候选交回已存在的滚动区，避免上一帧目录行的鼠标 Sense 抢占。
@@ -122,7 +148,6 @@ pub struct UiState {
     pub browser_scroll: Option<f32>,
     pub palette_scroll: Option<f32>,
     folder: PathBuf,
-    category: Option<String>,
     selection: Option<usize>,
     deletion_hint: Option<(u64, BTreeSet<PartKey>, String)>,
 }
@@ -275,7 +300,8 @@ fn panel_hint(action: &PanelButton) -> &'static str {
     match action {
         PanelButton::Folder => "选择并切换船体目录。",
         PanelButton::Refresh => "重新扫描当前目录的船体 XML 文件。",
-        PanelButton::Category(_) => "筛选部件类别；全部显示所有可用部件。",
+        PanelButton::ToggleCategory(_) => "展开或收起此类部件；Tab 跳过已收起的类别。",
+        PanelButton::ExpandCategories => "展开所有部件类别。",
         PanelButton::CancelPlacement => {
             "取消尚未提交的拖动、放置或选点，不修改文档（Esc / 右键）。"
         }
@@ -402,10 +428,6 @@ pub fn draw(
     if state.folder != browser.folder {
         state.folder = browser.folder.clone();
         state.browser_scroll = Some(0.0);
-    }
-    if state.category != palette.category {
-        state.category = palette.category.clone();
-        state.palette_scroll = Some(0.0);
     }
     let selection_changed = state.selection != Some(cursor.catalog_index);
     state.selection = Some(cursor.catalog_index);
@@ -623,33 +645,8 @@ pub fn draw(
                     }
                 });
             }
-            let mut categories: Vec<_> = document
-                .catalog
-                .visible()
-                .map(|kind| category_name(kind).to_owned())
-                .collect();
-            categories.sort();
-            categories.dedup();
-            ui.horizontal_wrapped(|ui| {
-                button(
-                    ui,
-                    PanelButton::Category(None),
-                    palette.category.is_none(),
-                    "全部",
-                    &mut state,
-                    &mut actions,
-                );
-                for category in categories {
-                    button(
-                        ui,
-                        PanelButton::Category(Some(category.clone())),
-                        palette.category.as_ref() == Some(&category),
-                        category,
-                        &mut state,
-                        &mut actions,
-                    );
-                }
-            });
+            button(ui, PanelButton::ExpandCategories, palette.collapsed.is_empty(),
+                "全部展开", &mut state, &mut actions);
             ui.separator();
             let scroll_id = ui.make_persistent_id(egui::IdSalt::new("part_palette_rows"));
             let mut scroll = egui::ScrollArea::vertical()
@@ -659,52 +656,65 @@ pub fn draw(
             if let Some(offset) = state.palette_scroll.take() {
                 scroll = scroll.vertical_scroll_offset(offset);
             }
-            let indices = palette.indices(&document.catalog);
+            let groups = palette.groups(&document.catalog);
             let kinds: Vec<_> = document.catalog.visible().collect();
             let output = scroll.show(ui, |ui| {
                 touch_scroll_area(ui, scroll_id);
-                for index in indices {
-                    let kind = kinds[index];
-                    let texture = *images.entry(kind.sprite.clone()).or_insert_with(|| {
-                        contexts.add_image(bevy_egui::EguiTextureHandle::Strong(
-                            if kind.sprite.is_empty() {
-                                Handle::<Image>::default()
-                            } else {
-                                assets.load(format!("textures/parts/{}", kind.sprite))
-                            },
-                        ))
+                ui.spacing_mut().item_spacing.y = 0.0;
+                for (category, indices) in groups {
+                    let open = !palette.collapsed.contains(category);
+                    let group = category_group(ui, category, open, |ui| {
+                        for index in indices {
+                            let kind = kinds[index];
+                            let texture = *images.entry(kind.sprite.clone()).or_insert_with(|| {
+                                contexts.add_image(bevy_egui::EguiTextureHandle::Strong(
+                                    if kind.sprite.is_empty() {
+                                        Handle::<Image>::default()
+                                    } else {
+                                        assets.load(format!("textures/parts/{}", kind.sprite))
+                                    },
+                                ))
+                            });
+                            let size = render::image_size(&kind.sprite, &assets, &image_assets)
+                                .unwrap_or_else(|| render::fallback_size(Some(kind)));
+                            let count = counts.get(&kind.id).copied().unwrap_or(0);
+                            let limit = kind
+                                .max_occurrences
+                                .map(|limit| format!(" {count}/{limit}"))
+                                .unwrap_or_default();
+                            let width = ui.available_width();
+                            let response = ui.push_id(("palette_part", &kind.id), |ui| {
+                                part_row(
+                                    ui,
+                                    texture,
+                                    size,
+                                    format!("{}{limit}", kind.name),
+                                    index == cursor.catalog_index,
+                                    width,
+                                )
+                            }).inner
+                            .on_hover_text(format!("{}\n点击选择，再点击画布放置；也可直接拖到画布。\n{}", kind.name, kind.description))
+                            .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再选择部件。");
+                            hit(ui, &response, PanelButton::Part(index), &mut state);
+                            if selection_changed && index == cursor.catalog_index {
+                                response.scroll_to_me(Some(egui::Align::Center));
+                            }
+                            if response.drag_started() {
+                                response.surrender_focus();
+                                actions.write(PanelButton::DragPart(index));
+                            } else if response.clicked() {
+                                response.surrender_focus();
+                                actions.write(PanelButton::Part(index));
+                                if compact { state.drawer = None; }
+                            }
+                        }
                     });
-                    let size = render::image_size(&kind.sprite, &assets, &image_assets)
-                        .unwrap_or_else(|| render::fallback_size(Some(kind)));
-                    let count = counts.get(&kind.id).copied().unwrap_or(0);
-                    let limit = kind
-                        .max_occurrences
-                        .map(|limit| format!(" {count}/{limit}"))
-                        .unwrap_or_default();
-                    let width = ui.available_width();
-                    let response = ui.push_id(("palette_part", &kind.id), |ui| {
-                        part_row(
-                            ui,
-                            texture,
-                            size,
-                            format!("{}{limit}", kind.name),
-                            index == cursor.catalog_index,
-                            width,
-                        )
-                    }).inner
-                    .on_hover_text(format!("{}\n点击选择，再点击画布放置；也可直接拖到画布。\n{}", kind.name, kind.description))
-                    .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再选择部件。");
-                    hit(ui, &response, PanelButton::Part(index), &mut state);
-                    if selection_changed && index == cursor.catalog_index {
-                        response.scroll_to_me(Some(egui::Align::Center));
-                    }
-                    if response.drag_started() {
+                    let action = PanelButton::ToggleCategory(category.to_owned());
+                    let response = group.header_response.on_hover_text(panel_hint(&action));
+                    hit(ui, &response, action.clone(), &mut state);
+                    if response.clicked() {
                         response.surrender_focus();
-                        actions.write(PanelButton::DragPart(index));
-                    } else if response.clicked() {
-                        response.surrender_focus();
-                        actions.write(PanelButton::Part(index));
-                        if compact { state.drawer = None; }
+                        actions.write(action);
                     }
                 }
             });
