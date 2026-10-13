@@ -1,10 +1,13 @@
 """单窗口简略/详细演示驱动：内部输入注入展示，不代表系统键鼠或前台验收。
 
 默认完成后保留编辑器；--fast 固定 40ms 且自动退出，仅供 UI 回归。
+每次运行在输出目录留下唯一进程名副本（含 SHA256 身份记录）后再启动，
+避免桌面工具按进程名沿用上一次尺寸；副本保留为证据，不删除。
 只读取原版样本并校验 SHA256，不保存或恢复覆盖任何原版文件。
 """
 import argparse
 from datetime import datetime
+import editor_session
 import hashlib
 import json
 import math
@@ -356,12 +359,15 @@ def run_demo(options, root=ROOT):
         if any(path.is_relative_to(output) for path in original):
             raise DemoError("输出目录不得包含受保护的原版样本，请改用独立演示目录")
         output.mkdir(parents=True, exist_ok=True)
-        command = [str(binary), "--demo-showcase", str(output), "--demo-mode", options.mode,
+        identity = editor_session.copy_for_run(binary, output)
+        command = [identity["copy_path"], "--demo-showcase", str(output), "--demo-mode", options.mode,
                    "--demo-step-ms", str(options.step_ms)]
         if options.exit_on_complete:
             command.append("--demo-exit-on-complete")
         label = "详细" if options.mode == "detailed" else "简略"
         count = len(chapter_ids(options.mode))
+        print(f"本次启动唯一进程名副本，避免桌面工具按进程名沿用旧尺寸：{identity['copy_path']}"
+              f"（源 {identity['source_path']}，SHA256 {identity['copy_sha256'][:12]}… 已核对一致）", flush=True)
         print(f"启动单窗口{label}演示（{count} 章）：动作间隔 {options.step_ms}ms；输出 {output}", flush=True)
         print("仅内部输入注入，无系统键鼠操作或前台抢占。", flush=True)
         with (output / "demo-editor.log").open("w", encoding="utf-8") as log:
@@ -392,7 +398,7 @@ def main(argv=None):
     options = parse_args(argv)
     try:
         run_demo(options)
-    except (DemoError, OSError, subprocess.SubprocessError) as error:
+    except (DemoError, editor_session.SessionError, OSError, subprocess.SubprocessError) as error:
         print(f"演示失败：{error}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

@@ -1,6 +1,7 @@
 """演示驱动单元测试：仅临时文件与 subprocess mock，无 GUI、键鼠、通知或构建副作用。"""
 from contextlib import redirect_stderr, redirect_stdout
 import copy
+import editor_session
 import importlib.util
 import io
 import json
@@ -79,7 +80,8 @@ class DemoTests(unittest.TestCase):
         self.process = Mock()
         self.process.poll.return_value = None
         self.process.wait.return_value = 0
-        self.silence = redirect_stdout(io.StringIO())
+        self.captured = io.StringIO()
+        self.silence = redirect_stdout(self.captured)
         self.silence.__enter__()
         self.addCleanup(self.silence.__exit__, None, None, None)
 
@@ -169,8 +171,22 @@ class DemoTests(unittest.TestCase):
         result, popen = self.invoke()
         self.assertEqual(result, self.report)
         command = popen.call_args.args[0]
-        self.assertEqual(command, [str(self.binary.resolve()), "--demo-showcase",
-                                   str(self.output.resolve()), "--demo-mode", "brief", "--demo-step-ms", "450"])
+        copy_path = Path(command[0])
+        self.assertEqual(command[1:], ["--demo-showcase", str(self.output.resolve()),
+                                       "--demo-mode", "brief", "--demo-step-ms", "450"])
+        self.assertEqual(copy_path, copy_path.resolve())
+        self.assertEqual(copy_path.parent, self.output.resolve())
+        self.assertNotEqual(copy_path, self.binary.resolve())
+        self.assertEqual(copy_path.suffix, self.binary.suffix)
+        self.assertTrue(copy_path.name.startswith("dr-editor-"))
+        self.assertEqual(copy_path.read_bytes(), self.binary.read_bytes())
+        self.assertEqual(self.binary.read_bytes(), b"mock exe")
+        session = json.loads((self.output / editor_session.SESSION_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(session, {"source_path": str(self.binary.resolve()),
+                                   "source_sha256": editor_session.file_sha256(self.binary),
+                                   "copy_path": str(copy_path),
+                                   "copy_sha256": editor_session.file_sha256(self.binary)})
+        self.assertIn(str(copy_path), self.captured.getvalue())
         self.assertEqual(popen.call_args.kwargs["cwd"], self.root.resolve())
         self.assertIs(popen.call_args.kwargs["stdout"], popen.call_args.kwargs["stderr"])
         self.process.terminate.assert_not_called()
