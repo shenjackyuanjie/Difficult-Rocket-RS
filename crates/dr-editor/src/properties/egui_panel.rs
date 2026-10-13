@@ -252,21 +252,23 @@ fn properties_body(
     ui.horizontal_wrapped(|ui| {
         action_button(ui, "↑ 目标", Action::CycleTarget(false), hits, pending);
         action_button(ui, "↓ 目标", Action::CycleTarget(true), hits, pending);
-        egui::ComboBox::from_id_salt("part_activation_target")
-            .selected_text(target_name)
-            .height(240.0)
-            .show_ui(ui, |ui| {
-                for part in group_parts.iter().filter(|part| counts[&part.id] == 1) {
-                    if ui
-                        .selectable_label(target == Some(part.id), part_description(document, part))
-                        .clicked()
-                    {
-                        draft.target = part.id.to_string();
-                        *edited = true;
-                    }
-                }
-            });
     });
+    egui::ComboBox::from_id_salt("part_activation_target")
+        .selected_text(target_name)
+        .width(ui.available_width().min(200.0))
+        .wrap_mode(egui::TextWrapMode::Truncate)
+        .height(240.0)
+        .show_ui(ui, |ui| {
+            for part in group_parts.iter().filter(|part| counts[&part.id] == 1) {
+                if ui
+                    .selectable_label(target == Some(part.id), part_description(document, part))
+                    .clicked()
+                {
+                    draft.target = part.id.to_string();
+                    *edited = true;
+                }
+            }
+        });
     ui.separator();
     action_button(ui, "+ 分级", Action::AddStep, hits, pending);
     let Some(staging) = &draft.staging else {

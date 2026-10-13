@@ -1,6 +1,4 @@
 use super::*;
-use bevy::picking::hover::Hovered;
-use bevy::ui::Pressed;
 use bevy::window::{FileDragAndDrop, WindowCloseRequested};
 use std::path::{Path, PathBuf};
 
@@ -533,12 +531,18 @@ pub(crate) fn setup_file_toolbar(mut commands: Commands, assets: Res<AssetServer
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                top: px(12),
-                left: px(16),
+                top: px(0),
+                left: px(0),
+                width: percent(100),
+                padding: UiRect::axes(px(16), px(12)),
+                align_items: AlignItems::Start,
+                align_content: AlignContent::Start,
                 column_gap: px(6),
                 ..default()
             },
             Name::new("文件工具栏"),
+            BackgroundColor(native_buttons::PANEL),
+            GlobalZIndex(-1),
             panels::EditorPanel,
             panels::ToolbarItem::Files,
         ))
@@ -559,25 +563,19 @@ pub(crate) fn setup_file_toolbar(mut commands: Commands, assets: Res<AssetServer
                             84.0
                         }),
                         min_height: px(44),
+                        border: UiRect::all(px(1)),
+                        border_radius: native_buttons::native_corners(),
                         flex_shrink: 0.0,
                         padding: UiRect::axes(px(8), px(7)),
                         align_items: AlignItems::Center,
                         justify_content: JustifyContent::Center,
                         ..default()
                     },
-                    BackgroundColor(Color::srgb(0.13, 0.18, 0.24)),
+                    BackgroundColor(native_buttons::BUTTON),
                     FileButton(action),
                 ))
                 .with_children(|button| {
-                    button.spawn((
-                        Text::new(label),
-                        TextFont {
-                            font: bevy::text::FontSource::Handle(font.clone()),
-                            font_size: FontSize::Px(16.0),
-                            ..default()
-                        },
-                        TextColor(Color::WHITE),
-                    ));
+                    button.spawn(native_buttons::label(label, font.clone()));
                 });
             }
         });
@@ -586,13 +584,7 @@ pub(crate) fn setup_file_toolbar(mut commands: Commands, assets: Res<AssetServer
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn toolbar_actions(
     mut activated: MessageReader<native_buttons::Activated>,
-    mut buttons: Query<(
-        Entity,
-        &FileButton,
-        Has<Pressed>,
-        &Hovered,
-        &mut BackgroundColor,
-    )>,
+    buttons: Query<&FileButton>,
     mut actions: MessageWriter<FileAction>,
     pending: Option<Res<PendingFileAction>>,
     help: Option<Res<crate::help::HelpState>>,
@@ -600,24 +592,6 @@ pub(crate) fn toolbar_actions(
     touch: Option<Res<mobile_input::GestureInput>>,
 ) {
     let touch = touch.as_deref();
-    for (entity, _, pressed, hovered, mut color) in &mut buttons {
-        let next = if let Some(touch) = touch.filter(|input| input.override_mouse) {
-            if touch.native_pressed == Some(entity) {
-                Color::srgb(0.3, 0.5, 0.65)
-            } else {
-                Color::srgb(0.13, 0.18, 0.24)
-            }
-        } else if pressed {
-            Color::srgb(0.3, 0.5, 0.65)
-        } else if hovered.get() {
-            Color::srgb(0.22, 0.32, 0.43)
-        } else {
-            Color::srgb(0.13, 0.18, 0.24)
-        };
-        if color.0 != next {
-            color.0 = next;
-        }
-    }
     if help.is_some_and(|state| state.open || state.suppress_frame)
         || pending.is_some_and(|state| state.is_blocked())
         || inspector.is_some_and(|state| state.is_open())
@@ -633,7 +607,7 @@ pub(crate) fn toolbar_actions(
         return;
     }
     for event in activated.read() {
-        if let Ok((_, button, _, _, _)) = buttons.get_mut(event.entity) {
+        if let Ok(button) = buttons.get(event.entity) {
             actions.write(button.0.clone());
         }
     }

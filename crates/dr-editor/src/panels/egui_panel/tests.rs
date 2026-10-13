@@ -1,7 +1,7 @@
 use super::*;
 
 fn painted_preview_size(size: Vec2) -> egui::Vec2 {
-    let ctx = egui::Context::default();
+    let ctx = crate::egui_ui::test_context();
     let texture = egui::TextureId::User(321);
     let mut rendered = None;
     // 首次布局的测量 pass 不作为最终可见绘制依据。
@@ -141,7 +141,7 @@ fn palette_columns_keep_name_left_aligned_and_image_center_fixed() {
             "名称很长的部件 Long Long Long Long Long Long Long Long",
         ),
     ] {
-        let ctx = egui::Context::default();
+        let ctx = crate::egui_ui::test_context();
         row_frame(&ctx, size, name, vec![]);
         let row = row_frame(&ctx, size, name, vec![]);
         let positions = (row.image.center().x, row.text.left());
@@ -169,7 +169,7 @@ fn palette_columns_keep_name_left_aligned_and_image_center_fixed() {
 
 #[test]
 fn clicking_image_or_name_selects_the_same_whole_row_button() {
-    let ctx = egui::Context::default();
+    let ctx = crate::egui_ui::test_context();
     let size = Vec2::new(30.0, 100.0);
     row_frame(&ctx, size, "Side Detacher", vec![]);
     let row = row_frame(&ctx, size, "Side Detacher", vec![]);
@@ -196,7 +196,7 @@ fn clicking_image_or_name_selects_the_same_whole_row_button() {
 
 #[test]
 fn dragging_from_the_name_column_starts_a_palette_gesture_without_a_click() {
-    let ctx = egui::Context::default();
+    let ctx = crate::egui_ui::test_context();
     let size = Vec2::new(129.0, 30.0);
     row_frame(&ctx, size, "Detacher", vec![]);
     let row = row_frame(&ctx, size, "Detacher", vec![]);
@@ -240,7 +240,7 @@ fn dragging_from_the_name_column_starts_a_palette_gesture_without_a_click() {
 
 #[test]
 fn disabled_directory_button_keeps_prerequisite_tooltip_and_no_hitmap() {
-    let ctx = egui::Context::default();
+    let ctx = crate::egui_ui::test_context();
     let mut rect = egui::Rect::NOTHING;
     let mut saw_hint = false;
     let mut stable_id = None;
@@ -359,7 +359,7 @@ fn follow_toggle_real_pointer_clicks_toggle_and_disabled_input_is_ignored_with_d
         ]
     }
 
-    let ctx = egui::Context::default();
+    let ctx = crate::egui_ui::test_context();
     let mut follow = false;
     let mut rect = egui::Rect::NOTHING;
     for index in 0..3 {
@@ -396,7 +396,7 @@ fn follow_toggle_real_pointer_clicks_toggle_and_disabled_input_is_ignored_with_d
     }
 
     // 新上下文只做真实悬停，避免点击抑制 tooltip 的时序影响。
-    let hover_ctx = egui::Context::default();
+    let hover_ctx = crate::egui_ui::test_context();
     let mut saw_hint = false;
     for index in 0..6 {
         let events = if index == 2 {
@@ -556,11 +556,8 @@ fn header_pass(root: &mut egui::Ui, state: &mut UiState, screen: egui::Vec2) -> 
             .layer_id(egui::LayerId::background())
             .max_rect(viewport),
     );
-    let toolbar = egui::Panel::top("directory_toolbar_space")
-        .exact_size(crate::panels::toolbar_height(width))
-        .frame(egui::Frame::NONE)
-        .show(&mut viewport_ui, |_| {});
-    state.areas.push(toolbar.response.rect);
+    let toolbar = reserve_native_toolbar(&mut viewport_ui, width);
+    state.areas.push(toolbar.rect);
     let header = egui::Panel::top("directory_navigation").show(&mut viewport_ui, |ui| {
         directory_header(ui, state, compact, true, true, true, true, true, true)
     });
@@ -594,7 +591,7 @@ fn header_pass(root: &mut egui::Ui, state: &mut UiState, screen: egui::Vec2) -> 
     }
     state.canvas_area = Some(canvas);
     LayoutFrame {
-        toolbar: toolbar.response.rect,
+        toolbar: toolbar.rect,
         header: header.response.rect,
         left,
         right,
@@ -699,7 +696,7 @@ fn directory_header_controls_fit_four_viewports_and_narrow_layouts_keep_a_full_w
         let viewport = egui::Rect::from_min_size(egui::Pos2::ZERO, screen);
         let compact = crate::panels::compact(width);
         let size = format!("{width}×{height}");
-        let ctx = egui::Context::default();
+        let ctx = crate::egui_ui::test_context();
         let mut state = UiState::default();
         // 头部 Panel 首帧按交互尺寸估高，先学到真实内容高度再取控件矩形。
         for pass in 0..2 {
@@ -846,7 +843,7 @@ fn single_drawer_toggle_keeps_one_sidebar_and_restores_the_full_width_canvas() {
         let screen = egui::vec2(width, height);
         let viewport = egui::Rect::from_min_size(egui::Pos2::ZERO, screen);
         let size = format!("{width}×{height}");
-        let ctx = egui::Context::default();
+        let ctx = crate::egui_ui::test_context();
         let mut state = UiState::default();
         // 同上：先让头部 Panel 学到真实内容高度，再读抽屉入口矩形。
         for pass in 0..2 {
@@ -1012,7 +1009,7 @@ fn touch_release(pos: egui::Pos2) -> Vec<egui::Event> {
 
 #[test]
 fn touch_scroll_swipe_on_palette_rows_never_clicks_or_starts_a_drag() {
-    let ctx = egui::Context::default();
+    let ctx = crate::egui_ui::test_context();
     let mut time = 0.0;
     for _ in 0..3 {
         palette_scroll_frame(&ctx, vec![], time);
@@ -1053,7 +1050,7 @@ fn touch_scroll_swipe_on_palette_rows_never_clicks_or_starts_a_drag() {
 
 #[test]
 fn touch_events_without_synchronized_pointer_events_neither_scroll_nor_click() {
-    let ctx = egui::Context::default();
+    let ctx = crate::egui_ui::test_context();
     let mut time = 0.0;
     for _ in 0..3 {
         palette_scroll_frame(&ctx, vec![], time);
@@ -1095,7 +1092,7 @@ fn touch_events_without_synchronized_pointer_events_neither_scroll_nor_click() {
 #[test]
 fn palette_short_replay_click_selects_once_but_one_second_hold_is_not_a_click() {
     for (hold, should_click) in [(0.045, true), (1.0, false)] {
-        let ctx = egui::Context::default();
+        let ctx = crate::egui_ui::test_context();
         let mut row = PaletteGesture::default();
         for time in [0.0, 0.016, 0.032] {
             row = palette_scroll_frame(&ctx, vec![], time);
@@ -1143,7 +1140,7 @@ fn palette_short_replay_click_selects_once_but_one_second_hold_is_not_a_click() 
 #[test]
 fn palette_touch_tap_selects_once_and_mouse_drag_survives_touch_input() {
     for tap_first in [false, true] {
-        let ctx = egui::Context::default();
+        let ctx = crate::egui_ui::test_context();
         let mut time = 0.0;
         for _ in 0..3 {
             palette_scroll_frame(&ctx, vec![], time);
@@ -1194,6 +1191,89 @@ fn palette_touch_tap_selects_once_and_mouse_drag_survives_touch_input() {
                 modifiers: egui::Modifiers::NONE,
             }],
             time,
+        );
+    }
+}
+
+#[test]
+fn reserved_toolbar_never_paints_over_native_buttons() {
+    fn covers(shape: &egui::epaint::Shape, toolbar: egui::Rect) -> bool {
+        match shape {
+            egui::epaint::Shape::Rect(rect) => {
+                rect.fill.a() > 0 && rect.rect.contains_rect(toolbar)
+            }
+            egui::epaint::Shape::Vec(shapes) => shapes.iter().any(|shape| covers(shape, toolbar)),
+            _ => false,
+        }
+    }
+    for size in [egui::vec2(320.0, 640.0), egui::vec2(1440.0, 900.0)] {
+        let ctx = crate::egui_ui::test_context();
+        let mut toolbar = egui::Rect::NOTHING;
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                ..default()
+            },
+            |ui| toolbar = reserve_native_toolbar(ui, size.x).rect,
+        );
+        assert_eq!(toolbar.height(), crate::panels::toolbar_height(size.x));
+        assert!(
+            !output
+                .shapes
+                .iter()
+                .any(|shape| covers(&shape.shape, toolbar)),
+            "egui 不得用不透明背景遮住原生顶栏"
+        );
+    }
+}
+
+#[test]
+fn virtual_browser_uses_measured_extent_and_keeps_the_last_row_reachable() {
+    for text_size in [12.5, 16.0, 22.0] {
+        let ctx = crate::egui_ui::test_context();
+        ctx.style_mut_of(ctx.theme(), |style| {
+            style.text_styles.insert(
+                egui::TextStyle::Button,
+                egui::FontId::proportional(text_size),
+            );
+        });
+        let mut offset = 0.0;
+        let mut last = egui::Rect::NOTHING;
+        let mut viewport = egui::Rect::NOTHING;
+        for frame in 0..4 {
+            let _ = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(248.0, 640.0),
+                    )),
+                    time: Some(f64::from(frame) * 0.02),
+                    ..default()
+                },
+                |ui| {
+                    let row_height = browser_row_height(ui);
+                    let output = egui::ScrollArea::vertical()
+                        .vertical_scroll_offset(offset)
+                        .show_rows(ui, row_height, 1000, |ui, rows| {
+                            for index in rows {
+                                let response = ui.add_sized(
+                                    [ui.available_width(), row_height],
+                                    egui::Button::new(format!("ship-{index:04}")).truncate(),
+                                );
+                                assert!(response.rect.height() <= row_height + 0.01);
+                                if index == 999 {
+                                    last = response.rect;
+                                }
+                            }
+                        });
+                    viewport = output.inner_rect;
+                    offset = (output.content_size.y - viewport.height()).max(0.0);
+                },
+            );
+        }
+        assert!(
+            viewport.expand(0.01).contains_rect(last),
+            "字号 {text_size} 的末行必须完全可见：{last:?} / {viewport:?}"
         );
     }
 }

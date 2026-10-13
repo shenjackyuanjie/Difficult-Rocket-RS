@@ -178,7 +178,7 @@ fn control(
         .on_hover_text(hint)
         .on_disabled_hover_text(hint);
     let rect = response.rect.intersect(ui.clip_rect());
-    if enabled && rect.is_positive() {
+    if response.enabled() && !ui.is_sizing_pass() && rect.is_positive() {
         hits.push((action.clone(), rect));
     }
     response.clicked().then_some(action)

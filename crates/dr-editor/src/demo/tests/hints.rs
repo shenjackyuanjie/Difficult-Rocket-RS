@@ -234,7 +234,7 @@ fn key_hints_use_logical_names_and_deduplicate_physical_keys() {
 #[test]
 fn key_hint_painter_does_not_block_underlying_input_and_stops_after_expiry() {
     use bevy_egui::egui;
-    let ctx = egui::Context::default();
+    let ctx = crate::egui_ui::test_context();
     let now = Instant::now();
     let hint = KeyHint {
         text: "Ctrl+Z".into(),
@@ -288,7 +288,7 @@ fn key_hint_painter_does_not_block_underlying_input_and_stops_after_expiry() {
 #[test]
 fn key_hint_below_help_avoids_minimum_window_sheet() {
     use bevy_egui::egui;
-    let ctx = egui::Context::default();
+    let ctx = crate::egui_ui::test_context();
     let now = Instant::now();
     let hint = KeyHint {
         text: "F4 · R".into(),

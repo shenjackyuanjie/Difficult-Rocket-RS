@@ -5,7 +5,7 @@ use bevy_egui::egui;
 #[test]
 fn detailed_property_caption_leaves_real_error_and_apply_cancel_visible_without_taking_input() {
     for width in [1440., 1920.] {
-        let ctx = egui::Context::default();
+        let ctx = crate::egui_ui::test_context();
         let mut document = crate::tests::document();
         document.select_only(Some(PartKey::new(0, 1, 0)));
         let mut inspector = properties::Inspector::default();
@@ -93,7 +93,7 @@ fn detailed_property_caption_leaves_real_error_and_apply_cancel_visible_without_
 
 #[test]
 fn ordinary_chapter_caption_keeps_the_original_center_bottom_placement() {
-    let ctx = egui::Context::default();
+    let ctx = crate::egui_ui::test_context();
     for frame in 0..3 {
         ctx.begin_pass(egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -117,4 +117,82 @@ fn ordinary_chapter_caption_keeps_the_original_center_bottom_placement() {
             assert!(rect.bottom() <= 887.);
         }
     }
+}
+
+#[test]
+fn topology_hit_map_waits_for_interactive_layout_before_self_link_click() {
+    use crate::topology_ui::{Action, ConnectionEditor, act, show};
+    let ctx = crate::egui_ui::test_context();
+    let mut document = crate::tests::document();
+    document.free_mode = true;
+    let key = PartKey::new(0, 1, 0);
+    let mut state = ConnectionEditor::default();
+    state.open = true;
+    state.parent = Some(key);
+    state.child = Some(key);
+    state.parent_attach = 1;
+    state.child_attach = 1;
+    let mut release = None;
+    let mut clicked = false;
+    for frame in 0..8 {
+        let mut events = vec![];
+        if let Some(pos) = release.take() {
+            events.extend([
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+        } else if !clicked
+            && let Some((_, rect)) = state
+                .hits
+                .iter()
+                .find(|(action, _)| *action == Action::Connect)
+        {
+            let pos = rect.center();
+            events.extend([
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+            release = Some(pos);
+            clicked = true;
+        }
+        ctx.begin_pass(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(960.0, 640.0),
+            )),
+            time: Some(f64::from(frame) * 0.04),
+            events,
+            ..default()
+        });
+        if let Some(action) = show(&ctx, &mut state, &document) {
+            act(action, &mut state, &mut document);
+        }
+        let _caption = paint(
+            &ctx,
+            "详细演示 15/19 · 拓扑边界",
+            "父/子设为同一实例，点击实际连接按钮后拒绝，文档和历史不变。",
+            Some(
+                "样例 1/4 · 树中拒绝自连接
+预期：父/子设为同一实例，点击实际连接按钮后拒绝，文档和历史不变。
+路径：实际 egui 连接树控件 · 断言待验证",
+            ),
+            std::time::Duration::from_millis(40),
+            None,
+        );
+        ctx.end_pass().textures_delta.clear();
+    }
+    assert!(
+        !document.status.is_empty(),
+        "真实自连接点击必须显示拒绝错误"
+    );
 }

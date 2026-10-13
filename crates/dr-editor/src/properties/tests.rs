@@ -315,9 +315,9 @@ fn action_app() -> App {
 fn widget_activation_routes_property_actions_and_preserves_single_undo() {
     let mut app = action_app();
     let before = app.world().resource::<EditorDocument>().ship.clone();
-    let open_button = app.world_mut().spawn(button(Action::Open, false)).id();
-    let cancel_button = app.world_mut().spawn(button(Action::Cancel, false)).id();
-    let apply_button = app.world_mut().spawn(button(Action::Apply, false)).id();
+    let open_button = app.world_mut().spawn(button(Action::Open)).id();
+    let cancel_button = app.world_mut().spawn(button(Action::Cancel)).id();
+    let apply_button = app.world_mut().spawn(button(Action::Apply)).id();
     let other = app.world_mut().spawn_empty().id();
     app.world_mut()
         .trigger(bevy::ui_widgets::Activate { entity: other });
@@ -380,7 +380,7 @@ fn widget_activation_routes_property_actions_and_preserves_single_undo() {
 fn property_actions_drop_help_blocked_activations_before_resuming() {
     for open in [true, false] {
         let mut app = action_app();
-        let entity = app.world_mut().spawn(button(Action::Open, false)).id();
+        let entity = app.world_mut().spawn(button(Action::Open)).id();
         *app.world_mut().resource_mut::<help::HelpState>() = help::HelpState {
             open,
             suppress_frame: !open,
@@ -406,7 +406,7 @@ fn property_actions_drop_help_blocked_activations_before_resuming() {
 fn native_property_click_opens_once_and_drops_compatible_mouse_activation() {
     let mut app = action_app();
     let before = app.world().resource::<EditorDocument>().ship.clone();
-    let entity = app.world_mut().spawn(button(Action::Open, false)).id();
+    let entity = app.world_mut().spawn(button(Action::Open)).id();
     app.world_mut().resource_mut::<DragState>().id = Some(PartKey::new(0, 1, 0));
     app.world_mut().resource_mut::<EditorCursor>().placing = true;
     {

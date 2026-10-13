@@ -221,6 +221,15 @@
 - 真实 XML 再验：`verify_catalog` 27 类部件 / 793 个元素与属性通过；`verify_ships` 185 个船体 / 125,856 个部件往返通过，仍拒绝 Alliance、Amect-MAIIa TEST、AmectVII、Ss、X Type 2 五个既有异常输入，实际退出码 1，不标为零错误通过。目录和 190 个船体文件共 191 份 XML 的 SHA-256 前后相同，见[目录日志](../target/validation-bevy020-catalog-20261013.log)、[船体日志](../target/validation-bevy020-ships-20261013.log)、[哈希记录](../target/validation-bevy020-xml-20261013.json)。
 - 阶段边界：serde_json 此时仍锁定 1.0.151，1.0.154 将单独升级提交；用户追加的原生 / egui 风格统一另作功能块，最终构建仍需重新执行观看与窗口验收。本轮不新增平台打包工程、不推送、不重写历史；物理触屏、系统键鼠、输入法和系统文字输入未测。
 
+## 2026-10-13 原生与 egui 轻量风格统一
+
+- 按追加要求统一深色背景、按钮状态色、16px 按钮字号、6px 圆角和间距；保留窄屏 44px 触控目标及原输入 / 事务。配色和反馈复用 `native_buttons`，egui 配置沿用 `egui_ui`，不新增主题模块或工程。文件、帮助、属性入口共用文字构造和状态反馈，删除属性按钮未使用的选中参数及被覆盖的旧尺寸配置。
+- 原生顶栏背景复用文件栏容器，egui 只透明保留该区域；生产与回归共用保留区函数，新增不透明遮盖回归。已实际查看[修复后的目录截图](../target/demo-theme-fast-fixed-20261013/editor-panels-smoke.png)及拓扑截图，原生文件 / 属性 / 帮助入口恢复，不用无头通过代替视觉检查。
+- 正式主题暴露的窄窗问题分别修正：属性目标选择单独成行并截断长名称；连线窗口按可用高度初始化，回归使用真实滚动视口而非外框中心判断完整可见；船体虚拟行复用 egui 按钮的文字 / 边距 / 描边尺寸，演示复用 `ScrollAreaOutput` 实测最大偏移，不再估算 32px 行距。覆盖 12.5 / 16 / 22px 字号的千行末项可达回归。
+- 自连接窗口断言失败已无头复现并定位到首次测量阶段过早发布拓扑命中矩形：只注册 `response.enabled()` 且非 sizing pass 的控件，保留真实点击、拒绝错误及历史断言。Painter 说明层重写的对照实验没有修复该问题，已撤回，不保留无证据的额外改动。
+- 本阶段在 serde_json 1.0.151 下实际执行 371 项 workspace Release 测试（core 104 / editor 267）、格式检查、严格全目标 Release Clippy 及 Release build，均通过：[测试](../target/validation-theme-rust-complete-20261013.log)、[Clippy](../target/validation-theme-clippy-complete-20261013.log)、[构建](../target/validation-theme-build-complete-20261013.log)。五项新增回归属于真实执行，不是窗口验收替代品。
+- 窗口失败如实保留：首轮 `demo-theme-fast-20261013` 原生顶栏被 egui 背景盖住，停在第 17 章，编辑器退出 0 但无完整报告、驱动退出 1；第二轮 `demo-theme-fast-fixed-20261013` 的极大滚动偏移方案仍未完成第 17 章，主动终止已核实路径的本次副本，编辑器退出 `4294967295`、驱动退出 1；第三轮 `demo-theme-measured-fast-20261013` 在第 15 章自连接断言失败，编辑器退出 101、驱动退出 1。全部未计为通过、未归类为焦点失败；开发中的 API 编译错误、布局失败和对照日志也保留在 `target/validation-theme-*`。最新修正后的完整窗口回放待最终 serde_json 集成构建重新执行。
+
 ## 后续必须完成的工作
 
 1. 文件工作流、常驻船体文件列表及目录切换已实现；1,000 个小船体目录、960×640 窗口及原生对话框失败/取消回归已验收；持续检查真实大文件目录的耗时。

@@ -66,7 +66,8 @@ pub(crate) fn run(
                 ui.browser_rows > 0 && ui.browser_rows < 80,
                 "虚拟列表应只绘制可见行"
             );
-            ui.browser_scroll = Some(browser.files.len() as f32 * 32.0);
+            // 复用 ScrollAreaOutput 实测的最大偏移，不估算行距，也不使用失去像素精度的极大值。
+            ui.browser_scroll = Some(ui.browser_max_scroll);
         }
         2 => {
             if ui.browser_offset <= 10000.0 {

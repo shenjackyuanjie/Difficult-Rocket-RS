@@ -7,12 +7,68 @@
 //!
 //! 另外，原生按钮只认鼠标主键：中键与右键的指针输入在 picking 的输入边界就被丢弃，
 //! 既不会激活按钮，也不会打断左键按住的状态。触摸走独立的 GestureInput 抬指路径。
+use crate::{files, help, mobile_input, properties};
 use bevy::picking::hover::Hovered;
 use bevy::picking::input::PointerInputSettings;
 use bevy::picking::pointer::{PointerAction, PointerButton, PointerId, PointerInput};
 use bevy::picking::{Pickable, PickingSystems};
 use bevy::prelude::*;
+use bevy::ui::Pressed;
 use bevy::ui_widgets::{Activate, ActivateOnPress, Button};
+
+pub(crate) const BUTTON: Color = Color::srgb(0.13, 0.18, 0.24);
+pub(crate) const HOVERED: Color = Color::srgb(0.22, 0.32, 0.43);
+pub(crate) const PRESSED: Color = Color::srgb(0.3, 0.5, 0.65);
+pub(crate) const SELECTED: Color = Color::srgb(0.2, 0.42, 0.53);
+pub(crate) const TEXT: Color = Color::srgb(0.92, 0.95, 1.0);
+pub(crate) const PANEL: Color = Color::srgb(0.10, 0.13, 0.17);
+pub(crate) const BORDER: Color = Color::srgb(0.23, 0.29, 0.36);
+pub(crate) const BUTTON_FONT_SIZE: f32 = 16.0;
+pub(crate) const RADIUS: u8 = 6;
+
+/// 0.20 的圆角是 Node 的字段；尺寸、触控高度和命中范围仍由调用方决定。
+pub(crate) fn native_corners() -> BorderRadius {
+    BorderRadius::all(px(f32::from(RADIUS)))
+}
+
+/// 所有顶栏入口复用同一份字体、字号、文字颜色与单行布局。
+pub(crate) fn label(value: impl Into<String>, font: Handle<Font>) -> impl Bundle {
+    (
+        Text::new(value),
+        TextFont {
+            font: bevy::text::FontSource::Handle(font),
+            font_size: FontSize::Px(BUTTON_FONT_SIZE),
+            ..default()
+        },
+        TextColor(TEXT),
+        TextLayout::default().with_no_wrap(),
+    )
+}
+
+/// 顶栏所有原生按钮共用状态色，包括属性入口；反馈本身不产生 Activate。
+pub(crate) fn update_native_buttons(
+    mut buttons: Query<(Entity, Has<Pressed>, &Hovered, &mut BackgroundColor), With<Button>>,
+    touch: Option<Res<mobile_input::GestureInput>>,
+) {
+    for (entity, pressed, hovered, mut color) in &mut buttons {
+        let next = if let Some(touch) = touch.as_deref().filter(|input| input.override_mouse) {
+            if touch.native_pressed == Some(entity) {
+                PRESSED
+            } else {
+                BUTTON
+            }
+        } else if pressed {
+            PRESSED
+        } else if hovered.get() {
+            HOVERED
+        } else {
+            BUTTON
+        };
+        if color.0 != next {
+            color.0 = next;
+        }
+    }
+}
 
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -43,6 +99,14 @@ impl Plugin for NativeButtonsPlugin {
             .add_systems(
                 First,
                 drop_foreign_mouse_buttons.in_set(PickingSystems::PostInput),
+            )
+            .add_systems(
+                Update,
+                update_native_buttons
+                    .after(mobile_input::input)
+                    .before(help::input)
+                    .before(properties::actions)
+                    .before(files::toolbar_actions),
             );
     }
 }
@@ -54,6 +118,7 @@ pub(crate) fn press_triggered() -> impl Bundle {
         ActivateOnPress,
         Hovered::default(),
         Pickable::default(),
+        BorderColor::all(BORDER),
     )
 }
 

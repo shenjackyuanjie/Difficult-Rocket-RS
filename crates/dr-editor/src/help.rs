@@ -1,7 +1,5 @@
 //! 按需显示操作说明，不让常驻 HUD 占据画布。
 use super::*;
-use bevy::picking::hover::Hovered;
-use bevy::ui::Pressed;
 use bevy_egui::{EguiContexts, egui};
 
 #[derive(Resource, Default)]
@@ -28,21 +26,17 @@ pub(crate) fn setup(mut commands: Commands, assets: Res<AssetServer>) {
             Node {
                 position_type: PositionType::Absolute,
                 min_height: px(HELP_MIN_HEIGHT),
+                border: UiRect::all(px(1)),
+                border_radius: native_buttons::native_corners(),
                 padding: UiRect::axes(px(12), px(7)),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::srgb(0.13, 0.18, 0.24)),
+            BackgroundColor(native_buttons::BUTTON),
         ))
         .with_children(|button| {
-            button.spawn((
-                Text::new(HELP_LABEL),
-                TextFont {
-                    font: bevy::text::FontSource::Handle(font),
-                    font_size: FontSize::Px(16.0),
-                    ..default()
-                },
-                TextColor(Color::WHITE),
-            ));
+            button.spawn(native_buttons::label(HELP_LABEL, font));
         });
 }
 
@@ -50,7 +44,7 @@ pub(crate) fn setup(mut commands: Commands, assets: Res<AssetServer>) {
 pub(crate) fn input(
     keys: Res<ButtonInput<KeyCode>>,
     mut activated: MessageReader<native_buttons::Activated>,
-    mut buttons: Query<(Entity, Has<Pressed>, &Hovered, &mut BackgroundColor), With<HelpButton>>,
+    buttons: Query<Entity, With<HelpButton>>,
     mut state: ResMut<HelpState>,
     inspector: Res<properties::Inspector>,
     topology: Res<topology_ui::ConnectionEditor>,
@@ -62,24 +56,6 @@ pub(crate) fn input(
     mut pointer: ResMut<panels::UiPointer>,
 ) {
     let touch = touch.as_deref();
-    for (entity, pressed, hovered, mut color) in &mut buttons {
-        let next = if let Some(touch) = touch.filter(|input| input.override_mouse) {
-            if touch.native_pressed == Some(entity) {
-                Color::srgb(0.3, 0.5, 0.65)
-            } else {
-                Color::srgb(0.13, 0.18, 0.24)
-            }
-        } else if pressed {
-            Color::srgb(0.3, 0.5, 0.65)
-        } else if hovered.get() {
-            Color::srgb(0.22, 0.32, 0.43)
-        } else {
-            Color::srgb(0.13, 0.18, 0.24)
-        };
-        if color.0 != next {
-            color.0 = next;
-        }
-    }
     state.suppress_frame = false;
     if inspector.is_open() || topology.open || pending.is_blocked() {
         activated.clear();
@@ -203,6 +179,7 @@ pub(crate) fn draw(mut contexts: EguiContexts, mut state: ResMut<HelpState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ui::Pressed;
 
     #[derive(Resource, Default)]
     struct CanvasTicks(u32);
@@ -442,7 +419,7 @@ mod tests {
                 .iter()
                 .any(|(_, text)| text.contains("拖拽中可组合旋转"))
         );
-        let ctx = egui::Context::default();
+        let ctx = crate::egui_ui::test_context();
         let mut open = true;
         let mut output = ctx.run_ui(egui::RawInput::default(), |_| show(&ctx, &mut open));
         output.textures_delta.clear();
@@ -498,7 +475,7 @@ mod tests {
             (640.0, 360.0),
             (1280.0, 800.0),
         ] {
-            let ctx = egui::Context::default();
+            let ctx = crate::egui_ui::test_context();
             let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, height));
             let mut open = true;
             let mut window = egui::Rect::NOTHING;

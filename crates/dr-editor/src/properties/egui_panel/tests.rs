@@ -21,7 +21,7 @@ impl Panel {
         .unwrap();
         document.saved_ship = document.ship.clone();
         let mut panel = Self {
-            ctx: egui::Context::default(),
+            ctx: crate::egui_ui::test_context(),
             inspector: Inspector::default(),
             document,
             hits: vec![],
@@ -279,7 +279,7 @@ fn compact_staging_buttons_keep_boundary_hits_and_draft_transaction() {
 
 #[test]
 fn disabled_stage_arrow_explains_boundary_without_exposing_hit() {
-    let ctx = egui::Context::default();
+    let ctx = crate::egui_ui::test_context();
     let mut rect = egui::Rect::NOTHING;
     let mut saw_hint = false;
     for frame in 0..6 {

@@ -167,58 +167,36 @@ pub enum Action {
     Moved(usize, usize),
 }
 
-fn label(value: impl Into<String>, font: &Handle<Font>, size: f32) -> impl Bundle {
-    (
-        Text::new(value),
-        TextFont {
-            font: bevy::text::FontSource::Handle(font.clone()),
-            font_size: FontSize::Px(size),
-            ..default()
-        },
-        TextColor(Color::srgb(0.92, 0.95, 1.0)),
-        TextLayout::default().with_no_wrap(),
-    )
-}
-
-fn button(action: Action, selected: bool) -> impl Bundle {
+fn button(action: Action) -> impl Bundle {
     (
         native_buttons::press_triggered(),
         action,
-        Node {
-            padding: UiRect::axes(px(10), px(6)),
-            flex_shrink: 0.0,
-            min_height: px(30),
-            height: px(34),
-            overflow: Overflow::clip(),
-            align_items: AlignItems::Center,
-            ..default()
-        },
-        BackgroundColor(if selected {
-            Color::srgb(0.2, 0.42, 0.53)
-        } else {
-            Color::srgb(0.13, 0.18, 0.24)
-        }),
+        BackgroundColor(native_buttons::BUTTON),
     )
 }
 
 pub fn setup(mut commands: Commands, assets: Res<AssetServer>) {
     let font = assets.load("fonts/HarmonyOS_Sans/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ttf");
     commands
-        .spawn(button(Action::Open, false))
+        .spawn(button(Action::Open))
         .insert((
             Node {
                 position_type: PositionType::Absolute,
                 top: px(12),
                 left: px(500),
+                border: UiRect::all(px(1)),
+                border_radius: native_buttons::native_corners(),
                 padding: UiRect::axes(px(12), px(7)),
                 min_height: px(44),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
                 ..default()
             },
             panels::EditorPanel,
             panels::ToolbarItem::Properties,
         ))
         .with_children(|root| {
-            root.spawn(label("≡ 属性 / 分级", &font, 16.0));
+            root.spawn(native_buttons::label("≡ 属性 / 分级", font));
         });
 }
 

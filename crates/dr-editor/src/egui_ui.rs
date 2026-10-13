@@ -25,6 +25,7 @@ impl Plugin for EditorEguiPlugin {
             .add_systems(
                 EguiPrimaryContextPass,
                 (
+                    configure,
                     panels::egui_panel::draw,
                     draw,
                     topology_ui::draw,
@@ -133,7 +134,7 @@ fn configure_chinese_font(ctx: &egui::Context, paths: &EditorPaths) {
             fonts
                 .font_data
                 .insert(name.clone(), egui::FontData::from_owned(bytes).into());
-            // 保留 egui 默认字形及等宽字体；只补入中文字体，不调整全局视觉主题。
+            // 保留 egui 默认字形及等宽字体；原生顶栏也使用同一份中文字体。
             fonts
                 .families
                 .entry(egui::FontFamily::Proportional)
@@ -150,13 +151,84 @@ fn configure_chinese_font(ctx: &egui::Context, paths: &EditorPaths) {
     }
 }
 
+fn ui_color(color: Color) -> egui::Color32 {
+    let [r, g, b, a] = color.to_srgba().to_u8_array();
+    egui::Color32::from_rgba_unmultiplied(r, g, b, a)
+}
+
+fn configure_theme(ctx: &egui::Context) {
+    use crate::native_buttons::{
+        BORDER, BUTTON, BUTTON_FONT_SIZE, HOVERED, PANEL, PRESSED, RADIUS, SELECTED, TEXT,
+    };
+    // 原生顶栏始终是深色，egui 不随系统主题变成另一套界面。
+    ctx.set_theme(egui::Theme::Dark);
+    ctx.style_mut_of(egui::Theme::Dark, |style| {
+        for (kind, size) in [
+            (egui::TextStyle::Body, 15.0),
+            (egui::TextStyle::Button, BUTTON_FONT_SIZE),
+            (egui::TextStyle::Heading, 20.0),
+            (egui::TextStyle::Small, 12.0),
+        ] {
+            style
+                .text_styles
+                .insert(kind, egui::FontId::proportional(size));
+        }
+        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        style.spacing.button_padding = egui::vec2(10.0, 5.0);
+        style.spacing.interact_size = egui::vec2(40.0, 28.0);
+        style.spacing.window_margin = egui::Margin::same(12);
+        let visuals = &mut style.visuals;
+        visuals.panel_fill = ui_color(PANEL);
+        visuals.window_fill = ui_color(PANEL);
+        visuals.extreme_bg_color = ui_color(Color::srgb(0.07, 0.09, 0.12));
+        visuals.faint_bg_color = ui_color(BUTTON);
+        visuals.window_stroke = egui::Stroke::new(1.0, ui_color(BORDER));
+        visuals.window_corner_radius = egui::CornerRadius::same(RADIUS);
+        visuals.menu_corner_radius = egui::CornerRadius::same(RADIUS);
+        visuals.weak_text_color = Some(ui_color(Color::srgb(0.62, 0.69, 0.78)));
+        visuals.selection.bg_fill = ui_color(SELECTED);
+        visuals.selection.stroke = egui::Stroke::new(1.0, ui_color(TEXT));
+        visuals.hyperlink_color = ui_color(PRESSED);
+        for (widget, background) in [
+            (&mut visuals.widgets.noninteractive, PANEL),
+            (&mut visuals.widgets.inactive, BUTTON),
+            (&mut visuals.widgets.hovered, HOVERED),
+            (&mut visuals.widgets.active, PRESSED),
+            (&mut visuals.widgets.open, SELECTED),
+        ] {
+            widget.bg_fill = ui_color(background);
+            widget.weak_bg_fill = ui_color(background);
+            widget.bg_stroke = egui::Stroke::new(1.0, ui_color(BORDER));
+            widget.fg_stroke = egui::Stroke::new(1.0, ui_color(TEXT));
+            widget.corner_radius = egui::CornerRadius::same(RADIUS);
+            widget.expansion = 0.0;
+        }
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn test_context() -> egui::Context {
+    let ctx = egui::Context::default();
+    configure_theme(&ctx);
+    ctx
+}
+
+fn configure(mut contexts: EguiContexts, paths: Res<EditorPaths>, mut configured: Local<bool>) {
+    if *configured {
+        return;
+    }
+    let Ok(ctx) = contexts.ctx_mut() else { return };
+    configure_theme(ctx);
+    configure_chinese_font(ctx, &paths);
+    *configured = true;
+}
+
 pub fn draw(
     mut contexts: EguiContexts,
     paths: Res<EditorPaths>,
     mut inspector: ResMut<properties::Inspector>,
     mut document: ResMut<EditorDocument>,
     mut hits: ResMut<UiHits>,
-    mut font_configured: Local<bool>,
     mut pending: ResMut<files::PendingFileAction>,
 ) {
     hits.0.clear();
@@ -164,10 +236,6 @@ pub fn draw(
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
-    if !*font_configured {
-        configure_chinese_font(ctx, &paths);
-        *font_configured = true;
-    }
     if pending.is_blocked() {
         files::show_confirmation(ctx, &mut pending, &paths);
         return;
@@ -281,7 +349,8 @@ impl UiTestInput {
 
 #[cfg(test)]
 mod tests {
-    use super::{UiTestInput, egui};
+    use super::{UiTestInput, configure_theme, egui, test_context, ui_color};
+    use crate::native_buttons::{self, *};
     use bevy::prelude::*;
     use bevy_egui::EguiInput;
 
@@ -294,7 +363,7 @@ mod tests {
     impl ButtonFrames {
         fn new() -> Self {
             let mut frames = Self {
-                ctx: egui::Context::default(),
+                ctx: crate::egui_ui::test_context(),
                 rect: egui::Rect::NOTHING,
             };
             for time in [0.0, 0.016, 0.032] {
@@ -439,6 +508,59 @@ mod tests {
         assert!(
             frames.release(0.145, &mut driver),
             "隔离原生指针后持续补虚拟 Move，45ms 短点击应成功"
+        );
+    }
+    #[test]
+    fn egui_and_native_buttons_share_palette_font_and_corners() {
+        let ctx = test_context();
+        let style = ctx.style_of(egui::Theme::Dark);
+        assert_eq!(style.visuals.widgets.inactive.bg_fill, ui_color(BUTTON));
+        assert_eq!(style.visuals.widgets.hovered.bg_fill, ui_color(HOVERED));
+        assert_eq!(style.visuals.widgets.active.bg_fill, ui_color(PRESSED));
+        assert_eq!(style.visuals.selection.bg_fill, ui_color(SELECTED));
+        assert_eq!(style.visuals.text_color(), ui_color(TEXT));
+        assert_eq!(
+            style.text_styles[&egui::TextStyle::Button].size,
+            BUTTON_FONT_SIZE
+        );
+        assert_eq!(
+            style.visuals.widgets.inactive.corner_radius,
+            egui::CornerRadius::same(RADIUS)
+        );
+        let mut world = World::new();
+        let entity = world
+            .spawn((
+                native_buttons::press_triggered(),
+                Node {
+                    border_radius: native_corners(),
+                    ..default()
+                },
+            ))
+            .id();
+        assert_eq!(
+            world.get::<Node>(entity).unwrap().border_radius,
+            BorderRadius::all(px(f32::from(RADIUS)))
+        );
+        assert_eq!(
+            world.get::<BorderColor>(entity),
+            Some(&BorderColor::all(BORDER))
+        );
+    }
+
+    #[test]
+    fn theme_preserves_focus_and_shared_spacing() {
+        let ctx = egui::Context::default();
+        let focus = egui::Id::new("保留草稿焦点");
+        ctx.memory_mut(|memory| memory.request_focus(focus));
+        configure_theme(&ctx);
+        assert_eq!(ctx.memory(|memory| memory.focused()), Some(focus));
+        assert_eq!(
+            ctx.style_of(egui::Theme::Dark).spacing.interact_size.y,
+            28.0
+        );
+        assert_eq!(
+            ctx.style_of(egui::Theme::Dark).spacing.item_spacing,
+            egui::vec2(8.0, 6.0)
         );
     }
 }

@@ -206,7 +206,7 @@ fn show(
     ctx: &egui::Context,
     settings: &mut Settings,
     controls: &mut Controls,
-) -> Option<egui::Rect> {
+) -> Option<(egui::Rect, egui::Rect)> {
     controls.0.clear();
     if !settings.open {
         return None;
@@ -219,6 +219,7 @@ fn show(
         .id(egui::Id::new("connection_line_settings"))
         .default_pos(pos)
         .default_width(width)
+        .default_height(body + CHROME_HEIGHT)
         .max_height(body + CHROME_HEIGHT)
         .open(&mut open);
     // 只有可用宽度不足时才限制窗口宽度，宽屏保留原有的自由调整。
@@ -303,10 +304,14 @@ fn show(
                     };
                 }
                 ui.small("Esc 关闭；隐藏连接线不会隐藏自由模式的端点提示。");
-            });
+            })
     });
     settings.open = open;
-    shown.map(|shown| shown.response.rect)
+    shown.and_then(|shown| {
+        shown
+            .inner
+            .map(|scroll| (shown.response.rect, scroll.inner_rect))
+    })
 }
 
 pub(crate) fn ui(
@@ -405,7 +410,7 @@ mod tests {
 
     #[test]
     fn actual_controls_toggle_color_width_patterns_effects_and_reset() {
-        let ctx = egui::Context::default();
+        let ctx = crate::egui_ui::test_context();
         let mut settings = Settings {
             open: true,
             ..default()
@@ -504,14 +509,16 @@ mod tests {
     struct Frames {
         ctx: egui::Context,
         area: egui::Rect,
+        body: egui::Rect,
         seconds: f64,
     }
 
     impl Frames {
         fn new(width: f32, height: f32) -> Self {
             Self {
-                ctx: egui::Context::default(),
+                ctx: crate::egui_ui::test_context(),
                 area: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, height)),
+                body: egui::Rect::NOTHING,
                 seconds: 0.0,
             }
         }
@@ -530,7 +537,8 @@ mod tests {
                 events,
                 ..default()
             });
-            let window = show(&self.ctx, settings, controls).expect("设置窗口应保持打开");
+            let (window, body) = show(&self.ctx, settings, controls).expect("设置窗口应保持打开");
+            self.body = body;
             self.ctx.end_pass().textures_delta.clear();
             window
         }
@@ -631,20 +639,21 @@ mod tests {
         frames: &mut Frames,
         settings: &mut Settings,
         controls: &mut Controls,
-        window: egui::Rect,
         label: &str,
     ) {
         let arrows = control_rect(controls, Control::Arrows);
         assert!(
-            window.contains(arrows.center()),
-            "{label} 方向箭头不在窗口内：{arrows:?} / {window:?}"
+            frames.body.contains_rect(arrows),
+            "{label} 方向箭头不在滚动视口内：{arrows:?} / {:?}",
+            frames.body
         );
         frames.click(arrows.center(), settings, controls);
         assert!(settings.arrows, "{label} 方向箭头点击未生效");
         let reset = control_rect(controls, Control::Reset);
         assert!(
-            window.contains(reset.center()),
-            "{label} “恢复默认”不在窗口内：{reset:?} / {window:?}"
+            frames.body.contains_rect(reset),
+            "{label} “恢复默认”不在滚动视口内：{reset:?} / {:?}",
+            frames.body
         );
         frames.click(reset.center(), settings, controls);
         assert_eq!(
@@ -680,10 +689,11 @@ mod tests {
             }
             let reset = control_rect(&controls, Control::Reset);
             assert!(
-                window.contains(reset.center()),
-                "{label} 正文应当放得下：{reset:?} / {window:?}"
+                frames.body.contains_rect(reset),
+                "{label} 正文应当放得下：{reset:?} / {:?}",
+                frames.body
             );
-            click_last_controls(&mut frames, &mut settings, &mut controls, window, &label);
+            click_last_controls(&mut frames, &mut settings, &mut controls, &label);
         }
     }
 
@@ -702,7 +712,7 @@ mod tests {
         assert_touch_targets(&controls, window, &label);
         let reset = control_rect(&controls, Control::Reset);
         assert!(
-            !window.contains(reset.center()),
+            !frames.body.contains_rect(reset),
             "{label} 触控尺寸下正文应超出窗口：{reset:?} / {window:?}"
         );
         frames.scroll_down(window.center(), &mut settings, &mut controls);
@@ -710,14 +720,14 @@ mod tests {
         let arrows = control_rect(&controls, Control::Arrows);
         let reset = control_rect(&controls, Control::Reset);
         assert!(
-            window.contains(arrows.center()) && window.contains(reset.center()),
+            frames.body.contains_rect(arrows) && frames.body.contains_rect(reset),
             "{label} 滚动后仍无法触达尾部控件：{arrows:?} {reset:?} / {window:?}"
         );
         frames.click(arrows.center(), &mut settings, &mut controls);
         assert!(settings.arrows, "{label} 滚动后的方向箭头点击未生效");
         let reset = control_rect(&controls, Control::Reset);
         assert!(
-            window.contains(reset.center()),
+            frames.body.contains_rect(reset),
             "{label} 滚动后的“恢复默认”被移出窗口：{reset:?}"
         );
         frames.click(reset.center(), &mut settings, &mut controls);
@@ -738,16 +748,19 @@ mod tests {
         let (width, height) = (320.0, 640.0);
         let label = format!("{width}x{height}");
         assert!(panels::compact(width), "窄竖屏应使用紧凑触控布局");
-        let (mut frames, mut settings, mut controls, mut window) = open_window(width, height);
+        let (mut frames, mut settings, mut controls, window) = open_window(width, height);
         assert!(
             frames.area.contains_rect(window),
             "{label} 设置窗口超出可用区域：{window:?}"
         );
         assert_touch_targets(&controls, window, &label);
-        if !window.contains(control_rect(&controls, Control::Reset).center()) {
+        if !frames
+            .body
+            .contains_rect(control_rect(&controls, Control::Reset))
+        {
             frames.scroll_down(window.center(), &mut settings, &mut controls);
-            window = frames.frame(vec![], &mut settings, &mut controls);
+            frames.frame(vec![], &mut settings, &mut controls);
         }
-        click_last_controls(&mut frames, &mut settings, &mut controls, window, &label);
+        click_last_controls(&mut frames, &mut settings, &mut controls, &label);
     }
 }

@@ -65,9 +65,11 @@ pub(crate) fn layout_toolbars(
         };
         match item {
             ToolbarItem::Files => {
-                next.width = px(file_toolbar_width(width));
-                next.top = px(12);
-                next.left = px(16);
+                // 复用文件栏容器承载整条原生背景，按钮仍由左右 16 像素内边距排布。
+                next.width = px(width);
+                next.height = px(toolbar_height(width));
+                next.top = px(0);
+                next.left = px(0);
                 next.flex_wrap = FlexWrap::Wrap;
                 next.row_gap = px(6);
             }

@@ -46,7 +46,7 @@ struct Panel {
 impl Panel {
     fn new() -> Self {
         let mut result = Self {
-            ctx: egui::Context::default(),
+            ctx: crate::egui_ui::test_context(),
             state: ConnectionEditor {
                 open: true,
                 ..Default::default()
@@ -262,7 +262,7 @@ fn docking_connect_requires_connector_and_disabled_controls_have_no_hits() {
 
 #[test]
 fn disabled_unlink_shows_prerequisite_and_cannot_dispatch() {
-    let ctx = egui::Context::default();
+    let ctx = crate::egui_ui::test_context();
     let mut rect = egui::Rect::NOTHING;
     let mut saw_hint = false;
     for frame in 0..6 {
@@ -318,7 +318,7 @@ struct Responsive {
 impl Responsive {
     fn new(width: f32, height: f32) -> Self {
         let mut result = Self {
-            ctx: egui::Context::default(),
+            ctx: crate::egui_ui::test_context(),
             state: ConnectionEditor {
                 open: true,
                 ..Default::default()

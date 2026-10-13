@@ -1,4 +1,5 @@
 use super::*;
+use bevy::ui::Pressed;
 use std::collections::VecDeque;
 
 #[derive(Default)]
@@ -1141,7 +1142,7 @@ fn modal_buttons_escape_and_backdrop_follow_explicit_choices() {
     ] {
         let (document, paths, _) = context();
         let before = document.ship.clone();
-        let ctx = egui::Context::default();
+        let ctx = crate::egui_ui::test_context();
         let mut pending = PendingFileAction {
             action: Some(FileAction::Exit),
             ..Default::default()
@@ -1166,7 +1167,7 @@ fn modal_buttons_escape_and_backdrop_follow_explicit_choices() {
         assert_eq!(document.ship, before);
     }
     let (_, paths, _) = context();
-    let ctx = egui::Context::default();
+    let ctx = crate::egui_ui::test_context();
     let mut pending = PendingFileAction {
         action: Some(FileAction::New),
         ..Default::default()
@@ -1200,7 +1201,7 @@ fn unsaved_confirmation_keeps_all_three_choices_inside_touch_screens() {
     ] {
         let (_, mut paths, _) = context();
         paths.ship = Some(format!("{}.xml", "很长的船体文件名称".repeat(40)));
-        let ctx = egui::Context::default();
+        let ctx = crate::egui_ui::test_context();
         let mut pending = PendingFileAction {
             action: Some(FileAction::Exit),
             ..Default::default()

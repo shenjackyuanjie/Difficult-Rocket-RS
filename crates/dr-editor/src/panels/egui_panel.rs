@@ -116,6 +116,7 @@ pub struct UiState {
     pub pixels_per_point: f32,
     pub scrolling: bool,
     pub browser_offset: f32,
+    pub browser_max_scroll: f32,
     pub palette_offset: f32,
     pub browser_rows: usize,
     pub browser_scroll: Option<f32>,
@@ -309,6 +310,28 @@ fn hit(ui: &egui::Ui, response: &egui::Response, action: PanelButton, state: &mu
     }
 }
 
+/// 复用 egui 按钮的真实文字、边距与描边尺寸，虚拟列表不能把末行挤出滚动范围。
+fn browser_row_height(ui: &egui::Ui) -> f32 {
+    let button = ui.style().button_style(
+        &egui::widget_style::Classes::default(),
+        egui::widget_style::WidgetState::Inactive,
+    );
+    ui.spacing()
+        .interact_size
+        .y
+        .max(ui.text_style_height(&egui::TextStyle::Button) + button.frame.total_margin().sum().y)
+        .ceil()
+}
+
+/// 只保留原生顶栏的布局和命中空隙，不绘制盖在 Bevy UI 上方的背景。
+fn reserve_native_toolbar(ui: &mut egui::Ui, width: f32) -> egui::Response {
+    egui::Panel::top("directory_toolbar_space")
+        .exact_size(panels::toolbar_height(width))
+        .frame(egui::Frame::NONE)
+        .show(ui, |_| {})
+        .response
+}
+
 // 将可选资源合并为一个参数，保持在 Bevy 系统参数数量限制内。
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn draw(
@@ -409,11 +432,8 @@ pub fn draw(
             .max_rect(ctx.viewport_rect()),
     );
     // 整个原生顶栏（包括空隙）均归 UI，触摸滚动不落到画布。
-    let toolbar = egui::Panel::top("directory_toolbar_space")
-        .exact_size(panels::toolbar_height(width))
-        .frame(egui::Frame::NONE)
-        .show(&mut viewport_ui, |_| {});
-    state.areas.push(toolbar.response.rect);
+    let toolbar = reserve_native_toolbar(&mut viewport_ui, width);
+    state.areas.push(toolbar.rect);
     let header = egui::Panel::top("directory_navigation").show(&mut viewport_ui, |ui| {
         directory_header(
             ui,
@@ -489,7 +509,7 @@ pub fn draw(
                 if let Some(offset) = state.browser_scroll.take() {
                     scroll = scroll.vertical_scroll_offset(offset);
                 }
-                let row_height = if compact { 44.0 } else { 28.0 };
+                let row_height = browser_row_height(ui);
                 let output = scroll.show_rows(ui, row_height, browser.files.len(), |ui, rows| {
                     state.browser_rows = rows.len();
                     for index in rows {
@@ -520,6 +540,8 @@ pub fn draw(
                     }
                 });
                 state.browser_offset = output.state.offset.y;
+                state.browser_max_scroll =
+                    (output.content_size.y - output.inner_rect.height()).max(0.0);
             });
         state.areas.push(left.response.rect);
     }

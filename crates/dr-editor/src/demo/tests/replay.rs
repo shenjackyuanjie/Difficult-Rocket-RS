@@ -319,7 +319,7 @@ fn configuration_click_then_home_resets_camera_only_after_returning_to_canvas() 
 fn egui_click_release_keeps_explicit_target_when_smoke_window_pointer_is_stale() {
     use bevy_egui::egui;
     for step in [40, 450] {
-        let ctx = egui::Context::default();
+        let ctx = crate::egui_ui::test_context();
         let mut selected = false;
         let mut frame = |time, events| {
             let mut rect = egui::Rect::NOTHING;
