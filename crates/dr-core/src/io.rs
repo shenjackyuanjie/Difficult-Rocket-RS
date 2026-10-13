@@ -368,7 +368,7 @@ fn validate_ship_root(source: &str) -> Result<(), CoreError> {
         match event {
             Event::Start(ref element) | Event::Empty(ref element) => {
                 if depth == 0 {
-                    if seen_root || element.name().as_ref() != b"Ship" {
+                    if seen_root || element.name().into_inner() != "Ship" {
                         return Err(CoreError::InvalidDocument(
                             "必须且只能有一个 Ship 根元素".into(),
                         ));
@@ -385,7 +385,7 @@ fn validate_ship_root(source: &str) -> Result<(), CoreError> {
                     .ok_or_else(|| CoreError::InvalidDocument("多余的结束标签".into()))?;
             }
             Event::Text(text)
-                if depth == 0 && !text.as_ref().iter().all(u8::is_ascii_whitespace) =>
+                if depth == 0 && !text.as_ref().as_bytes().iter().all(u8::is_ascii_whitespace) =>
             {
                 return Err(CoreError::InvalidDocument("根元素外存在文本".into()));
             }
@@ -728,10 +728,61 @@ mod tests {
             "<Ship><Unknown/></Ship>",
             "<Ship><Parts><Part id=\"1\" futureField=\"1\"/></Parts></Ship>",
             "<Ship><Parts><Part id=\"1\"><Tank fuel=\"2\"/><Engine fuel=\"3\"/></Part></Parts></Ship>",
+            "<Ship/>&#65;",
+            "<Ship/>&amp;",
         ] {
             assert!(ship_from_xml(input).is_err(), "错误输入被静默接受：{input}");
         }
         assert!(ship_from_xml("<?xml version=\"1.0\"?><!-- 注释 --><Ship/><!-- 结尾 -->").is_ok());
+        // 根外的 ASCII 空白仍然允许，非 ASCII 空白仍按内容拒绝。
+        assert!(ship_from_xml("\n  <Ship/>\t\r\n").is_ok());
+        assert!(ship_from_xml("<Ship/>\u{3000}").is_err());
+    }
+
+    #[test]
+    fn resolves_character_references_inside_root() {
+        let ship = ship_from_xml(
+            r#"<Ship name="A&#65;&#x42;" description="p&#45;1"><Parts><Part id="1" partType="pod&#45;1"/></Parts></Ship>"#,
+        )
+        .unwrap();
+        assert_eq!(ship.name, "AAB");
+        assert_eq!(ship.description, "p-1");
+        assert_eq!(ship.parts[0].part_type, "pod-1");
+    }
+
+    #[test]
+    fn preserves_attribute_whitespace_through_roundtrip() {
+        let ship = Ship {
+            name: "甲\r\n\t乙".into(),
+            description: "回车\r换行\n制表\t".into(),
+            ..Ship::default()
+        };
+        let xml = ship_to_xml(&ship).unwrap();
+        // 属性值里的回车、换行、制表符要写成字符引用，否则读回时会被属性值空白归一化压成空格。
+        for reference in ["&#13;", "&#10;", "&#9;"] {
+            assert!(xml.contains(reference), "缺少 {reference}：{xml}");
+        }
+        assert_eq!(ship_from_xml(&xml).unwrap(), ship);
+    }
+
+    #[test]
+    fn rejects_deeply_nested_document_without_stack_overflow() {
+        // 船体模型仍拒绝未知字段；另用可递归模型明确验证上游默认深度限制，避免只测到未知字段错误。
+        #[derive(serde::Deserialize)]
+        struct Nested {
+            #[serde(rename = "Nested", default)]
+            _nested: Option<Box<Nested>>,
+        }
+        assert!(quick_xml::de::from_str::<Nested>("<Ship><Nested/></Ship>").is_ok());
+        let mut source = String::from("<Ship>");
+        source.push_str(&"<Nested>".repeat(300));
+        source.push_str(&"</Nested>".repeat(300));
+        source.push_str("</Ship>");
+        assert!(ship_from_xml(&source).is_err());
+        assert!(matches!(
+            quick_xml::de::from_str::<Nested>(&source),
+            Err(quick_xml::DeError::TooDeeplyNested(128))
+        ));
     }
 
     #[test]

@@ -1,19 +1,22 @@
 //! 核对真实 PartList 的全部已存在元素和属性，输出只在内存中生成。
 use dr_core::{catalog_from_xml, catalog_to_xml, load_catalog};
-use quick_xml::{Reader, events::Event};
+use quick_xml::{Reader, XmlVersion, events::Event};
 use std::{collections::BTreeMap, fs};
 
 /// 按元素名称及同名兄弟序号记录属性，避免不同容器输出顺序影响比较。
 fn xml_fields(xml: &str) -> Result<BTreeMap<String, String>, Box<dyn std::error::Error>> {
     let mut reader = Reader::from_str(xml);
+    // 属性值按文档声明的 XML 版本归一化，与 serde 反序列化的取值方式一致。
+    let mut version = XmlVersion::Implicit1_0;
     let mut stack = vec![(String::new(), BTreeMap::<String, usize>::new())];
     let mut fields = BTreeMap::new();
     loop {
         let event = reader.read_event()?;
         let is_start = matches!(event, Event::Start(_));
         match event {
+            Event::Decl(decl) => version = decl.xml_version()?,
             Event::Start(element) | Event::Empty(element) => {
-                let name = std::str::from_utf8(element.name().as_ref())?.to_owned();
+                let name = element.name().into_inner().to_owned();
                 let (parent, siblings) = stack.last_mut().unwrap();
                 let index = siblings.entry(name.clone()).or_default();
                 let path = format!("{parent}/{name}[{index}]");
@@ -21,8 +24,9 @@ fn xml_fields(xml: &str) -> Result<BTreeMap<String, String>, Box<dyn std::error:
                 fields.insert(path.clone(), String::new());
                 for attribute in element.attributes() {
                     let attribute = attribute?;
-                    let key = std::str::from_utf8(attribute.key.as_ref())?;
-                    let value = attribute.decode_and_unescape_value(reader.decoder())?;
+                    let key = attribute.key.as_ref();
+                    // 归一化解开字符引用、压平字面空白，得到 XML 语义上的属性值。
+                    let value = attribute.normalized_value(version)?;
                     fields.insert(format!("{path}/@{key}"), value.into_owned());
                 }
                 if is_start {
