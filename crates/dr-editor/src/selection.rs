@@ -1,5 +1,119 @@
 use super::*;
+use dr_core::geometry::Vec2d;
 use std::collections::{HashMap, HashSet};
+
+#[derive(Resource, Default)]
+pub(crate) struct DragState {
+    pub(crate) id: Option<PartKey>,
+    pub(crate) members: BTreeSet<PartKey>,
+    pub(crate) blocked: bool,
+    pub(crate) command: Option<EditorCommand>,
+    pub(crate) rectangle: Option<(f64, f64)>,
+    pub(crate) rect_end: (f64, f64),
+    pub(crate) additive: bool,
+    pub(crate) origin: (f64, f64),
+    pub(crate) offset: (f64, f64),
+    pub(crate) preview: (f64, f64),
+    pub(crate) turns: u8,
+    pub(crate) fine_rotation: f64,
+    pub(crate) flip_x: bool,
+    pub(crate) flip_y: bool,
+}
+
+impl DragState {
+    pub(crate) fn cancel(&mut self) {
+        self.id = None;
+        self.members.clear();
+        self.rectangle = None;
+        self.command = None;
+        self.blocked = false;
+        self.turns = 0;
+        self.fine_rotation = 0.0;
+        self.flip_x = false;
+        self.flip_y = false;
+    }
+    /// 连续跟随指针，连接面吸附另行计算，不把拖动量化为半格。
+    pub(crate) fn follow(&mut self, logical: (f64, f64)) {
+        self.preview = (logical.0 + self.offset.0, logical.1 + self.offset.1);
+    }
+
+    pub(crate) fn moved(&self) -> bool {
+        let delta = self.delta();
+        !self.turns.is_multiple_of(4)
+            || self.fine_rotation.abs() > 1e-10
+            || self.flip_x
+            || self.flip_y
+            || delta.0.hypot(delta.1) > 1e-6
+    }
+
+    /// 松手后清理所有临时状态；单击仍保留选中，实际拖动不留下高亮。
+    pub(crate) fn finish(&mut self, document: &mut EditorDocument) {
+        if self.id.is_some() && self.moved() {
+            let command = self.command.take().unwrap_or_else(|| {
+                selection::drag_command(
+                    &self.keys().into_iter().collect::<Vec<_>>(),
+                    self.selection_pose(),
+                    self.delta(),
+                )
+            });
+            document.execute(command);
+            document.clear_selection();
+        }
+        self.cancel();
+    }
+
+    pub(crate) fn contains(&self, key: PartKey) -> bool {
+        self.id.is_some() && (self.id == Some(key) || self.members.contains(&key))
+    }
+    pub(crate) fn keys(&self) -> BTreeSet<PartKey> {
+        if self.id.is_none() {
+            BTreeSet::new()
+        } else {
+            self.members.iter().copied().chain(self.id).collect()
+        }
+    }
+    pub(crate) fn point(&self, point: Vec2) -> Vec2 {
+        let (x, y) = self
+            .selection_pose()
+            .point((point.x as f64 / 60.0, point.y as f64 / 60.0), self.delta());
+        Vec2::new(x as f32, y as f32) * 60.0
+    }
+    pub(crate) fn pose(&self, key: PartKey, part: &Part) -> Part {
+        if self.contains(key) {
+            dr_core::edit::selection::pose_part(part, None, self.selection_pose(), self.delta())
+                .unwrap_or_else(|_| part.clone())
+        } else {
+            part.clone()
+        }
+    }
+    pub(crate) fn delta(&self) -> (f64, f64) {
+        (
+            self.preview.0 - self.origin.0,
+            self.preview.1 - self.origin.1,
+        )
+    }
+}
+
+impl DragState {
+    pub(crate) fn selection_pose(&self) -> SelectionPose {
+        SelectionPose {
+            pivot: self.origin,
+            radians: self.turns as f64 * std::f64::consts::FRAC_PI_2 + self.fine_rotation,
+            flip_x: self.flip_x,
+            flip_y: self.flip_y,
+        }
+    }
+
+    pub(crate) fn mirror(&mut self, x: bool) {
+        if x {
+            self.flip_x = !self.flip_x;
+        } else {
+            self.flip_y = !self.flip_y;
+        }
+        self.turns = (4 - self.turns) % 4;
+        self.fine_rotation = -self.fine_rotation;
+    }
+}
 
 #[cfg(test)]
 mod tests;
@@ -250,35 +364,6 @@ pub(crate) fn connected_keys(ship: &Ship, roots: &[PartKey]) -> Result<BTreeSet<
     Ok(result)
 }
 
-#[cfg(test)]
-pub(crate) fn movement(
-    document: &EditorDocument,
-    keys: &[PartKey],
-    delta: (f64, f64),
-) -> ((f64, f64), EditorCommand, bool) {
-    movement_pose(document, keys, (0.0, 0.0), 0, delta)
-}
-
-#[cfg(test)]
-pub(crate) fn movement_pose(
-    document: &EditorDocument,
-    keys: &[PartKey],
-    pivot: (f64, f64),
-    turns: u8,
-    delta: (f64, f64),
-) -> ((f64, f64), EditorCommand, bool) {
-    movement_transformed(
-        document,
-        keys,
-        SelectionPose {
-            pivot,
-            radians: (turns % 4) as f64 * std::f64::consts::FRAC_PI_2,
-            ..default()
-        },
-        delta,
-    )
-}
-
 pub(crate) fn movement_transformed(
     document: &EditorDocument,
     keys: &[PartKey],
@@ -294,28 +379,6 @@ pub(crate) fn movement_transformed(
         return (delta, command, valid);
     }
     movement_transformed_for(&document.ship, &document.catalog, keys, pose, delta)
-}
-
-#[cfg(test)]
-pub(crate) fn movement_for(
-    ship: &Ship,
-    catalog: &PartCatalog,
-    keys: &[PartKey],
-    pivot: (f64, f64),
-    turns: u8,
-    delta: (f64, f64),
-) -> ((f64, f64), EditorCommand, bool) {
-    movement_transformed_for(
-        ship,
-        catalog,
-        keys,
-        SelectionPose {
-            pivot,
-            radians: (turns % 4) as f64 * std::f64::consts::FRAC_PI_2,
-            ..default()
-        },
-        delta,
-    )
 }
 
 pub(crate) fn drag_command(
@@ -340,7 +403,7 @@ pub(crate) fn drag_command(
     }
 }
 
-fn movement_transformed_for(
+pub(crate) fn movement_transformed_for(
     ship: &Ship,
     catalog: &PartCatalog,
     keys: &[PartKey],

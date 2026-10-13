@@ -138,6 +138,16 @@ fn real_schedule_waits_for_arrival_then_preserves_click_pause_against_pace() {
     assert_eq!(app.world().resource::<Advances>().0, 1);
     assert!(app.world().resource::<Showcase>().motion.is_some());
     assert!(
+        app.world()
+            .get::<Window>(entity)
+            .unwrap()
+            .cursor_position()
+            .unwrap()
+            .length()
+            < 1.0,
+        "首帧仅允许实际计时导致的亚像素移动"
+    );
+    assert!(
         !app.world()
             .resource::<ButtonInput<MouseButton>>()
             .pressed(MouseButton::Left)
@@ -168,6 +178,11 @@ fn real_schedule_waits_for_arrival_then_preserves_click_pause_against_pace() {
             .resource::<ButtonInput<MouseButton>>()
             .just_pressed(MouseButton::Left)
     );
+    assert_eq!(
+        app.world().get::<Window>(entity).unwrap().cursor_position(),
+        Some(Vec2::new(100., 0.))
+    );
+    assert!(app.world().resource::<Showcase>().motion.is_none());
     let deadline = app.world().resource::<Showcase>().next_tick;
     assert!(deadline.saturating_duration_since(Instant::now()) > Duration::from_millis(600));
     app.update();

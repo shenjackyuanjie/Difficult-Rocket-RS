@@ -1,20 +1,10 @@
 use super::*;
-
-pub(crate) fn catalog() -> PartCatalog {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("目录.xml");
-    std::fs::write(&path, r#"<PartTypes>
-        <PartType id="pod" name="驾驶舱" type="pod" width="2" height="2"><AttachPoints><AttachPoint x="-1"/><AttachPoint x="1"/></AttachPoints></PartType>
-        <PartType id="hidden" name="隐藏" hidden="true"/>
-        <PartType id="engine" name="发动机" type="engine" width="2" height="2" category="推进" maxOccurrences="1"><Engine power="1"/></PartType>
-        <PartType id="tank" name="燃料箱" type="tank" width="2" height="2" category="推进" disableEditorRotation="true"><Tank fuel="100"/></PartType>
-    </PartTypes>"#).unwrap();
-    load_catalog(path).unwrap()
-}
+use crate::test_support::catalog;
+use dr_core::load_catalog;
 
 #[test]
 fn collisions_include_other_instances_with_the_same_id() {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog = catalog();
     let kind = document.catalog.get("pod").unwrap();
     document.ship.parts = vec![kind.instantiate(1, (0.0, 0.0))];
@@ -32,7 +22,9 @@ fn collisions_include_other_instances_with_the_same_id() {
         Some(key)
     ));
     let before = document.ship.clone();
-    let command = move_with_snap(&document.ship, &document.catalog, key, (0.0, 0.0)).unwrap();
+    let command =
+        crate::test_support::move_with_snap(&document.ship, &document.catalog, key, (0.0, 0.0))
+            .unwrap();
     assert!(document.execute(command));
     assert_eq!(document.ship.part_at(key).unwrap().x, 0.0);
     assert!(document.undo());
@@ -48,7 +40,7 @@ fn collisions_include_other_instances_with_the_same_id() {
 
 #[test]
 fn same_id_parts_in_different_groups_snap_and_merge_atomically() {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog = catalog();
     let kind = document.catalog.get("pod").unwrap();
     document.ship.parts = vec![kind.instantiate(1, (0.0, 0.0))];
@@ -59,7 +51,9 @@ fn same_id_parts_in_different_groups_snap_and_merge_atomically() {
     let before = document.ship.clone();
     let key = PartKey::new(1, 1, 0);
     document.selected = Some(key);
-    let command = move_with_snap(&document.ship, &document.catalog, key, (1.2, 0.0)).unwrap();
+    let command =
+        crate::test_support::move_with_snap(&document.ship, &document.catalog, key, (1.2, 0.0))
+            .unwrap();
     assert!(document.execute(command), "{}", document.status);
     assert_eq!(document.ship.parts.len(), 2);
     assert!(document.ship.disconnected.is_empty());
@@ -73,7 +67,7 @@ fn same_id_parts_in_different_groups_snap_and_merge_atomically() {
 
 #[test]
 fn category_collapse_and_keyboard_navigation_exclude_hidden_parts() {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog = catalog();
     let mut palette = Palette::default();
     assert_eq!(palette.indices(&document.catalog), vec![0, 1, 2]);
@@ -154,7 +148,7 @@ fn original_groups_keep_catalog_indices_and_order_then_append_custom_categories(
 
 #[test]
 fn category_commands_collapse_independently_expand_all_and_preserve_document_history() {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog = catalog();
     let before = document.ship.clone();
     let mut app = App::new();
@@ -227,7 +221,7 @@ fn folder_listing_filters_invalid_files_and_retains_previous_folder_on_error() {
 
 #[test]
 fn palette_click_selects_template_without_mutating_ship_or_history() {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog = catalog();
     let before = document.ship.clone();
     let mut app = App::new();
@@ -252,7 +246,7 @@ fn palette_click_selects_template_without_mutating_ship_or_history() {
 
 #[test]
 fn preview_and_placement_share_snap_and_undo_restores_whole_operation() {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog = catalog();
     let before = document.ship.clone();
     let cursor = EditorCursor {
@@ -277,7 +271,7 @@ fn preview_and_placement_share_snap_and_undo_restores_whole_operation() {
 
 #[test]
 fn templates_respect_fuel_rotation_flags_and_occurrence_limits() {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog = catalog();
     let mut cursor = EditorCursor {
         catalog_index: 2,
@@ -331,7 +325,7 @@ fn new_ship_includes_hidden_pod_with_staging_at_ground_level() {
 
 #[test]
 fn collision_preview_rejects_placement_but_retains_dragged_overlap() {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog = catalog();
     document.execute(EditorCommand::SetActive(1, true));
     document.undo();
@@ -350,7 +344,8 @@ fn collision_preview_rejects_placement_but_retains_dragged_overlap() {
         .unwrap()
         .instantiate(2, (5.0, 0.0));
     document.ship.parts.push(source);
-    let (_, command, clear) = selection::movement(&document, &[PartKey::new(0, 2, 0)], (-5.0, 0.0));
+    let (_, command, clear) =
+        crate::test_support::movement(&document, &[PartKey::new(0, 2, 0)], (-5.0, 0.0));
     assert!(!clear);
     assert!(document.execute(command));
     assert_eq!(document.ship.part(2).unwrap().x, 0.0);
@@ -358,7 +353,7 @@ fn collision_preview_rejects_placement_but_retains_dragged_overlap() {
     assert_eq!(document.ship.part(2).unwrap().x, 5.0);
     document.catalog.types[0].ignore_editor_intersections = true;
     assert!(
-        move_with_snap(
+        crate::test_support::move_with_snap(
             &document.ship,
             &document.catalog,
             PartKey::new(0, 2, 0),
@@ -370,7 +365,7 @@ fn collision_preview_rejects_placement_but_retains_dragged_overlap() {
 
 #[test]
 fn rejected_rotation_keeps_pose_and_connections_and_valid_rotation_undoes() {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog = catalog();
     document.catalog.types[0].width = 4;
     let source = document
@@ -408,7 +403,7 @@ fn rejected_rotation_keeps_pose_and_connections_and_valid_rotation_undoes() {
 
 #[test]
 fn snap_skips_occupied_nearest_anchor_and_commits_the_alternative() {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("PartList.xml");
     std::fs::write(
@@ -476,7 +471,7 @@ fn snap_skips_occupied_nearest_anchor_and_commits_the_alternative() {
 #[test]
 fn dragging_a_catalog_row_starts_only_a_ghost_and_regular_click_resets_drag_mode() {
     let mut app = App::new();
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog = catalog();
     let before = document.ship.clone();
     app.insert_resource(document)
@@ -504,7 +499,7 @@ fn dragging_a_catalog_row_starts_only_a_ghost_and_regular_click_resets_drag_mode
 
 #[test]
 fn touch_accessible_clipboard_buttons_reuse_keyboard_transactions_and_undo() {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog = catalog();
     let before = document.ship.clone();
     let mut app = App::new();
@@ -561,7 +556,7 @@ fn touch_accessible_clipboard_buttons_reuse_keyboard_transactions_and_undo() {
 
 #[test]
 fn touch_rotate_button_respects_the_same_disabled_rotation_flag_as_keyboard() {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog = catalog();
     document.ship.parts = vec![
         document

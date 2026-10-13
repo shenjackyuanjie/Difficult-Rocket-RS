@@ -5,7 +5,7 @@ fn detailed_staging_uses_the_full_64_stage_1024_action_fixture_while_brief_stays
     for (mode, stages, activations, parts) in
         [(Mode::Brief, 8, 48, 7), (Mode::Detailed, 64, 1024, 17)]
     {
-        let mut document = crate::tests::document();
+        let mut document = crate::test_support::document();
         document.catalog = dr_core::catalog_from_xml(
             r#"<PartTypes>
           <PartType id="pod-1" type="pod" width="4" height="3"/>

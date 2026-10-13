@@ -197,7 +197,7 @@ mod tests {
             .init_resource::<CameraDrag>()
             .init_resource::<panels::UiPointer>()
             .init_resource::<CanvasTicks>()
-            .insert_resource(crate::tests::document())
+            .insert_resource(crate::test_support::document())
             .add_systems(
                 Update,
                 (
@@ -214,6 +214,7 @@ mod tests {
     #[test]
     fn help_open_and_close_frames_cancel_previews_and_block_canvas() {
         let mut app = app();
+        assert!(!app.world().resource::<HelpState>().open);
         app.world_mut().resource_mut::<DragState>().id = Some(PartKey::new(0, 1, 0));
         app.world_mut().resource_mut::<EditorCursor>().placing = true;
         app.world_mut()
@@ -258,7 +259,7 @@ mod tests {
             .init_resource::<panels::ShipBrowser>()
             .init_resource::<EditorCursor>()
             .init_resource::<DragState>()
-            .insert_resource(crate::tests::document())
+            .insert_resource(crate::test_support::document())
             .add_message::<panels::PanelButton>()
             .add_message::<files::FileAction>()
             .add_message::<FileDragAndDrop>()
@@ -365,7 +366,7 @@ mod tests {
                 .id();
             if inspector_open {
                 let mut inspector = properties::Inspector::default();
-                let mut document = crate::tests::document();
+                let mut document = crate::test_support::document();
                 document.selected = Some(PartKey::new(0, 1, 0));
                 properties::open(&mut inspector, &document);
                 assert!(inspector.is_open());
@@ -401,30 +402,6 @@ mod tests {
             app.update();
             assert!(app.world().resource::<HelpState>().open);
         }
-    }
-
-    #[test]
-    fn help_is_opt_in_and_explains_fine_rotation_and_drag_mirroring() {
-        assert!(!HelpState::default().open);
-        assert!(SHORTCUTS.iter().any(|(key, _)| key.contains("Shift+Q/E")));
-        assert_eq!(HELP_LABEL, "? 帮助");
-        const { assert!(HELP_MIN_HEIGHT >= 44.0) };
-        assert!(
-            SHORTCUTS
-                .iter()
-                .any(|(_, text)| text.contains("第二指") && text.contains("取消"))
-        );
-        assert!(
-            SHORTCUTS
-                .iter()
-                .any(|(_, text)| text.contains("拖拽中可组合旋转"))
-        );
-        let ctx = crate::egui_ui::test_context();
-        let mut open = true;
-        let mut output = ctx.run_ui(egui::RawInput::default(), |_| show(&ctx, &mut open));
-        output.textures_delta.clear();
-        assert!(!output.shapes.is_empty());
-        assert!(open);
     }
 
     fn help_frame(

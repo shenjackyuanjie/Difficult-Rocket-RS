@@ -1,5 +1,6 @@
 //! 自由模式的画布连接工具：两次点击决定连接/断开，移动不推断拓扑。
 use super::*;
+use dr_core::geometry::Vec2d;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Endpoint {

@@ -1,8 +1,9 @@
 use super::*;
+use crate::canvas_input::{keyboard_commands, mouse_editor};
 
 fn document() -> EditorDocument {
-    let mut document = crate::tests::document();
-    document.catalog = panels::tests::catalog();
+    let mut document = crate::test_support::document();
+    document.catalog = crate::test_support::catalog();
     document
 }
 

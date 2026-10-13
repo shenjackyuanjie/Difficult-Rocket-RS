@@ -1,7 +1,7 @@
 use super::*;
 
 pub fn document() -> EditorDocument {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog=dr_core::catalog_from_xml(r#"<PartTypes><PartType id="p" name="测试部件" width="2" height="2"><AttachPoints>
     <AttachPoint location="LeftCenter"/><AttachPoint location="RightCenter"/><AttachPoint location="TopCenter"/><AttachPoint location="BottomCenter"/>
     </AttachPoints></PartType></PartTypes>"#).unwrap();

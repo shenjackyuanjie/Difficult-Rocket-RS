@@ -1,7 +1,8 @@
 use super::*;
+use dr_core::load_catalog;
 
 fn document() -> EditorDocument {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.ship = dr_core::ship_from_xml(r#"<Ship><Parts>
         <Part id="1" partType="pod"><Pod name="初始" throttle="0"><Staging currentStage="0"/></Pod></Part>
         <Part id="2" partType="tank"><Tank fuel="10"/></Part>

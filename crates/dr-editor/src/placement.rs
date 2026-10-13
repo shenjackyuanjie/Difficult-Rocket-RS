@@ -1,5 +1,29 @@
 use super::*;
 
+/// 当前鼠标在编辑器世界坐标中的位置，以及目录中待放置的部件。
+#[derive(Resource, Default)]
+pub(crate) struct EditorCursor {
+    pub(crate) manual_connection: Option<free_mode::Endpoint>,
+    pub(crate) clipboard: Option<ShipFragment>,
+    pub(crate) paste: Option<ShipFragment>,
+    pub(crate) world: (f64, f64),
+    pub(crate) catalog_index: usize,
+    pub(crate) placing: bool,
+    pub(crate) palette_drag: bool,
+    pub(crate) rotation: i32,
+    pub(crate) fine_rotation: f64,
+    pub(crate) flip_x: bool,
+    pub(crate) flip_y: bool,
+    pub(crate) valid: bool,
+}
+
+impl EditorCursor {
+    pub(crate) fn cancel_placement(&mut self) {
+        self.placing = false;
+        self.palette_drag = false;
+    }
+}
+
 pub(crate) fn collides(
     ship: &Ship,
     catalog: &PartCatalog,

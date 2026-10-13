@@ -37,7 +37,7 @@ fn apply_action(
 
 fn context() -> (EditorDocument, EditorPaths, TestDialogs) {
     (
-        crate::tests::document(),
+        crate::test_support::document(),
         EditorPaths {
             ship: None,
             catalog: String::new(),
@@ -540,7 +540,7 @@ fn toolbar_touch_release_emits_once_and_drops_compatible_mouse_activation() {
 
 // 跨组重复编号是原版船体的合法输入，混合流程不能把 XML 编号当全局身份。
 fn grouped_workflow_document() -> EditorDocument {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.ship.parts[0].active = true;
     document.ship.parts[0].pod = Some(dr_core::PodState {
         name: "原始驾驶舱".into(),
@@ -1223,4 +1223,82 @@ fn unsaved_confirmation_keeps_all_three_choices_inside_touch_screens() {
         }
         assert!(pending.choice.is_none());
     }
+}
+
+// ---------- Bevy 0.20 原生按钮：按下当帧路由到既有工具栏动作 ----------
+
+#[derive(Resource, Default)]
+struct ToolbarHits(Vec<files::FileAction>);
+
+fn collect_toolbar_hits(
+    mut reader: MessageReader<files::FileAction>,
+    mut hits: ResMut<ToolbarHits>,
+) {
+    hits.0.extend(reader.read().cloned());
+}
+
+#[derive(Resource, Clone, Copy)]
+struct ToolbarCamera(Entity);
+
+#[derive(Resource, Default)]
+struct ToolbarPress(bool);
+
+fn press_toolbar_button(
+    mut pressed: ResMut<ToolbarPress>,
+    camera: Res<ToolbarCamera>,
+    buttons: Query<Entity, With<bevy::ui_widgets::Button>>,
+    mut commands: Commands,
+) {
+    if !std::mem::take(&mut pressed.0) {
+        return;
+    }
+    if let Ok(button) = buttons.single() {
+        commands.trigger(crate::native_buttons::test_support::press(button, camera.0));
+    }
+}
+
+/// 真实按钮事件经 Activated 桥接后，工具栏在同一次 update 内按实体取动作，按住不重复。
+#[test]
+fn real_button_press_routes_toolbar_action_in_the_same_update() {
+    use bevy::ui_widgets::ButtonPlugin;
+
+    let mut app = App::new();
+    app.add_plugins((ButtonPlugin, crate::native_buttons::NativeButtonsPlugin))
+        .init_resource::<ToolbarHits>()
+        .init_resource::<ToolbarPress>()
+        .add_message::<files::FileAction>()
+        .add_systems(
+            Update,
+            (
+                press_toolbar_button,
+                files::toolbar_actions,
+                collect_toolbar_hits,
+            )
+                .chain(),
+        );
+    let camera = app.world_mut().spawn_empty().id();
+    app.insert_resource(ToolbarCamera(camera));
+    app.world_mut().spawn((
+        crate::native_buttons::press_triggered(),
+        files::FileButton(files::FileAction::Save),
+        BackgroundColor(Color::srgb(0.13, 0.18, 0.24)),
+    ));
+    app.world_mut().resource_mut::<ToolbarPress>().0 = true;
+
+    app.update();
+    {
+        let hits = app.world().resource::<ToolbarHits>();
+        assert_eq!(hits.0.len(), 1, "按下当帧应路由一次文件动作");
+        assert!(
+            matches!(hits.0.first(), Some(files::FileAction::Save)),
+            "路由的应是该按钮的动作"
+        );
+    }
+
+    app.update();
+    assert_eq!(
+        app.world().resource::<ToolbarHits>().0.len(),
+        1,
+        "按住期间不得重复路由"
+    );
 }

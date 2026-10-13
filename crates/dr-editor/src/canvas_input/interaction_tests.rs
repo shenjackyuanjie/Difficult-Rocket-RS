@@ -1,8 +1,12 @@
 //! 运行真实输入→视觉同步→Transform 传播，逐帧断言而非只检查松手落点。
 use super::*;
+use crate::PartKey;
+use crate::render;
+use crate::view::camera_controls;
+use bevy::input::mouse::MouseWheel;
 
 fn app() -> App {
-    let mut app = crate::tests::mouse_app();
+    let mut app = crate::test_support::mouse_app();
     app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin))
         .init_asset::<Image>()
         .init_resource::<CameraDrag>()

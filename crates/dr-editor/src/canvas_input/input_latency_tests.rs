@@ -1,7 +1,10 @@
 //! 无窗口/GPU：覆盖消息→InputPlugin→相机/编辑→视觉同步→Transform 传播。
 use super::*;
+use crate::render;
+use crate::view::camera_controls;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::MouseButtonInput;
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::input::touch::TouchPhase;
 use bevy::input::{ButtonState, InputPlugin};
 
@@ -26,7 +29,7 @@ fn observe(
 }
 
 fn app() -> App {
-    let mut app = crate::tests::mouse_app();
+    let mut app = crate::test_support::mouse_app();
     app.add_plugins((
         MinimalPlugins,
         AssetPlugin::default(),

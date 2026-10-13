@@ -1,8 +1,11 @@
 use super::*;
+use crate::canvas_input::mouse_editor;
+use crate::view::camera_controls;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+use bevy::window::WindowResolution;
 
 fn app() -> App {
-    let mut app = crate::tests::mouse_app();
+    let mut app = crate::test_support::mouse_app();
     app.add_plugins(native_buttons::NativeButtonsPlugin)
         .init_resource::<GestureInput>()
         .add_message::<TouchInput>()

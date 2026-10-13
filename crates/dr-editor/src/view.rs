@@ -1,5 +1,126 @@
 use super::*;
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+use dr_core::geometry::Vec2d;
 use dr_core::geometry::{WorldShape, world_shapes};
+
+#[derive(Resource, Default)]
+pub(crate) struct CameraDrag(pub(crate) Option<Vec2>);
+
+pub(crate) fn setup_camera(mut commands: Commands) {
+    commands.spawn((Camera2d, Name::new("Editor camera")));
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn camera_controls(
+    mut wheels: MessageReader<MouseWheel>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    mut cameras: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
+    mut drag: ResMut<CameraDrag>,
+    editor_drag: Res<DragState>,
+    editor_cursor: Res<EditorCursor>,
+    options: Res<view::ViewOptions>,
+    pointer: Res<panels::UiPointer>,
+    touch: Option<Res<mobile_input::GestureInput>>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Ok((transform, projection)) = cameras.single_mut() else {
+        return;
+    };
+    // 只映射字段，不让无输入/纯平移帧触发投影缓存和视锥重算。
+    let Some(mut scale) = projection.filter_map_unchanged(|projection| match projection {
+        Projection::Orthographic(projection) => Some(&mut projection.scale),
+        _ => None,
+    }) else {
+        return;
+    };
+    let mut translation = transform.map_unchanged(|transform| &mut transform.translation);
+    let touch = touch.as_deref().filter(|input| input.override_mouse);
+    if let Some(delta) = touch.and_then(|input| input.navigation) {
+        // 同时保持两指中点的世界锚点和新位置；不依赖平台 PinchGesture。
+        let old = *scale;
+        let next = (old * delta.scale_ratio).clamp(0.1, 100.0);
+        let offset = |point: Vec2| {
+            Vec2::new(
+                point.x - window.width() * 0.5,
+                window.height() * 0.5 - point.y,
+            )
+        };
+        let shift = offset(delta.from) * old - offset(delta.to) * next;
+        let next_translation = *translation + shift.extend(0.0);
+        translation.set_if_neq(next_translation);
+        scale.set_if_neq(next);
+        drag.0 = None;
+        wheels.clear();
+        return;
+    }
+    if pointer.blocked {
+        drag.0 = None;
+        wheels.clear();
+        return;
+    }
+    if keys.just_pressed(KeyCode::Home) && window.focused {
+        let reset = Vec3::new(0.0, 0.0, translation.z);
+        translation.set_if_neq(reset);
+        scale.set_if_neq(1.0);
+    }
+    let mouse = touch.map_or(&*mouse, |input| &input.buttons);
+    let position = touch.map_or_else(|| window.cursor_position(), |input| input.position);
+    let Some(cursor) = position.filter(|_| window.focused) else {
+        drag.0 = None;
+        wheels.clear();
+        return;
+    };
+    let can_pan = editor_drag.id.is_none()
+        && editor_cursor.manual_connection.is_none()
+        && editor_drag.rectangle.is_none()
+        && !editor_cursor.placing
+        && editor_cursor.paste.is_none();
+    let pan_button = if touch.is_some() {
+        MouseButton::Left
+    } else {
+        options.box_select_button.pan()
+    };
+    if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(pan_button) {
+        drag.0 = None;
+    }
+    let pan_active =
+        mouse.pressed(pan_button) || (mouse.just_released(pan_button) && drag.0.is_some());
+    if can_pan && pan_active && !keys.just_pressed(KeyCode::Escape) {
+        if let Some(previous) = drag.0 {
+            let delta = cursor - previous;
+            let next = *translation + Vec3::new(-delta.x, delta.y, 0.0) * *scale;
+            translation.set_if_neq(next);
+        }
+        drag.0 = mouse.pressed(pan_button).then_some(cursor);
+    } else {
+        drag.0 = None;
+    }
+    if touch.is_some() {
+        wheels.clear();
+        return;
+    }
+    let offset = Vec2::new(
+        cursor.x - window.width() / 2.0,
+        window.height() / 2.0 - cursor.y,
+    );
+    for wheel in wheels.read() {
+        let delta = match wheel.unit {
+            MouseScrollUnit::Line => wheel.y,
+            MouseScrollUnit::Pixel => wheel.y / 40.0,
+        };
+        let old = *scale;
+        let next = (old * 2.0_f32.powf(-delta * 0.25)).clamp(0.1, 100.0);
+        if scale.set_if_neq(next) {
+            let shift = offset * (old - next);
+            let next = *translation + shift.extend(0.0);
+            translation.set_if_neq(next);
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BoxSelectButton {
@@ -341,8 +462,8 @@ mod tests {
 
     #[test]
     fn fit_includes_real_texture_outside_shape_for_rotation_and_mirrors() {
-        let mut document = crate::tests::document();
-        document.catalog = panels::tests::catalog();
+        let mut document = crate::test_support::document();
+        document.catalog = crate::test_support::catalog();
         document.ship.parts[0].angle = 0.37;
         document.ship.parts[0].flip_x = true;
         document.ship.parts[0].flip_y = true;
@@ -369,8 +490,8 @@ mod tests {
 
     #[test]
     fn fit_places_rotated_ship_inside_canvas_and_selection_excludes_other_parts() {
-        let mut document = crate::tests::document();
-        document.catalog = panels::tests::catalog();
+        let mut document = crate::test_support::document();
+        document.catalog = crate::test_support::catalog();
         let kind = document.catalog.get("pod").unwrap().clone();
         document.ship.parts = vec![
             kind.instantiate(1, (-10.0, -5.0)),
@@ -400,8 +521,8 @@ mod tests {
 
     #[test]
     fn fitting_uses_the_actual_remaining_canvas_on_portrait_and_landscape_screens() {
-        let mut document = crate::tests::document();
-        document.catalog = panels::tests::catalog();
+        let mut document = crate::test_support::document();
+        document.catalog = crate::test_support::catalog();
         document.ship.parts[0].angle = 0.71;
         let texture = Vec2::new(84.0, 207.0);
         for size in [

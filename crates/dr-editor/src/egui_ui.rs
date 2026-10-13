@@ -389,27 +389,6 @@ mod tests {
             self.ctx.end_pass().textures_delta.clear();
             clicked
         }
-
-        fn pointer_button(&self, pressed: bool) -> Vec<egui::Event> {
-            let pos = self.rect.center();
-            vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ]
-        }
-
-        fn press(&mut self) {
-            assert!(!self.frame(0.1, self.pointer_button(true)));
-        }
-
-        fn release(&mut self, time: f64) -> bool {
-            self.frame(time, self.pointer_button(false))
-        }
     }
 
     #[test]
@@ -432,102 +411,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn clean_450ms_hold_across_empty_frames_still_clicks() {
-        let mut frames = ButtonFrames::new();
-        frames.press();
-        // 真实界面在 smoke 的两个步骤之间仍持续执行 pass。
-        for frame in 1..27 {
-            assert!(!frames.frame(0.1 + f64::from(frame) / 60.0, vec![]));
-        }
-        assert!(
-            frames.release(0.55),
-            "干净的 450ms 按住低于 egui 默认 800ms 阈值，不应自行丢失点击"
-        );
-    }
-
-    #[test]
-    fn pointer_gone_in_an_intermediate_pass_cancels_click() {
-        let mut frames = ButtonFrames::new();
-        frames.press();
-        assert!(!frames.frame(0.116, vec![egui::Event::PointerGone]));
-        assert!(!frames.frame(0.132, vec![]));
-        assert!(
-            !frames.release(0.55),
-            "后续回到原点并释放不能恢复被 PointerGone 清掉的点击归属"
-        );
-    }
-
-    #[test]
-    fn distant_move_then_virtual_move_back_still_cancels_short_click() {
-        let mut frames = ButtonFrames::new();
-        frames.press();
-        let pos = frames.rect.center();
-        assert!(!frames.frame(
-            0.115,
-            vec![
-                egui::Event::PointerMoved(pos + egui::vec2(80.0, 0.0)),
-                egui::Event::PointerMoved(pos),
-            ],
-        ));
-        assert!(!frames.frame(0.13, vec![]));
-        assert!(
-            !frames.release(0.145),
-            "即使只按住 45ms，末尾补虚拟坐标也不能撤销曾经超过点击距离的记录"
-        );
-    }
-
-    #[test]
-    fn demo_filter_then_virtual_move_and_45ms_release_clicks() {
-        // 调用生产 restore_pointer，而不是在测试里复制过滤条件。
-        let output = tempfile::tempdir().unwrap();
-        let args = vec![
-            "--demo-showcase".to_owned(),
-            output.path().to_string_lossy().into_owned(),
-        ];
-        let showcase = crate::demo::Showcase::from_args(&args).unwrap().unwrap();
-        let mut app = App::new();
-        app.insert_resource(showcase)
-            .init_resource::<ButtonInput<MouseButton>>()
-            .init_resource::<ButtonInput<KeyCode>>()
-            .add_systems(Update, crate::demo::restore_pointer);
-        let entity = app.world_mut().spawn(EguiInput::default()).id();
-
-        let mut frames = ButtonFrames::new();
-        frames.press();
-        let pos = frames.rect.center();
-        for time in [0.115, 0.13] {
-            app.world_mut()
-                .get_mut::<EguiInput>(entity)
-                .unwrap()
-                .0
-                .events = vec![
-                egui::Event::PointerMoved(pos + egui::vec2(80.0, 0.0)),
-                egui::Event::PointerGone,
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: false,
-                    modifiers: egui::Modifiers::NONE,
-                },
-                egui::Event::Text("保留非指针事件".to_owned()),
-            ];
-            app.update();
-            let mut input = app.world_mut().get_mut::<EguiInput>(entity).unwrap();
-            assert!(
-                input.0.events.is_empty(),
-                "原生文本和误点都不能混入内部回放"
-            );
-            let mut events = std::mem::take(&mut input.0.events);
-            // 与 demo 的执行顺序一致：先隔离原生输入，再补当帧虚拟位置。
-            events.push(egui::Event::PointerMoved(pos));
-            assert!(!frames.frame(time, events));
-        }
-        assert!(
-            frames.release(0.145),
-            "隔离原生指针后持续补虚拟 Move，45ms 短点击应成功"
-        );
-    }
     #[test]
     fn egui_and_native_buttons_share_palette_font_and_corners() {
         let ctx = test_context();

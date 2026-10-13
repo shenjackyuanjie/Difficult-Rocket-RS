@@ -1,7 +1,7 @@
 use super::*;
 
 fn document() -> EditorDocument {
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.catalog = dr_core::catalog_from_xml(
         r#"<PartTypes>
       <PartType id="p" width="2" height="2"><AttachPoints>
@@ -63,7 +63,7 @@ fn free_drag_rotation_and_mirror_keep_external_connections_and_do_not_snap() {
     let connected = document.ship.clone();
     let key = PartKey::new(0, 1, 0);
     let (delta, command, clear) =
-        selection::movement_pose(&document, &[key], (-3.0, 0.0), 1, (5.99, 0.01));
+        crate::test_support::movement_pose(&document, &[key], (-3.0, 0.0), 1, (5.99, 0.01));
     assert_eq!(delta, (5.99, 0.01));
     assert!(clear);
     assert!(document.execute(command));

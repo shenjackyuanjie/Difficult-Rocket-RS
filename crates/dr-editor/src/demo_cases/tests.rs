@@ -1,5 +1,8 @@
 use super::*;
+use crate::canvas_input::{keyboard_commands, mouse_editor};
+use crate::view::camera_controls;
 use bevy::ecs::system::SystemState;
+use bevy::input::mouse::MouseWheel;
 
 fn world() -> World {
     let mut world = World::new();

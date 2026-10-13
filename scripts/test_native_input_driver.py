@@ -63,7 +63,7 @@ class DriverTests(unittest.TestCase):
         choices = next(ast.literal_eval(keyword.value) for node in ast.walk(TREE)
                        if isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant)
                        and node.args[0].value == "--window-case" for keyword in node.keywords if keyword.arg == "choices")
-        editor = (SOURCE.parents[1] / "crates/dr-editor/src/main.rs").read_text(encoding="utf-8")
+        editor = (SOURCE.parents[1] / "crates/dr-editor/src/window.rs").read_text(encoding="utf-8")
         supported = set(re.findall(r'"(--[a-z-]+test)"', editor))
         for case in choices:
             if case == "keys":

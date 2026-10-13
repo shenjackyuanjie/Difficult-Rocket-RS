@@ -1,8 +1,9 @@
 use super::*;
+use crate::test_support::{movement, movement_pose};
 
 fn document() -> EditorDocument {
-    let mut document = crate::tests::document();
-    document.catalog = panels::tests::catalog();
+    let mut document = crate::test_support::document();
+    document.catalog = crate::test_support::catalog();
     let kind = document.catalog.get("pod").unwrap();
     document.ship.parts = vec![
         kind.instantiate(1, (0.0, 0.0)),

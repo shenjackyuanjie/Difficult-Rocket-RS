@@ -1,5 +1,6 @@
 //! 拖动时显示连接面与可提交的邻近连接候选，不改变文档或历史。
 use super::*;
+use dr_core::geometry::Vec2d;
 
 const SOURCE_COLOR: Color = Color::srgb(0.55, 0.51, 0.66);
 const CANDIDATE_COLOR: Color = Color::srgb(0.67, 0.56, 0.88);

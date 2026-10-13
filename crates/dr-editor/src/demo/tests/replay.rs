@@ -1,4 +1,6 @@
 use super::*;
+use bevy::input::mouse::MouseWheel;
+use bevy::window::WindowResolution;
 
 #[test]
 fn demo_pointer_is_removed_before_native_window_sync() {
@@ -44,89 +46,6 @@ fn ordinary_window_cursor_is_not_modified() {
         app.world().get::<Window>(entity).unwrap().cursor_position(),
         Some(Vec2::new(100., 200.))
     );
-}
-
-#[test]
-fn motion_interpolates_real_cursor_and_delays_button_edge() {
-    let folder = tempfile::tempdir().unwrap();
-    let args = vec![
-        "editor".into(),
-        "--demo-showcase".into(),
-        folder.path().to_string_lossy().into_owned(),
-    ];
-    let mut showcase = Showcase::from_args(&args).unwrap().unwrap();
-    showcase.initialize = false;
-    showcase.display_pointer = Some(Vec2::ZERO);
-    let mut app = App::new();
-    app.insert_resource(showcase)
-        .init_resource::<ButtonInput<MouseButton>>()
-        .init_resource::<ButtonInput<KeyCode>>()
-        .add_systems(Update, animate);
-    let mut window = Window::default();
-    window.set_cursor_position(Some(Vec2::new(100., 0.)));
-    let entity = app
-        .world_mut()
-        .spawn((
-            window,
-            bevy::window::PrimaryWindow,
-            bevy_egui::EguiInput::default(),
-            bevy_egui::PrimaryEguiContext,
-        ))
-        .id();
-    app.world_mut()
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Left);
-    app.update();
-    assert!(
-        app.world()
-            .get::<Window>(entity)
-            .unwrap()
-            .cursor_position()
-            .unwrap()
-            .length()
-            < 1.,
-        "首帧允许实际计时造成的亚像素移动"
-    );
-    assert!(
-        !app.world()
-            .resource::<ButtonInput<MouseButton>>()
-            .pressed(MouseButton::Left)
-    );
-    {
-        let mut showcase = app.world_mut().resource_mut::<Showcase>();
-        let motion = showcase.motion.as_mut().unwrap();
-        motion.started = Instant::now() - motion.duration / 2;
-    }
-    app.update();
-    let x = app
-        .world()
-        .get::<Window>(entity)
-        .unwrap()
-        .cursor_position()
-        .unwrap()
-        .x;
-    assert!((45. ..55.).contains(&x), "中间帧应线性移动：{x}");
-    assert!(
-        !app.world()
-            .resource::<ButtonInput<MouseButton>>()
-            .pressed(MouseButton::Left)
-    );
-    {
-        let mut showcase = app.world_mut().resource_mut::<Showcase>();
-        let motion = showcase.motion.as_mut().unwrap();
-        motion.started = Instant::now() - motion.duration;
-    }
-    app.update();
-    assert_eq!(
-        app.world().get::<Window>(entity).unwrap().cursor_position(),
-        Some(Vec2::new(100., 0.))
-    );
-    assert!(
-        app.world()
-            .resource::<ButtonInput<MouseButton>>()
-            .just_pressed(MouseButton::Left)
-    );
-    assert!(app.world().resource::<Showcase>().motion.is_none());
 }
 
 #[test]
@@ -189,7 +108,7 @@ fn configuration_click_then_home_resets_camera_only_after_returning_to_canvas() 
             .init_resource::<crate::view::ViewOptions>()
             .init_resource::<crate::panels::UiPointer>()
             .init_resource::<ResetRequested>()
-            .add_message::<crate::MouseWheel>();
+            .add_message::<MouseWheel>();
         let mut ui = crate::panels::egui_panel::UiState::default();
         ui.pixels_per_point = 1.;
         ui.areas.push(egui::Rect::from_min_max(
@@ -214,7 +133,7 @@ fn configuration_click_then_home_resets_camera_only_after_returning_to_canvas() 
             (
                 animate,
                 crate::panels::pointer_over_ui,
-                crate::camera_controls,
+                crate::view::camera_controls,
                 pace,
             )
                 .chain(),
@@ -264,7 +183,7 @@ fn configuration_click_then_home_resets_camera_only_after_returning_to_canvas() 
                 reset_input,
                 animate,
                 crate::panels::pointer_over_ui,
-                crate::camera_controls,
+                crate::view::camera_controls,
                 pace,
             )
                 .chain(),

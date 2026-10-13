@@ -1,8 +1,8 @@
 use super::*;
 
 fn document() -> EditorDocument {
-    let mut document = crate::tests::document();
-    document.catalog = panels::tests::catalog();
+    let mut document = crate::test_support::document();
+    document.catalog = crate::test_support::catalog();
     document
 }
 
@@ -90,7 +90,7 @@ fn group_hint_uses_the_validated_whole_selection_snap() {
         kind.instantiate(3, (4.0, 0.0)),
     ];
     let keys = [PartKey::new(0, 1, 0), PartKey::new(0, 2, 0)];
-    let (delta, command, allowed) = selection::movement(&document, &keys, (2.8, 0.0));
+    let (delta, command, allowed) = crate::test_support::movement(&document, &keys, (2.8, 0.0));
     assert!(allowed);
     let drag = DragState {
         id: Some(keys[0]),

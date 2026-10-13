@@ -7,6 +7,78 @@ use std::collections::{HashMap, HashSet};
 /// 未连接部件与从目录拖出的虚影使用同一透明度。
 pub const UNLINKED_ALPHA: f32 = 100.0 / 255.0;
 
+#[derive(Component)]
+pub(crate) struct EditorHud;
+
+pub(crate) fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
+    commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(264),
+                top: px(60),
+                max_width: Val::Percent(40.0),
+                overflow: Overflow::clip(),
+                padding: UiRect::all(px(8)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.03, 0.04, 0.06, 0.86)),
+            Name::new("Editor HUD"),
+            panels::EditorPanel,
+            panels::ToolbarItem::Status,
+        ))
+        .with_children(|root| {
+            root.spawn((
+                EditorHud,
+                TextLayout::default().with_no_wrap(),
+                Text::new("DR Editor"),
+                TextFont {
+                    font: bevy::text::FontSource::Handle(assets.load(
+                        "fonts/HarmonyOS_Sans/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ttf",
+                    )),
+                    font_size: FontSize::Px(14.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.9, 0.93, 0.98)),
+            ));
+        });
+}
+
+pub(crate) fn update_hud(
+    document: Res<EditorDocument>,
+    mut labels: Query<&mut Text, With<EditorHud>>,
+) {
+    if !document.is_changed() {
+        return;
+    }
+    let value = format!(
+        "部件 {} · 已选 {} · {}\n质量 主/全 {:.2}/{:.2}{}",
+        document.ship.all_parts().count(),
+        document.selected_keys().len(),
+        if document.dirty {
+            "● 未保存"
+        } else {
+            "✓ 已保存"
+        },
+        document
+            .ship
+            .mass(&document.catalog, dr_core::ShipScope::Main),
+        document
+            .ship
+            .mass(&document.catalog, dr_core::ShipScope::All),
+        if document.status.is_empty() {
+            String::new()
+        } else {
+            format!("\n! {}", document.status)
+        },
+    );
+    for mut text in &mut labels {
+        if text.0 != value {
+            text.0.clone_from(&value);
+        }
+    }
+}
+
 /// 原版贴图使用 PNG 原始像素，不以 PartList 的物理尺寸缩放。
 pub(crate) fn image_size(
     texture: &str,
@@ -445,8 +517,8 @@ mod tests {
 
     #[test]
     fn free_connection_route_tracks_only_the_dragged_endpoint_after_mirrors() {
-        let mut document = crate::tests::document();
-        document.catalog = panels::tests::catalog();
+        let mut document = crate::test_support::document();
+        document.catalog = crate::test_support::catalog();
         let kind = document.catalog.get("pod").unwrap();
         document.ship.parts = vec![
             kind.instantiate(1, (0.0, 0.0)),
@@ -490,7 +562,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()))
             .init_asset::<Image>()
-            .insert_resource(crate::tests::document())
+            .insert_resource(crate::test_support::document())
             .init_resource::<DragState>()
             .add_systems(Update, sync);
         app
@@ -507,7 +579,7 @@ mod tests {
 
     #[test]
     fn main_group_islands_and_ambiguous_links_are_dimmed_without_cross_group_id_leaks() {
-        let mut ship = crate::tests::document().ship;
+        let mut ship = crate::test_support::document().ship;
         let part = ship.parts[0].clone();
         for id in 2..=4 {
             let mut next = part.clone();
@@ -585,7 +657,7 @@ mod tests {
 
     #[test]
     fn natural_image_size_and_odd_pixel_anchor_are_independent_of_physics() {
-        let mut kind = panels::tests::catalog().get("pod").unwrap().clone();
+        let mut kind = crate::test_support::catalog().get("pod").unwrap().clone();
         kind.sprite = "DockingConnector.png".into();
         kind.width = 4;
         kind.height = 1;
@@ -616,7 +688,7 @@ mod tests {
 
     #[test]
     fn mirrored_odd_pixels_rotate_about_original_floor_anchor() {
-        let mut part = crate::tests::document().ship.parts.remove(0);
+        let mut part = crate::test_support::document().ship.parts.remove(0);
         part.x = 3.0;
         part.y = -2.0;
         for size in [
@@ -669,7 +741,7 @@ mod tests {
 
     #[test]
     fn disconnected_alpha_survives_selection_and_collision_tints() {
-        let mut document = crate::tests::document();
+        let mut document = crate::test_support::document();
         let part = document.ship.parts[0].clone();
         let key = PartKey::new(1, 1, 0);
         document.ship.disconnected.push(dr_core::ShipGroup {

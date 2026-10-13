@@ -2,6 +2,7 @@
 use super::*;
 use bevy::ecs::system::SystemParam;
 use bevy_egui::EguiInput;
+use dr_core::geometry::Vec2d;
 use std::time::Instant;
 
 mod geometry;

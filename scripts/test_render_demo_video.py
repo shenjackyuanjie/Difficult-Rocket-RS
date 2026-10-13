@@ -138,8 +138,8 @@ class SubtitleAndFilterTests(unittest.TestCase):
         self.assertIn("点击切换框选键", selection[1])
         self.assertIn("左键框选、中键平移", selection[1])
         self.assertIn("点击后代跟随开关", selection[2])
-        self.assertIn("分类筛选", video.CAPTIONS["panels"][1])
-        self.assertIn("恢复全部", video.CAPTIONS["panels"][1])
+        self.assertIn("独立收起", video.CAPTIONS["panels"][1])
+        self.assertIn("全部展开", video.CAPTIONS["panels"][1])
         view = video.CAPTIONS["view"]
         self.assertEqual(len(view), 4)
         self.assertIn("F1", view[1])

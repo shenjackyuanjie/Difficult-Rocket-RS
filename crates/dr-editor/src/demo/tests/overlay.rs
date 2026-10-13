@@ -6,7 +6,7 @@ use bevy_egui::egui;
 fn detailed_property_caption_leaves_real_error_and_apply_cancel_visible_without_taking_input() {
     for width in [1440., 1920.] {
         let ctx = crate::egui_ui::test_context();
-        let mut document = crate::tests::document();
+        let mut document = crate::test_support::document();
         document.select_only(Some(PartKey::new(0, 1, 0)));
         let mut inspector = properties::Inspector::default();
         properties::act(&properties::Action::Open, &mut inspector, &mut document);
@@ -123,7 +123,7 @@ fn ordinary_chapter_caption_keeps_the_original_center_bottom_placement() {
 fn topology_hit_map_waits_for_interactive_layout_before_self_link_click() {
     use crate::topology_ui::{Action, ConnectionEditor, act, show};
     let ctx = crate::egui_ui::test_context();
-    let mut document = crate::tests::document();
+    let mut document = crate::test_support::document();
     document.free_mode = true;
     let key = PartKey::new(0, 1, 0);
     let mut state = ConnectionEditor::default();
