@@ -2,6 +2,8 @@
 
 独立的 Bevy 编辑器及可复用的 SR1 数据核心。当前仍在补齐功能，完整复刻尚未完成；差异与验证记录见 [编辑器进度](docs/editor-progress.md)。
 
+当前使用 Bevy 0.20.0 / bevy_egui 0.43.1 与 quick-xml 0.42.0。原生按钮直接使用 `ui_widgets::Button`、picking 和 `Activate`，鼠标左键按下触发、触摸抬指一次；不保留旧 `Interaction` 兼容层。依赖升级的逐阶段验证见[升级记录](docs/editor-progress.md#2026-10-13-依赖升级与原生按钮迁移)。
+
 从本仓库根目录运行，默认复用相邻 `Difficult-Rocket/assets` 中的部件目录、贴图和字体：
 
 ```powershell
@@ -57,6 +59,8 @@ uv run --no-project --python 3.12 python -X utf8 scripts/demo_editor.py --output
 ```
 
 默认程序为 `target/debug/dr-editor.exe`；缺失或相关源文件更新时脚本自动执行 `cargo build -p dr-editor`。可用 `--editor-bin <路径>` 指定独立程序（不会代为构建），用 `--timeout <秒数>` 显式限制时长（简略默认 600 秒，详细默认不限时）。输出目录默认是 `target/demo-<时间戳>`，重复演示请使用新目录，不能沿用已有报告。直接启动编辑器时对应 `--demo-showcase <新目录> --demo-mode brief|detailed`。
+
+演示与窄窗验收各自从唯一进程名的 EXE 副本启动，避免外部桌面工具按进程名复用旧窗口几何。输出目录保留副本及 `editor-session.json`，启动前核对副本与源程序的 SHA-256 一致；不修改源 EXE、不改变系统窗口尺寸，也不关闭桌面工具。
 
 | 章节 | 演示与断言 |
 | --- | --- |

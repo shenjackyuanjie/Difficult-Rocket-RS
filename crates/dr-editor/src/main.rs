@@ -9,6 +9,7 @@ mod free_mode;
 mod help;
 mod interaction_smoke;
 mod mobile_input;
+mod native_buttons;
 mod native_input;
 mod native_keys;
 mod panels;
@@ -26,6 +27,7 @@ mod view_smoke;
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
+use bevy::ui_widgets::Button;
 use bevy::window::{PresentMode, WindowResolution};
 use dr_core::geometry::{Vec2d, contains_point};
 use dr_core::{
@@ -309,7 +311,6 @@ struct SmokeTest {
 
 /// 仅窗口截图验收指定初始尺寸；普通编辑与演示保留既有窗口配置。
 fn smoke_window_size(args: &[String]) -> anyhow::Result<Option<UVec2>> {
-    use anyhow::Context as _;
     let mut indices = args
         .iter()
         .enumerate()
@@ -326,14 +327,15 @@ fn smoke_window_size(args: &[String]) -> anyhow::Result<Option<UVec2>> {
         !args.iter().any(|arg| arg == "--demo-presentation"),
         "窄窗截图自测不能与演示录制窗口同时启用"
     );
-    let value = args
-        .get(index + 1)
-        .context("--smoke-window-size 需要 WIDTHxHEIGHT，例如 390x844")?;
-    let (width, height) = value
-        .split_once('x')
-        .context("窗口尺寸格式应为 WIDTHxHEIGHT")?;
-    let width: u32 = width.parse().context("窗口宽度应为正整数")?;
-    let height: u32 = height.parse().context("窗口高度应为正整数")?;
+    // Bevy 0.20 的 prelude 也导出 ContextExt；这里显式选择 anyhow 的错误上下文。
+    let value = anyhow::Context::context(
+        args.get(index + 1),
+        "--smoke-window-size 需要 WIDTHxHEIGHT，例如 390x844",
+    )?;
+    let (width, height) =
+        anyhow::Context::context(value.split_once('x'), "窗口尺寸格式应为 WIDTHxHEIGHT")?;
+    let width: u32 = anyhow::Context::context(width.parse(), "窗口宽度应为正整数")?;
+    let height: u32 = anyhow::Context::context(height.parse(), "窗口高度应为正整数")?;
     anyhow::ensure!(width >= 320 && height >= 320, "窗口截图尺寸至少为 320x320");
     Ok(Some(UVec2::new(width, height)))
 }
@@ -492,6 +494,7 @@ fn main() -> anyhow::Result<()> {
                 ..default()
             }),
     )
+    .add_plugins(native_buttons::NativeButtonsPlugin)
     .init_gizmo_group::<connection_lines::LineGizmos>()
     .add_plugins(egui_ui::EditorEguiPlugin)
     .add_message::<files::FileAction>()
@@ -541,7 +544,7 @@ fn main() -> anyhow::Result<()> {
                 properties::actions,
                 egui_ui::prepare_input,
                 panels::panel_actions.run_if(properties::closed),
-                files::toolbar_actions.run_if(properties::closed),
+                files::toolbar_actions,
                 files::file_inputs,
                 properties::cancel_for_file_action,
                 placement::cancel_for_file_action,
@@ -595,11 +598,9 @@ fn capture_screenshot(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut captured: Local<bool>,
     mut stable_size_frames: Local<u8>,
+    mut observed_window: Local<Option<(UVec2, f32)>>,
 ) {
     use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
-    if mode.enabled && mode.started.elapsed().as_secs() > 30 {
-        panic!("窗口截图自测超时");
-    }
     let window = windows.single().ok();
     let size_ready = if let Some(requested) = mode.window_size {
         if window.is_some_and(|window| smoke_window_matches(window, requested)) {
@@ -612,23 +613,39 @@ fn capture_screenshot(
         true
     };
     let smoke = mode.enabled && !*captured && size_ready && mode.started.elapsed().as_secs() >= 5;
-    if smoke || keys.just_pressed(KeyCode::F12) {
-        if smoke && let Some(window) = window {
+    if mode.enabled
+        && let Some(window) = window
+    {
+        let observed = (window.physical_size(), window.scale_factor());
+        if *observed_window != Some(observed) || smoke {
+            info!(
+                "截图自测窗口观测：{:?} → {:?}，经过 {:.3}s",
+                *observed_window,
+                observed,
+                mode.started.elapsed().as_secs_f64()
+            );
+            *observed_window = Some(observed);
             let report = serde_json::json!({
                 "requested_size": mode.window_size.map(|size| [size.x, size.y]),
                 "logical_size": [window.width(), window.height()],
                 "physical_size": [window.physical_width(), window.physical_height()],
                 "scale_factor": window.scale_factor(),
                 "stable_size_frames": *stable_size_frames,
+                "elapsed_seconds": mode.started.elapsed().as_secs_f64(),
+                "capture_requested": smoke,
             });
             std::fs::create_dir_all("target").expect("创建截图证据目录");
             std::fs::write(
                 "target/editor-smoke-window.json",
                 serde_json::to_vec_pretty(&report).unwrap(),
             )
-            .expect("记录截图前窗口尺寸");
-            info!("截图前窗口尺寸：{report}");
+            .expect("记录截图自测窗口尺寸");
         }
+    }
+    if mode.enabled && mode.started.elapsed().as_secs() > 30 {
+        panic!("窗口截图自测超时");
+    }
+    if smoke || keys.just_pressed(KeyCode::F12) {
         *captured = true;
         let path = if smoke {
             "target/editor-smoke.png".to_owned()

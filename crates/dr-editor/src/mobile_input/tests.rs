@@ -3,7 +3,8 @@ use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 
 fn app() -> App {
     let mut app = crate::tests::mouse_app();
-    app.init_resource::<GestureInput>()
+    app.add_plugins(native_buttons::NativeButtonsPlugin)
+        .init_resource::<GestureInput>()
         .add_message::<TouchInput>()
         .add_message::<WindowFocused>()
         .add_message::<MouseWheel>()
@@ -455,27 +456,49 @@ fn native_toolbar_touch_uses_its_real_position_and_fires_once_on_release() {
                 .chain()
                 .after(input),
         );
-    app.world_mut().spawn((
-        Button,
-        panels::EditorPanel,
-        files::FileButton(files::FileAction::OpenDialog),
-        Interaction::Pressed,
-        BackgroundColor(Color::BLACK),
-        ComputedNode {
-            size: Vec2::new(100.0, 44.0),
-            ..default()
-        },
-        UiGlobalTransform::from_translation(Vec2::new(100.0, 34.0)),
-    ));
+    let button = app
+        .world_mut()
+        .spawn((
+            native_buttons::press_triggered(),
+            Node::default(),
+            panels::EditorPanel,
+            files::FileButton(files::FileAction::OpenDialog),
+            BackgroundColor(Color::BLACK),
+            ComputedNode {
+                size: Vec2::new(100.0, 44.0),
+                ..default()
+            },
+            UiGlobalTransform::from_translation(Vec2::new(100.0, 34.0)),
+        ))
+        .id();
     // 旧鼠标位置故意在画布；接入触摸不移动 Window 的鼠标光标。
     let window = window(&mut app);
     app.world_mut()
         .get_mut::<Window>(window)
         .unwrap()
         .set_cursor_position(Some(Vec2::new(900.0, 450.0)));
+    // 在触摸接管前排入鼠标 Activate，验证同帧 Update 仲裁也能丢弃它。
+    app.world_mut()
+        .trigger(bevy::ui_widgets::Activate { entity: button });
     touch(&mut app, 1, TouchPhase::Started, 100.0, 34.0);
     assert!(app.world().resource::<NativeActions>().0.is_empty());
+    assert_eq!(
+        app.world().resource::<GestureInput>().native_pressed,
+        Some(button)
+    );
+    assert_eq!(
+        app.world().get::<BackgroundColor>(button).unwrap().0,
+        Color::srgb(0.3, 0.5, 0.65)
+    );
+    touch(&mut app, 1, TouchPhase::Moved, 200.0, 34.0);
+    assert_eq!(app.world().resource::<GestureInput>().native_pressed, None);
+    touch(&mut app, 1, TouchPhase::Moved, 100.0, 34.0);
+    assert_eq!(
+        app.world().resource::<GestureInput>().native_pressed,
+        Some(button)
+    );
     touch(&mut app, 1, TouchPhase::Ended, 100.0, 34.0);
+    assert_eq!(app.world().resource::<GestureInput>().native_pressed, None);
     assert!(matches!(
         app.world().resource::<NativeActions>().0.as_slice(),
         [files::FileAction::OpenDialog]
@@ -486,6 +509,11 @@ fn native_toolbar_touch_uses_its_real_position_and_fires_once_on_release() {
         app.world().get::<Window>(window).unwrap().cursor_position(),
         Some(Vec2::new(900.0, 450.0))
     );
+    // 所有手指抬起后，新的鼠标 Activate 正常路由，作为屏蔽机制的正向对照。
+    app.world_mut()
+        .trigger(bevy::ui_widgets::Activate { entity: button });
+    app.update();
+    assert_eq!(app.world().resource::<NativeActions>().0.len(), 2);
 }
 
 #[test]
@@ -499,20 +527,30 @@ fn canceled_native_toolbar_touch_never_fires() {
                 .chain()
                 .after(input),
         );
-    app.world_mut().spawn((
-        Button,
-        panels::EditorPanel,
-        files::FileButton(files::FileAction::New),
-        BackgroundColor(Color::BLACK),
-        ComputedNode {
-            size: Vec2::new(100.0, 44.0),
-            ..default()
-        },
-        UiGlobalTransform::from_translation(Vec2::new(100.0, 34.0)),
-    ));
+    let button = app
+        .world_mut()
+        .spawn((
+            native_buttons::press_triggered(),
+            Node::default(),
+            panels::EditorPanel,
+            files::FileButton(files::FileAction::New),
+            BackgroundColor(Color::BLACK),
+            ComputedNode {
+                size: Vec2::new(100.0, 44.0),
+                ..default()
+            },
+            UiGlobalTransform::from_translation(Vec2::new(100.0, 34.0)),
+        ))
+        .id();
     touch(&mut app, 1, TouchPhase::Started, 100.0, 34.0);
+    assert_eq!(
+        app.world().resource::<GestureInput>().native_pressed,
+        Some(button)
+    );
     touch(&mut app, 1, TouchPhase::Canceled, 100.0, 34.0);
+    assert_eq!(app.world().resource::<GestureInput>().native_pressed, None);
     touch(&mut app, 1, TouchPhase::Ended, 100.0, 34.0);
+    assert_eq!(app.world().resource::<GestureInput>().native_pressed, None);
     assert!(app.world().resource::<NativeActions>().0.is_empty());
 }
 

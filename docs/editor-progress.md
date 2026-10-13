@@ -210,6 +210,17 @@
 - 修改按独立块提交：零长路径验证 `37489c0`、统一触控 / 小屏布局 `c19426a`、初始窄窗与三重验收 `534a785`；最终文档另作一个提交。未推送、未重写历史；[二审建议](./demo-review-suggestions.md#L1-L30)保留七个未实施 corner 提案，基线规模不扩张。
 - 本轮未制作 Android / iOS 安装包，未测物理触屏、移动真机或输入到显示的物理延迟；输入法专项按约定跳过。既有[Windows ZIP](../target/dist/dr-editor-win64-20261012-4ef8aa7.zip)保持适配前快照，不覆盖、不宣称包含本轮改动。
 
+## 2026-10-13 依赖升级与原生按钮迁移
+
+- quick-xml 已独立提交 `9e47977`：0.39.4 → 0.42.0，使用新版字符串 QName / 属性归一化接口；字符引用与属性回车、换行、制表符往返、根外文本拒绝及默认 128 层限制均有回归。该提交记录中的 354 项测试属于 XML / Bevy 0.19 阶段，不作本次 0.20 验收。
+- Bevy 0.19.1 → 0.20.0，bevy_egui 0.42.0 → 0.43.1；显式启用 `bevy_ui_widgets` 与 `ui_picking`。所有原生按钮使用 `ui_widgets::Button` / `ActivateOnPress`，`Hovered` / `Pressed` 只负责状态反馈，`Activate` 桥接为 Update 中有序消费的消息。删除旧 `Interaction`、自定义 Button 标记和弃用别名，不保留老版本兼容层。
+- 鼠标只允许主键驱动原生按钮；中键、右键在 picking 输入生成之后过滤，移动和滚动保留，按住及抬起不重复触发。触摸 picking 关闭，真实触点仍由 `GestureInput` 锁定起点、抬指一次提交；取消、双指接管与兼容鼠标尾随不补发旧激活。新增真实 WindowEvent → 官方 picking → widget 回归及文件、帮助、属性消费者回归。
+- 窗口驱动改动已另作 `c37c036`：每次运行保留唯一进程名、字节一致的 EXE 副本与 SHA-256 身份记录；窄窗持续核对本次 PID / HWND / 标题，正常退出的窗口先销毁不误报所有权丢失，真实所有权变化仍立即失败。编辑器同时记录尺寸变化和截图请求状态，不把超时、崩溃或数据断言归为焦点干扰。
+- 本阶段实际执行 `cargo test --workspace --release --locked`：366 项通过（core 104 / editor 262）；`cargo fmt --all --check`、严格全目标 Release Clippy 与 `cargo build --workspace --release --locked` 通过；全量 Python unittest 148 项通过。Rust 首轮默认临时目录拒绝访问，69 项通过 / 35 项失败；使用 `TEMP/TMP=target/test-temp` 后全量复验通过，未改测试断言。[首轮失败](../target/validation-bevy020-rust-20261013.log)、[复验](../target/validation-bevy020-rust-temp-20261013.log)、[Clippy](../target/validation-bevy020-clippy-20261013.log)、[构建](../target/validation-bevy020-build-20261013.log)、[Python](../target/validation-bevy020-python-20261013.log)。
+- 本阶段串行运行 DX12 详细 40ms 回放，19 章 / 45 例 / 95 证据全部通过，退出码 0；[报告](../target/demo-bevy020-fast-20261013/demo-report.json)及[零长 / 连线证据](../target/demo-bevy020-fast-20261013/line-cases.json)保留。同一 Release 程序的 390×844、640×360、320×640 窄窗全部通过 Bevy / Win32 客户区 / PNG 三重核对，退出码均为 0，见[报告](../target/narrow-bevy020-dx12-20261013/report.json)。程序 SHA-256 为 `8be2ffc057979d5e870e5546034246413e0c1fe4675b6e9864d70959f1fd6366`；本阶段尚未运行 450ms 观看回放，不拿 0.19 的历史结果替代。
+- 真实 XML 再验：`verify_catalog` 27 类部件 / 793 个元素与属性通过；`verify_ships` 185 个船体 / 125,856 个部件往返通过，仍拒绝 Alliance、Amect-MAIIa TEST、AmectVII、Ss、X Type 2 五个既有异常输入，实际退出码 1，不标为零错误通过。目录和 190 个船体文件共 191 份 XML 的 SHA-256 前后相同，见[目录日志](../target/validation-bevy020-catalog-20261013.log)、[船体日志](../target/validation-bevy020-ships-20261013.log)、[哈希记录](../target/validation-bevy020-xml-20261013.json)。
+- 阶段边界：serde_json 此时仍锁定 1.0.151，1.0.154 将单独升级提交；用户追加的原生 / egui 风格统一另作功能块，最终构建仍需重新执行观看与窗口验收。本轮不新增平台打包工程、不推送、不重写历史；物理触屏、系统键鼠、输入法和系统文字输入未测。
+
 ## 后续必须完成的工作
 
 1. 文件工作流、常驻船体文件列表及目录切换已实现；1,000 个小船体目录、960×640 窗口及原生对话框失败/取消回归已验收；持续检查真实大文件目录的耗时。

@@ -296,3 +296,177 @@ fn fuel_capacity_is_checked_and_valid_change_undoes() {
     assert!(!document.dirty);
     assert_eq!(document.ship.part(2).unwrap().fuel, Some(max));
 }
+
+fn action_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(native_buttons::NativeButtonsPlugin)
+        .insert_resource(document())
+        .init_resource::<Inspector>()
+        .init_resource::<DragState>()
+        .init_resource::<EditorCursor>()
+        .init_resource::<files::PendingFileAction>()
+        .init_resource::<help::HelpState>()
+        .init_resource::<mobile_input::GestureInput>()
+        .add_systems(Update, actions);
+    app
+}
+
+#[test]
+fn widget_activation_routes_property_actions_and_preserves_single_undo() {
+    let mut app = action_app();
+    let before = app.world().resource::<EditorDocument>().ship.clone();
+    let open_button = app.world_mut().spawn(button(Action::Open, false)).id();
+    let cancel_button = app.world_mut().spawn(button(Action::Cancel, false)).id();
+    let apply_button = app.world_mut().spawn(button(Action::Apply, false)).id();
+    let other = app.world_mut().spawn_empty().id();
+    app.world_mut()
+        .trigger(bevy::ui_widgets::Activate { entity: other });
+    app.update();
+    assert!(!app.world().resource::<Inspector>().is_open());
+    app.world_mut().resource_mut::<DragState>().id = Some(PartKey::new(0, 1, 0));
+    app.world_mut().resource_mut::<EditorCursor>().placing = true;
+    app.world_mut().trigger(bevy::ui_widgets::Activate {
+        entity: open_button,
+    });
+    app.update();
+    assert!(app.world().resource::<Inspector>().is_open());
+    assert!(app.world().resource::<DragState>().id.is_none());
+    assert!(!app.world().resource::<EditorCursor>().placing);
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(!app.world().resource::<EditorDocument>().history.can_undo());
+    app.world_mut()
+        .resource_mut::<Inspector>()
+        .draft
+        .as_mut()
+        .unwrap()
+        .name = "取消的草稿".into();
+    app.world_mut().trigger(bevy::ui_widgets::Activate {
+        entity: cancel_button,
+    });
+    app.update();
+    assert!(!app.world().resource::<Inspector>().is_open());
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(!app.world().resource::<EditorDocument>().history.can_undo());
+    app.world_mut().trigger(bevy::ui_widgets::Activate {
+        entity: open_button,
+    });
+    app.update();
+    app.world_mut()
+        .resource_mut::<Inspector>()
+        .draft
+        .as_mut()
+        .unwrap()
+        .name = "按钮提交".into();
+    app.world_mut().trigger(bevy::ui_widgets::Activate {
+        entity: apply_button,
+    });
+    app.update();
+    assert!(!app.world().resource::<Inspector>().is_open());
+    assert_eq!(
+        app.world().resource::<EditorDocument>().ship.parts[0]
+            .pod
+            .as_ref()
+            .unwrap()
+            .name,
+        "按钮提交"
+    );
+    let mut document = app.world_mut().resource_mut::<EditorDocument>();
+    assert!(document.undo());
+    assert_eq!(document.ship, before);
+    assert!(!document.history.can_undo(), "应用按钮只提交一个事务");
+}
+
+#[test]
+fn property_actions_drop_help_blocked_activations_before_resuming() {
+    for open in [true, false] {
+        let mut app = action_app();
+        let entity = app.world_mut().spawn(button(Action::Open, false)).id();
+        *app.world_mut().resource_mut::<help::HelpState>() = help::HelpState {
+            open,
+            suppress_frame: !open,
+        };
+        app.world_mut()
+            .trigger(bevy::ui_widgets::Activate { entity });
+        app.update();
+        assert!(!app.world().resource::<Inspector>().is_open());
+        app.insert_resource(help::HelpState::default());
+        app.update();
+        assert!(
+            !app.world().resource::<Inspector>().is_open(),
+            "帮助关闭不应补发旧激活"
+        );
+        app.world_mut()
+            .trigger(bevy::ui_widgets::Activate { entity });
+        app.update();
+        assert!(app.world().resource::<Inspector>().is_open());
+    }
+}
+
+#[test]
+fn native_property_click_opens_once_and_drops_compatible_mouse_activation() {
+    let mut app = action_app();
+    let before = app.world().resource::<EditorDocument>().ship.clone();
+    let entity = app.world_mut().spawn(button(Action::Open, false)).id();
+    app.world_mut().resource_mut::<DragState>().id = Some(PartKey::new(0, 1, 0));
+    app.world_mut().resource_mut::<EditorCursor>().placing = true;
+    {
+        let mut touch = app.world_mut().resource_mut::<mobile_input::GestureInput>();
+        touch.override_mouse = true;
+        touch.native_click = Some(mobile_input::NativeClick::Properties);
+    }
+    app.world_mut()
+        .trigger(bevy::ui_widgets::Activate { entity });
+    app.update();
+    assert!(app.world().resource::<Inspector>().is_open());
+    assert!(app.world().resource::<DragState>().id.is_none());
+    assert!(!app.world().resource::<EditorCursor>().placing);
+    app.world_mut()
+        .resource_mut::<Inspector>()
+        .draft
+        .as_mut()
+        .unwrap()
+        .name = "保持未提交草稿".into();
+    app.world_mut()
+        .resource_mut::<mobile_input::GestureInput>()
+        .native_click = None;
+    app.world_mut()
+        .trigger(bevy::ui_widgets::Activate { entity });
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<Inspector>()
+            .draft
+            .as_ref()
+            .unwrap()
+            .name,
+        "保持未提交草稿"
+    );
+    app.world_mut()
+        .resource_mut::<mobile_input::GestureInput>()
+        .override_mouse = false;
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<Inspector>()
+            .draft
+            .as_ref()
+            .unwrap()
+            .name,
+        "保持未提交草稿",
+        "接管解除不能补发旧消息并重置草稿"
+    );
+    app.world_mut()
+        .trigger(bevy::ui_widgets::Activate { entity });
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<Inspector>()
+            .draft
+            .as_ref()
+            .unwrap()
+            .name,
+        "初始"
+    );
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(!app.world().resource::<EditorDocument>().history.can_undo());
+}

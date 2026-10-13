@@ -239,7 +239,8 @@ fn saving_before_reopening_same_path_does_not_restore_stale_contents() {
 fn file_app() -> (App, Entity) {
     let (document, paths, _) = context();
     let mut app = App::new();
-    app.insert_resource(document)
+    app.add_plugins(native_buttons::NativeButtonsPlugin)
+        .insert_resource(document)
         .insert_resource(paths)
         .init_resource::<PendingFileAction>()
         .init_resource::<ButtonInput<KeyCode>>()
@@ -317,16 +318,223 @@ fn toolbar_press_routes_to_file_workflow() {
     let path = directory.path().join("工具栏.xml");
     let (mut app, _) = file_app();
     app.world_mut().resource_mut::<EditorPaths>().ship = Some(path.to_string_lossy().into_owned());
-    app.world_mut().spawn((
-        FileButton(FileAction::Save),
-        Interaction::Pressed,
-        BackgroundColor(Color::BLACK),
-    ));
+    let entity = app
+        .world_mut()
+        .spawn((
+            native_buttons::press_triggered(),
+            FileButton(FileAction::Save),
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
+    app.world_mut()
+        .trigger(bevy::ui_widgets::Activate { entity });
     app.update();
     assert_eq!(
         load_ship(path).unwrap(),
         app.world().resource::<EditorDocument>().ship
     );
+}
+
+#[derive(Resource, Default)]
+struct ToolbarColorChanges(usize);
+
+fn count_toolbar_color_changes(
+    colors: Query<(), (With<FileButton>, Changed<BackgroundColor>)>,
+    mut changes: ResMut<ToolbarColorChanges>,
+) {
+    changes.0 += colors.iter().count();
+}
+
+fn toolbar_app() -> (App, Entity) {
+    let mut app = App::new();
+    app.add_plugins(native_buttons::NativeButtonsPlugin)
+        .init_resource::<PendingFileAction>()
+        .init_resource::<help::HelpState>()
+        .init_resource::<properties::Inspector>()
+        .init_resource::<mobile_input::GestureInput>()
+        .init_resource::<ToolbarColorChanges>()
+        .add_message::<FileAction>()
+        .add_systems(
+            Update,
+            (toolbar_actions, count_toolbar_color_changes).chain(),
+        );
+    let entity = app
+        .world_mut()
+        .spawn((
+            native_buttons::press_triggered(),
+            FileButton(FileAction::OpenDialog),
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
+    (app, entity)
+}
+
+fn take_toolbar_actions(app: &mut App) -> Vec<FileAction> {
+    app.world_mut()
+        .resource_mut::<Messages<FileAction>>()
+        .drain()
+        .collect()
+}
+
+#[test]
+fn toolbar_colors_change_only_when_widget_or_touch_pressed_state_changes() {
+    let (mut app, entity) = toolbar_app();
+    app.update();
+    assert_eq!(app.world().resource::<ToolbarColorChanges>().0, 1);
+    app.update();
+    assert_eq!(
+        app.world().resource::<ToolbarColorChanges>().0,
+        1,
+        "相同空态颜色不重复写入"
+    );
+    app.world_mut().entity_mut(entity).insert(Pressed);
+    app.update();
+    assert_eq!(app.world().resource::<ToolbarColorChanges>().0, 2);
+    app.update();
+    assert_eq!(
+        app.world().resource::<ToolbarColorChanges>().0,
+        2,
+        "相同按下色不重复写入"
+    );
+    app.world_mut()
+        .resource_mut::<mobile_input::GestureInput>()
+        .override_mouse = true;
+    app.update();
+    assert_eq!(
+        app.world().resource::<ToolbarColorChanges>().0,
+        3,
+        "触摸无目标应清掉旧按下色"
+    );
+    app.update();
+    assert_eq!(app.world().resource::<ToolbarColorChanges>().0, 3);
+    app.world_mut()
+        .resource_mut::<mobile_input::GestureInput>()
+        .native_pressed = Some(entity);
+    app.update();
+    assert_eq!(app.world().resource::<ToolbarColorChanges>().0, 4);
+    app.update();
+    assert_eq!(
+        app.world().resource::<ToolbarColorChanges>().0,
+        4,
+        "相同触摸目标不重复写入"
+    );
+    assert!(
+        take_toolbar_actions(&mut app).is_empty(),
+        "颜色状态本身不能激活动作"
+    );
+}
+
+#[test]
+fn blocked_toolbar_activations_are_dropped_before_the_first_resumed_frame() {
+    for guard in 0..5 {
+        let (mut app, entity) = toolbar_app();
+        match guard {
+            0 => app.world_mut().resource_mut::<PendingFileAction>().action = Some(FileAction::New),
+            1 => {
+                app.world_mut()
+                    .resource_mut::<PendingFileAction>()
+                    .suppress_frame = true
+            }
+            2 => app.world_mut().resource_mut::<help::HelpState>().open = true,
+            3 => {
+                app.world_mut()
+                    .resource_mut::<help::HelpState>()
+                    .suppress_frame = true
+            }
+            4 => {
+                let mut inspector = properties::Inspector::default();
+                let mut document = context().0;
+                document.selected = Some(PartKey::new(0, 1, 0));
+                properties::open(&mut inspector, &document);
+                assert!(inspector.is_open());
+                app.insert_resource(inspector);
+            }
+            _ => unreachable!(),
+        }
+        app.world_mut()
+            .trigger(bevy::ui_widgets::Activate { entity });
+        app.update();
+        assert!(
+            take_toolbar_actions(&mut app).is_empty(),
+            "阻塞条件 {guard} 应丢弃激活"
+        );
+        app.insert_resource(PendingFileAction::default());
+        app.insert_resource(help::HelpState::default());
+        app.insert_resource(properties::Inspector::default());
+        app.update();
+        assert!(
+            take_toolbar_actions(&mut app).is_empty(),
+            "解除条件 {guard} 不应补发旧激活"
+        );
+        app.world_mut()
+            .trigger(bevy::ui_widgets::Activate { entity });
+        app.update();
+        assert!(matches!(
+            take_toolbar_actions(&mut app).as_slice(),
+            [FileAction::OpenDialog]
+        ));
+    }
+}
+
+#[test]
+fn toolbar_touch_release_emits_once_and_drops_compatible_mouse_activation() {
+    let (mut app, entity) = toolbar_app();
+    let other = app.world_mut().spawn_empty().id();
+    app.world_mut()
+        .trigger(bevy::ui_widgets::Activate { entity: other });
+    app.update();
+    assert!(take_toolbar_actions(&mut app).is_empty());
+    {
+        let mut touch = app.world_mut().resource_mut::<mobile_input::GestureInput>();
+        touch.override_mouse = true;
+        touch.native_pressed = Some(entity);
+        touch.native_click = Some(mobile_input::NativeClick::File(FileAction::OpenDialog));
+    }
+    app.world_mut().entity_mut(entity).insert(Pressed);
+    app.world_mut()
+        .trigger(bevy::ui_widgets::Activate { entity });
+    app.update();
+    assert!(matches!(
+        take_toolbar_actions(&mut app).as_slice(),
+        [FileAction::OpenDialog]
+    ));
+    assert_eq!(
+        app.world().get::<BackgroundColor>(entity).unwrap().0,
+        Color::srgb(0.3, 0.5, 0.65)
+    );
+    {
+        let mut touch = app.world_mut().resource_mut::<mobile_input::GestureInput>();
+        touch.native_click = None;
+        touch.native_pressed = None;
+    }
+    app.world_mut()
+        .trigger(bevy::ui_widgets::Activate { entity });
+    app.update();
+    assert!(take_toolbar_actions(&mut app).is_empty());
+    assert_eq!(
+        app.world().get::<BackgroundColor>(entity).unwrap().0,
+        Color::srgb(0.13, 0.18, 0.24)
+    );
+    app.world_mut()
+        .resource_mut::<mobile_input::GestureInput>()
+        .override_mouse = false;
+    app.update();
+    assert!(
+        take_toolbar_actions(&mut app).is_empty(),
+        "解除触摸接管不应补发兼容鼠标消息"
+    );
+    assert_eq!(
+        app.world().get::<BackgroundColor>(entity).unwrap().0,
+        Color::srgb(0.3, 0.5, 0.65)
+    );
+    app.world_mut().entity_mut(entity).remove::<Pressed>();
+    app.world_mut()
+        .trigger(bevy::ui_widgets::Activate { entity });
+    app.update();
+    assert!(matches!(
+        take_toolbar_actions(&mut app).as_slice(),
+        [FileAction::OpenDialog]
+    ));
 }
 
 // 跨组重复编号是原版船体的合法输入，混合流程不能把 XML 编号当全局身份。

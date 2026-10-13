@@ -1,5 +1,7 @@
 //! 按需显示操作说明，不让常驻 HUD 占据画布。
 use super::*;
+use bevy::picking::hover::Hovered;
+use bevy::ui::Pressed;
 use bevy_egui::{EguiContexts, egui};
 
 #[derive(Resource, Default)]
@@ -19,7 +21,7 @@ pub(crate) fn setup(mut commands: Commands, assets: Res<AssetServer>) {
     let font = assets.load("fonts/HarmonyOS_Sans/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ttf");
     commands
         .spawn((
-            Button,
+            native_buttons::press_triggered(),
             HelpButton,
             panels::ToolbarItem::Help,
             panels::EditorPanel,
@@ -47,10 +49,8 @@ pub(crate) fn setup(mut commands: Commands, assets: Res<AssetServer>) {
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn input(
     keys: Res<ButtonInput<KeyCode>>,
-    mut buttons: Query<
-        (&Interaction, &mut BackgroundColor),
-        (With<HelpButton>, Changed<Interaction>),
-    >,
+    mut activated: MessageReader<native_buttons::Activated>,
+    mut buttons: Query<(Entity, Has<Pressed>, &Hovered, &mut BackgroundColor), With<HelpButton>>,
     mut state: ResMut<HelpState>,
     inspector: Res<properties::Inspector>,
     topology: Res<topology_ui::ConnectionEditor>,
@@ -61,14 +61,31 @@ pub(crate) fn input(
     mut camera_drag: ResMut<CameraDrag>,
     mut pointer: ResMut<panels::UiPointer>,
 ) {
+    let touch = touch.as_deref();
+    for (entity, pressed, hovered, mut color) in &mut buttons {
+        let next = if let Some(touch) = touch.filter(|input| input.override_mouse) {
+            if touch.native_pressed == Some(entity) {
+                Color::srgb(0.3, 0.5, 0.65)
+            } else {
+                Color::srgb(0.13, 0.18, 0.24)
+            }
+        } else if pressed {
+            Color::srgb(0.3, 0.5, 0.65)
+        } else if hovered.get() {
+            Color::srgb(0.22, 0.32, 0.43)
+        } else {
+            Color::srgb(0.13, 0.18, 0.24)
+        };
+        if color.0 != next {
+            color.0 = next;
+        }
+    }
     state.suppress_frame = false;
     if inspector.is_open() || topology.open || pending.is_blocked() {
+        activated.clear();
         state.open = false;
         return;
     }
-    let touch = touch.as_deref();
-    // 触摸接管指针（override_mouse）时，Bevy UI 的 Interaction 会把触摸误映射成
-    // 悬停或点击，这里不再采信它，只用原生手势报出的点击。
     let mut toggle = keys.just_pressed(KeyCode::F1)
         || touch.is_some_and(|input| {
             matches!(
@@ -76,16 +93,12 @@ pub(crate) fn input(
                 Some(mobile_input::NativeClick::Help)
             )
         });
-    if !touch.is_some_and(|input| input.override_mouse) {
-        for (interaction, mut color) in &mut buttons {
-            color.0 = match interaction {
-                Interaction::Pressed => {
-                    toggle = true;
-                    Color::srgb(0.3, 0.5, 0.65)
-                }
-                Interaction::Hovered => Color::srgb(0.22, 0.32, 0.43),
-                Interaction::None => Color::srgb(0.13, 0.18, 0.24),
-            };
+    if touch.is_some_and(|input| input.override_mouse) {
+        // 本帧触摸独占原生按钮，丢弃 picking 已经桥接的消息，避免兼容鼠标重复触发。
+        activated.clear();
+    } else {
+        for event in activated.read() {
+            toggle |= buttons.contains(event.entity);
         }
     }
     let was_open = state.open;
@@ -196,7 +209,8 @@ mod tests {
 
     fn app() -> App {
         let mut app = App::new();
-        app.init_resource::<ButtonInput<KeyCode>>()
+        app.add_plugins(native_buttons::NativeButtonsPlugin)
+            .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<HelpState>()
             .init_resource::<properties::Inspector>()
             .init_resource::<topology_ui::ConnectionEditor>()
@@ -318,26 +332,98 @@ mod tests {
     }
 
     #[test]
-    fn actual_toolbar_interaction_toggles_help() {
+    fn actual_toolbar_activation_toggles_help_without_repeating_while_held() {
         let mut app = app();
         let entity = app
             .world_mut()
             .spawn((
+                native_buttons::press_triggered(),
                 HelpButton,
-                Interaction::Pressed,
+                Pressed,
                 BackgroundColor(Color::BLACK),
             ))
             .id();
+        app.world_mut()
+            .trigger(bevy::ui_widgets::Activate { entity });
         app.update();
         assert!(app.world().resource::<HelpState>().open);
-        app.world_mut().entity_mut(entity).insert(Interaction::None);
+        assert_eq!(
+            app.world().get::<BackgroundColor>(entity).unwrap().0,
+            Color::srgb(0.3, 0.5, 0.65)
+        );
         app.update();
+        assert!(
+            app.world().resource::<HelpState>().open,
+            "按住态本身不产生第二次激活"
+        );
+        app.world_mut().entity_mut(entity).remove::<Pressed>();
+        app.update();
+        assert!(
+            app.world().resource::<HelpState>().open,
+            "释放只清按下色，不切换帮助"
+        );
+        assert_eq!(
+            app.world().get::<BackgroundColor>(entity).unwrap().0,
+            Color::srgb(0.13, 0.18, 0.24)
+        );
+        app.world_mut().entity_mut(entity).insert(Pressed);
         app.world_mut()
-            .entity_mut(entity)
-            .insert(Interaction::Pressed);
+            .trigger(bevy::ui_widgets::Activate { entity });
         app.update();
         assert!(!app.world().resource::<HelpState>().open);
         assert_eq!(app.world().resource::<CanvasTicks>().0, 0);
+    }
+
+    #[test]
+    fn help_drops_modal_blocked_activations_without_delayed_toggle() {
+        for inspector_open in [true, false] {
+            let mut app = app();
+            let entity = app
+                .world_mut()
+                .spawn((
+                    native_buttons::press_triggered(),
+                    HelpButton,
+                    BackgroundColor(Color::BLACK),
+                ))
+                .id();
+            if inspector_open {
+                let mut inspector = properties::Inspector::default();
+                let mut document = crate::tests::document();
+                document.selected = Some(PartKey::new(0, 1, 0));
+                properties::open(&mut inspector, &document);
+                assert!(inspector.is_open());
+                app.insert_resource(inspector);
+            } else {
+                app.world_mut()
+                    .resource_mut::<topology_ui::ConnectionEditor>()
+                    .open = true;
+            }
+            app.world_mut()
+                .trigger(bevy::ui_widgets::Activate { entity });
+            app.update();
+            assert!(!app.world().resource::<HelpState>().open);
+            app.insert_resource(properties::Inspector::default());
+            app.world_mut()
+                .resource_mut::<topology_ui::ConnectionEditor>()
+                .open = false;
+            app.update();
+            assert!(
+                !app.world().resource::<HelpState>().open,
+                "模态关闭后不补发旧激活"
+            );
+            let other = app.world_mut().spawn_empty().id();
+            app.world_mut()
+                .trigger(bevy::ui_widgets::Activate { entity: other });
+            app.update();
+            assert!(
+                !app.world().resource::<HelpState>().open,
+                "其它控件激活不切换帮助"
+            );
+            app.world_mut()
+                .trigger(bevy::ui_widgets::Activate { entity });
+            app.update();
+            assert!(app.world().resource::<HelpState>().open);
+        }
     }
 
     #[test]
@@ -473,48 +559,78 @@ mod tests {
     }
 
     #[test]
-    fn native_help_click_toggles_while_override_mouse_skips_bevy_interaction() {
+    fn native_help_click_toggles_while_override_mouse_drops_widget_activation() {
         let mut app = app();
         let entity = app
             .world_mut()
-            .spawn((HelpButton, Interaction::None, BackgroundColor(Color::BLACK)))
+            .spawn((
+                native_buttons::press_triggered(),
+                HelpButton,
+                Pressed,
+                BackgroundColor(Color::BLACK),
+            ))
             .id();
-        // 触摸接管指针并报出原生 Help 点击：帮助打开。
+        // 抬指产生原生点击，同帧兼容鼠标激活不能再切换一次。
         let mut touch = mobile_input::GestureInput::default();
         touch.native_click = Some(mobile_input::NativeClick::Help);
         touch.override_mouse = true;
         app.insert_resource(touch);
+        app.world_mut()
+            .trigger(bevy::ui_widgets::Activate { entity });
         app.update();
         assert!(app.world().resource::<HelpState>().open);
-        // 触摸接管时 Bevy UI 的 Interaction::Pressed 不再重复触发。
+        assert_eq!(
+            app.world().get::<BackgroundColor>(entity).unwrap().0,
+            Color::srgb(0.13, 0.18, 0.24)
+        );
+        {
+            let mut touch = app.world_mut().resource_mut::<mobile_input::GestureInput>();
+            touch.native_click = None;
+            touch.native_pressed = Some(entity);
+        }
+        app.world_mut()
+            .trigger(bevy::ui_widgets::Activate { entity });
+        app.update();
+        assert!(app.world().resource::<HelpState>().open);
+        assert_eq!(
+            app.world().get::<BackgroundColor>(entity).unwrap().0,
+            Color::srgb(0.3, 0.5, 0.65)
+        );
         app.world_mut()
             .resource_mut::<mobile_input::GestureInput>()
-            .native_click = None;
+            .native_pressed = None;
         app.world_mut()
-            .entity_mut(entity)
-            .insert(Interaction::Pressed);
+            .trigger(bevy::ui_widgets::Activate { entity });
         app.update();
         assert!(app.world().resource::<HelpState>().open);
-        // 松开接管后鼠标路径恢复：Pressed 仍然切换。
+        assert_eq!(
+            app.world().get::<BackgroundColor>(entity).unwrap().0,
+            Color::srgb(0.13, 0.18, 0.24)
+        );
+        // 接管解除后的首帧不补旧消息；新鼠标激活仍然可用。
         app.world_mut()
             .resource_mut::<mobile_input::GestureInput>()
             .override_mouse = false;
-        app.world_mut().entity_mut(entity).insert(Interaction::None);
         app.update();
         assert!(app.world().resource::<HelpState>().open);
         app.world_mut()
-            .entity_mut(entity)
-            .insert(Interaction::Pressed);
+            .trigger(bevy::ui_widgets::Activate { entity });
         app.update();
         assert!(!app.world().resource::<HelpState>().open);
-        // 原生点击在触摸接管下仍可重新打开。
-        app.world_mut()
-            .resource_mut::<mobile_input::GestureInput>()
-            .override_mouse = true;
-        app.world_mut()
-            .resource_mut::<mobile_input::GestureInput>()
-            .native_click = Some(mobile_input::NativeClick::Help);
+        {
+            let mut touch = app.world_mut().resource_mut::<mobile_input::GestureInput>();
+            touch.override_mouse = true;
+            touch.native_click = Some(mobile_input::NativeClick::Help);
+        }
         app.update();
         assert!(app.world().resource::<HelpState>().open);
+        app.world_mut()
+            .resource_mut::<mobile_input::GestureInput>()
+            .native_click = None;
+        app.update();
+        assert!(
+            app.world().resource::<HelpState>().open,
+            "同一次抬指只切换一次"
+        );
     }
 }

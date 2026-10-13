@@ -182,7 +182,7 @@ fn label(value: impl Into<String>, font: &Handle<Font>, size: f32) -> impl Bundl
 
 fn button(action: Action, selected: bool) -> impl Bundle {
     (
-        Button,
+        native_buttons::press_triggered(),
         action,
         Node {
             padding: UiRect::axes(px(10), px(6)),
@@ -424,7 +424,8 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
 
 #[allow(clippy::too_many_arguments)] // Bevy 系统参数分别声明资源访问，保持调度依赖可见。
 pub fn actions(
-    buttons: Query<(&Interaction, &Action), Changed<Interaction>>,
+    mut activated: MessageReader<native_buttons::Activated>,
+    buttons: Query<&Action>,
     mut inspector: ResMut<Inspector>,
     mut document: ResMut<EditorDocument>,
     mut drag: ResMut<DragState>,
@@ -436,9 +437,11 @@ pub fn actions(
     if help.is_some_and(|state| state.open || state.suppress_frame)
         || pending.is_some_and(|state| state.is_blocked())
     {
+        activated.clear();
         return;
     }
     if let Some(touch) = touch.as_deref().filter(|input| input.override_mouse) {
+        activated.clear();
         if matches!(
             touch.native_click.as_ref(),
             Some(mobile_input::NativeClick::Properties)
@@ -450,8 +453,8 @@ pub fn actions(
         }
         return;
     }
-    for (interaction, action) in &buttons {
-        if *interaction == Interaction::Pressed {
+    for event in activated.read() {
+        if let Ok(action) = buttons.get(event.entity) {
             act(action, &mut inspector, &mut document);
             drag.cancel();
             cursor.cancel_placement();

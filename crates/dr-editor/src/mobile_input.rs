@@ -51,6 +51,8 @@ pub(crate) struct GestureInput {
     pub override_mouse: bool,
     pub navigation: Option<NavigationDelta>,
     pub native_click: Option<NativeClick>,
+    /// 当前真实触点仍位于起点锁定按钮时的按下反馈，不参与按钮提交。
+    pub native_pressed: Option<Entity>,
     contacts: BTreeMap<u64, Contact>,
     session: Session,
     target: Option<NativeTarget>,
@@ -143,6 +145,7 @@ pub(crate) fn input(
     state.press_position = None;
     state.navigation = None;
     state.native_click = None;
+    state.native_pressed = None;
     state.override_mouse = !state.contacts.is_empty() || state.mouse_tail;
     if state.contacts.is_empty() && !state.mouse_tail {
         state.session = Session::Idle;
@@ -280,6 +283,14 @@ pub(crate) fn input(
                 cancel_preview(&mut drag, &mut cursor, &mut camera_drag);
             }
         }
+    }
+    if state.contacts.len() == 1
+        && let Some(target) = &state.target
+        && let Some(contact) = state.contacts.values().next()
+        && let Ok((_, node, transform, ..)) = native_buttons.get(target.entity)
+        && node.contains_point(*transform, contact.position * window.scale_factor())
+    {
+        state.native_pressed = Some(target.entity);
     }
     if state.override_mouse {
         // 同设备兼容鼠标事件只能在真实左键释放后重新参与；不修改 ButtonInput。

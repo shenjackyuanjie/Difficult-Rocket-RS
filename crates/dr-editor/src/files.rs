@@ -1,4 +1,6 @@
 use super::*;
+use bevy::picking::hover::Hovered;
+use bevy::ui::Pressed;
 use bevy::window::{FileDragAndDrop, WindowCloseRequested};
 use std::path::{Path, PathBuf};
 
@@ -549,7 +551,7 @@ pub(crate) fn setup_file_toolbar(mut commands: Commands, assets: Res<AssetServer
                 ("× 退出", FileAction::Exit),
             ] {
                 root.spawn((
-                    Button,
+                    native_buttons::press_triggered(),
                     Node {
                         width: px(if matches!(action, FileAction::SaveAs) {
                             116.0
@@ -581,33 +583,59 @@ pub(crate) fn setup_file_toolbar(mut commands: Commands, assets: Res<AssetServer
         });
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn toolbar_actions(
-    mut buttons: Query<(&Interaction, &FileButton, &mut BackgroundColor), Changed<Interaction>>,
+    mut activated: MessageReader<native_buttons::Activated>,
+    mut buttons: Query<(
+        Entity,
+        &FileButton,
+        Has<Pressed>,
+        &Hovered,
+        &mut BackgroundColor,
+    )>,
     mut actions: MessageWriter<FileAction>,
     pending: Option<Res<PendingFileAction>>,
     help: Option<Res<crate::help::HelpState>>,
+    inspector: Option<Res<properties::Inspector>>,
     touch: Option<Res<mobile_input::GestureInput>>,
 ) {
+    let touch = touch.as_deref();
+    for (entity, _, pressed, hovered, mut color) in &mut buttons {
+        let next = if let Some(touch) = touch.filter(|input| input.override_mouse) {
+            if touch.native_pressed == Some(entity) {
+                Color::srgb(0.3, 0.5, 0.65)
+            } else {
+                Color::srgb(0.13, 0.18, 0.24)
+            }
+        } else if pressed {
+            Color::srgb(0.3, 0.5, 0.65)
+        } else if hovered.get() {
+            Color::srgb(0.22, 0.32, 0.43)
+        } else {
+            Color::srgb(0.13, 0.18, 0.24)
+        };
+        if color.0 != next {
+            color.0 = next;
+        }
+    }
     if help.is_some_and(|state| state.open || state.suppress_frame)
-        || pending.is_some_and(|state| state.is_waiting())
+        || pending.is_some_and(|state| state.is_blocked())
+        || inspector.is_some_and(|state| state.is_open())
     {
+        activated.clear();
         return;
     }
-    if let Some(touch) = touch.as_deref().filter(|input| input.override_mouse) {
+    if let Some(touch) = touch.filter(|input| input.override_mouse) {
+        activated.clear();
         if let Some(mobile_input::NativeClick::File(action)) = &touch.native_click {
             actions.write(action.clone());
         }
         return;
     }
-    for (interaction, button, mut color) in &mut buttons {
-        color.0 = match interaction {
-            Interaction::Pressed => {
-                actions.write(button.0.clone());
-                Color::srgb(0.3, 0.5, 0.65)
-            }
-            Interaction::Hovered => Color::srgb(0.22, 0.32, 0.43),
-            Interaction::None => Color::srgb(0.13, 0.18, 0.24),
-        };
+    for event in activated.read() {
+        if let Ok((_, button, _, _, _)) = buttons.get_mut(event.entity) {
+            actions.write(button.0.clone());
+        }
     }
 }
 
