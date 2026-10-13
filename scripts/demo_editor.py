@@ -212,6 +212,30 @@ def validate_detailed_staging(chapter, output):
     for field, expected in (("stages", 64), ("activations", 1024), ("edited_stage", 63), ("edited_activation", 15)):
         if type(report.get(field)) is not int or report[field] != expected:
             raise DemoError(f"详细分级必须实际演示 64 级/1024 动作及最后一项：{field}")
+    preview = report.get("preview")
+    if not isinstance(preview, dict):
+        raise DemoError("分级证据缺少停靠布局与船体目标标记")
+    if preview.get("panel_overlaps_canvas") is not False or preview.get("edited_target_visible") is not True:
+        raise DemoError("分级面板不得覆盖船体，修改目标必须可见")
+    if preview.get("hover_target_visible") is not True or preview.get("hover_restored") is not True:
+        raise DemoError("分级悬停必须显示实际部件高亮，移开后恢复原焦点")
+    if not nonnegative_int(preview.get("target_group")) or type(preview.get("target_id")) is not int:
+        raise DemoError("分级目标必须记录实际组与部件 ID")
+    rectangles = []
+    for field in ("panel_rect", "canvas_rect", "target_rect", "hover_target_rect"):
+        rect = preview.get(field)
+        if not isinstance(rect, list) or len(rect) != 4 or not all(finite_number(value) for value in rect):
+            raise DemoError(f"分级 {field} 必须是四个有限坐标")
+        if rect[2] <= rect[0] or rect[3] <= rect[1]:
+            raise DemoError(f"分级 {field} 必须有实际面积")
+        rectangles.append(rect)
+    panel, canvas, target, hovered = rectangles
+    if min(panel[2], canvas[2]) > max(panel[0], canvas[0]) and min(panel[3], canvas[3]) > max(panel[1], canvas[1]):
+        raise DemoError("分级面板与船体矩形实际重叠，不能只相信布尔指标")
+    if not (canvas[0] <= target[0] < target[2] <= canvas[2] and canvas[1] <= target[1] < target[3] <= canvas[3]):
+        raise DemoError("分级目标标记必须完整位于船体区域")
+    if not (canvas[0] <= hovered[0] < hovered[2] <= canvas[2] and canvas[1] <= hovered[1] < hovered[3] <= canvas[3]):
+        raise DemoError("分级悬停部件必须实际处于船体区域")
 
 
 def finite_number(value):

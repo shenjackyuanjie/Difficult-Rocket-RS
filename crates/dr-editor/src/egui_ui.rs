@@ -10,7 +10,54 @@ use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 /// 本次 egui pass 的逻辑坐标，供窗口自动化直接生成 egui 指针事件。
 /// 若测试改为发送 Bevy 窗口事件，还需换算窗口缩放与 ctx.pixels_per_point()。
 #[derive(Resource, Default)]
-pub struct UiHits(pub Vec<(properties::Action, egui::Rect)>, pub bool);
+pub struct UiHits {
+    pub actions: Vec<(properties::Action, egui::Rect)>,
+    pub scrolling: bool,
+    pub dock: Option<properties::egui_panel::Dock>,
+    pub targets: Vec<(PartKey, egui::Rect)>,
+    pub body: Option<egui::Rect>,
+}
+
+/// 目录与分级动作共用 Bevy 贴图注册；尺寸每帧读取，避免缓存未加载时的回退值。
+#[derive(Resource, Default)]
+pub(crate) struct PartImages(std::collections::HashMap<String, egui::TextureId>);
+
+impl PartImages {
+    pub(crate) fn get(
+        &mut self,
+        contexts: &mut EguiContexts,
+        assets: &AssetServer,
+        images: &Assets<Image>,
+        kind: &dr_core::PartType,
+    ) -> (egui::TextureId, Vec2) {
+        let texture = *self.0.entry(kind.sprite.clone()).or_insert_with(|| {
+            contexts.add_image(bevy_egui::EguiTextureHandle::Strong(
+                if kind.sprite.is_empty() {
+                    Handle::<Image>::default()
+                } else {
+                    assets.load(format!("textures/parts/{}", kind.sprite))
+                },
+            ))
+        });
+        let size = render::image_size(&kind.sprite, assets, images)
+            .unwrap_or_else(|| render::fallback_size(Some(kind)));
+        (texture, size)
+    }
+}
+
+/// 两个部件列表使用同一等比例缩略图绘制，图片不会拉伸或挤占文字列。
+pub(crate) fn paint_part_image(
+    ui: &egui::Ui,
+    (texture, size): (egui::TextureId, Vec2),
+    bounds: egui::Rect,
+) {
+    let size = egui::vec2(size.x, size.y);
+    let scale = (bounds.width() / size.x.max(1.0)).min(bounds.height() / size.y.max(1.0));
+    let rect = egui::Rect::from_center_size(bounds.center(), size * scale);
+    egui::Image::new((texture, size))
+        .maintain_aspect_ratio(true)
+        .paint_at(ui, rect);
+}
 
 pub struct EditorEguiPlugin;
 
@@ -18,6 +65,7 @@ impl Plugin for EditorEguiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(EguiPlugin::default())
             .init_resource::<UiHits>()
+            .init_resource::<PartImages>()
             .init_resource::<help::HelpState>()
             .init_resource::<files::PendingFileAction>()
             .init_resource::<topology_ui::ConnectionEditor>()
@@ -51,6 +99,26 @@ pub fn canvas_input_available(
         && !pending.is_some_and(|state| state.is_blocked())
         && !help.is_some_and(|state| state.open || state.suppress_frame)
         && !lines.is_some_and(|state| state.open)
+}
+
+/// 停靠分级打开/改尺寸时仅放行既有适配请求，仍不放行画布编辑快捷键。
+pub fn canvas_or_fit_available(
+    inspector: Option<Res<properties::Inspector>>,
+    topology: Option<Res<topology_ui::ConnectionEditor>>,
+    pending: Option<Res<files::PendingFileAction>>,
+    help: Option<Res<help::HelpState>>,
+    lines: Option<Res<connection_lines::Settings>>,
+    ui: Option<Res<panels::egui_panel::UiState>>,
+) -> bool {
+    let fit = inspector.as_ref().is_some_and(|state| state.docked())
+        && ui.is_some_and(|state| state.fit_requested);
+    canvas_input_available(
+        if fit { None } else { inspector },
+        topology,
+        pending,
+        help,
+        lines,
+    )
 }
 
 /// 放在 pointer_over_ui、properties::actions 之后，画布输入系统之前。
@@ -232,30 +300,78 @@ fn configure(mut contexts: EguiContexts, paths: Res<EditorPaths>, mut configured
     *configured = true;
 }
 
+type PreviewResources<'w, 's> = (
+    Res<'w, AssetServer>,
+    Res<'w, Assets<Image>>,
+    Query<'w, 's, &'static Window, With<bevy::window::PrimaryWindow>>,
+    Query<'w, 's, (&'static Transform, &'static Projection), With<Camera2d>>,
+    ResMut<'w, PartImages>,
+);
+
 pub fn draw(
     mut contexts: EguiContexts,
-    paths: Res<EditorPaths>,
+    (paths, mut pending): (Res<EditorPaths>, ResMut<files::PendingFileAction>),
     mut inspector: ResMut<properties::Inspector>,
     mut document: ResMut<EditorDocument>,
     mut hits: ResMut<UiHits>,
-    mut pending: ResMut<files::PendingFileAction>,
+    (mut state, mut last_canvas): (
+        ResMut<panels::egui_panel::UiState>,
+        Local<Option<egui::Rect>>,
+    ),
+    (assets, images, windows, cameras, mut part_images): PreviewResources,
 ) {
-    hits.0.clear();
-    hits.1 = false;
+    hits.actions.clear();
+    hits.dock = None;
+    hits.targets.clear();
+    hits.body = None;
+    hits.scrolling = false;
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
+    let ctx = ctx.clone();
     if pending.is_blocked() {
-        files::show_confirmation(ctx, &mut pending, &paths);
+        files::show_confirmation(&ctx, &mut pending, &paths);
         return;
     }
     if !inspector.is_open() {
+        *last_canvas = None;
         return;
     }
-    hits.1 = ctx.input(|input| input.is_scrolling());
-    if let Some(action) = properties::egui_panel::show(ctx, &mut inspector, &document, &mut hits.0)
-    {
-        properties::act(&action, &mut inspector, &mut document);
+    hits.scrolling = ctx.input(|input| input.is_scrolling());
+    let available = state.canvas_area.unwrap_or_else(|| ctx.content_rect());
+    if let Some(shown) = properties::egui_panel::show(
+        &ctx,
+        &mut inspector,
+        &document,
+        &mut hits.actions,
+        available,
+        &mut |kind| part_images.get(&mut contexts, &assets, &images, kind),
+    ) {
+        hits.body = Some(shown.body);
+        if let Some(action) = shown.action {
+            properties::act(&action, &mut inspector, &mut document);
+        }
+        if let Some(dock) = shown.dock {
+            hits.dock = Some(dock);
+            state.areas.push(dock.panel);
+            state.canvas_area = Some(dock.canvas);
+            if *last_canvas != Some(dock.canvas) {
+                state.fit_requested = true;
+                *last_canvas = Some(dock.canvas);
+            }
+            if let (Ok(window), Ok((camera, projection))) = (windows.single(), cameras.single()) {
+                hits.targets = properties::egui_panel::paint_targets(
+                    &ctx,
+                    &inspector,
+                    &document,
+                    dock.canvas,
+                    (window, camera, projection),
+                    |texture| render::image_size(texture, &assets, &images),
+                );
+            }
+        } else {
+            *last_canvas = None;
+        }
     }
 }
 
@@ -304,23 +420,22 @@ impl UiTestInput {
         input: &mut bevy_egui::EguiInput,
     ) -> bool {
         // 滚轮有平滑惯性；等正文稳定后再按下/释放，避免控件移出点击位置。
-        if hits.1 {
+        if hits.scrolling {
             return false;
         }
-        if let Some((_, rect)) = hits.0.iter().find(|(candidate, _)| *candidate == action) {
+        if let Some((_, rect)) = hits
+            .actions
+            .iter()
+            .find(|(candidate, _)| *candidate == action)
+        {
             self.click_rect(*rect, input);
             true
         } else {
-            // 应用/取消固定在正文外，取其上方作为模态内的滚动位置。
-            let Some((_, rect)) = hits
-                .0
-                .iter()
-                .find(|(action, _)| *action == properties::Action::Apply)
-            else {
-                // Modal 首次测量/字体加载的 pass 还没有可交互控件。
+            // 使用本帧真实正文区；短横屏不能按应用按钮向上偏移固定距离猜位置。
+            let Some(body) = hits.body.filter(|rect| rect.is_positive()) else {
                 return false;
             };
-            let pos = egui::pos2(rect.center().x, rect.top() - 80.0);
+            let pos = body.center();
             let up = matches!(
                 action,
                 properties::Action::Focus(properties::Field::Name) | properties::Action::OpenRepair
@@ -409,6 +524,29 @@ mod tests {
             }
             assert!(!driver.tick(&mut input));
         }
+    }
+
+    #[test]
+    fn scrolling_uses_the_actual_short_body_instead_of_a_fixed_footer_offset() {
+        let body = egui::Rect::from_min_max(egui::pos2(8.0, 242.0), egui::pos2(310.0, 292.0));
+        let hits = super::UiHits {
+            body: Some(body),
+            ..default()
+        };
+        let mut input = EguiInput::default();
+        assert!(!UiTestInput::default().click(
+            crate::properties::Action::Moved(63, 15),
+            &hits,
+            &mut input
+        ));
+        assert!(
+            matches!(input.0.events.first(), Some(egui::Event::PointerMoved(pos)) if *pos == body.center())
+        );
+        assert!(
+            input.0.events.iter().any(
+                |event| matches!(event, egui::Event::MouseWheel { delta, .. } if delta.y < 0.0)
+            )
+        );
     }
 
     #[test]

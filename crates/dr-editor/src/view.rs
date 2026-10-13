@@ -285,6 +285,7 @@ pub(crate) fn controls(
     mut cameras: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
     mut options: ResMut<ViewOptions>,
     mut ui: Option<ResMut<panels::egui_panel::UiState>>,
+    inspector: Option<Res<properties::Inspector>>,
 ) {
     let Ok(window) = windows.single() else {
         return;
@@ -293,15 +294,19 @@ pub(crate) fn controls(
     {
         return;
     }
-    if keys.just_pressed(KeyCode::F3) {
+    let editing = inspector.is_some_and(|state| state.is_open());
+    if !editing && keys.just_pressed(KeyCode::F3) {
         options.debug = !options.debug;
     }
-    if keys.just_pressed(KeyCode::F4) {
+    if !editing && keys.just_pressed(KeyCode::F4) {
         options.ship_visible = !options.ship_visible;
     }
     let requested = ui.as_ref().is_some_and(|state| state.fit_requested);
     if requested && let Some(state) = ui.as_mut() {
         state.fit_requested = false;
+    }
+    if requested && editing {
+        options.ship_visible = true;
     }
     if !(keys.just_pressed(KeyCode::KeyF) || requested)
         || drag.id.is_some()
@@ -309,7 +314,8 @@ pub(crate) fn controls(
     {
         return;
     }
-    let selected = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let selected =
+        !editing && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight));
     let size = Vec2::new(window.width(), window.height());
     let area = ui
         .as_ref()

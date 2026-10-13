@@ -306,6 +306,39 @@ class RunCaseExitHandlingTests(unittest.TestCase):
             names.append(Path(popen.call_args.args[0][0]).name)
         self.assertEqual(len(set(names)), len(SIZES))
 
+    def test_staging_reuses_owned_window_checks_and_requires_the_long_list_preview(self):
+        for valid in (True, False):
+            with self.subTest(valid=valid):
+                self.preset()
+                target = self.case / "target"
+                (target / "editor-staging-draft.png").write_bytes(self.png(self.size))
+                staging = {"stages": 64, "activations": 1024, "edited_stage": 63, "edited_activation": 15}
+                if valid:
+                    staging["preview"] = {"panel_rect": [0, 198, 320, 360],
+                                          "canvas_rect": [320, 198, 640, 360],
+                                          "target_rect": [400, 240, 420, 260],
+                                          "target_group": 0, "target_id": 17,
+                                          "panel_overlaps_canvas": False, "edited_target_visible": True,
+                                          "hover_target_visible": True, "hover_restored": True,
+                                          "hover_target_rect": [400, 240, 420, 260]}
+                (target / "editor-staging-performance.json").write_text(json.dumps(staging), encoding="utf-8")
+                user = self.editor_user(alive=(True, False), pids=(4242, 4242))
+                with mock.patch("validate_narrow_windows.subprocess.Popen",
+                                return_value=self.process((None, None, 0))) as popen:
+                    result = run_case(self.editor, self.assets, self.output, self.size,
+                                      user, lambda function: function, staging=True)
+                command = popen.call_args.args[0]
+                self.assertIn("--staging-smoke-test", command)
+                self.assertIn("--smoke-test", command)
+                self.assertNotIn("--ship", command, "分级必须使用真实 64 级夹具，而非 Test.xml 的短列表")
+                self.assertEqual(result["passed"], valid)
+                self.assertEqual(result["client_observations"], [[640, 360]])
+                if valid:
+                    self.assertEqual(result["staging"], staging)
+                    self.assertEqual(Path(result["screenshot"]).name, "editor-staging-draft.png")
+                else:
+                    self.assertIn("停靠布局", result["error"])
+
     def test_hash_mismatch_stops_before_launching(self):
         self.preset()
         user = self.editor_user(alive=(True, False), pids=(4242, 4242))

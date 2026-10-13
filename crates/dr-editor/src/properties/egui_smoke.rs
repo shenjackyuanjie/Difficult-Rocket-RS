@@ -53,18 +53,22 @@ fn click(
     input: &mut EguiInput,
     state: &mut State,
 ) -> bool {
-    if hits.1 {
+    if hits.scrolling {
         return false;
     }
-    let Some((_, rect)) = hits.0.iter().find(|(candidate, _)| *candidate == action) else {
-        if hits.0.is_empty() {
+    let Some((_, rect)) = hits
+        .actions
+        .iter()
+        .find(|(candidate, _)| *candidate == action)
+    else {
+        if hits.actions.is_empty() {
             // 等待 Modal 首次测量结束，不点击尚不可交互的布局 pass。
             return false;
         }
         if matches!(action, Action::Moved(_, _)) {
             // 较小窗口中分级动作可能在滚动区域下方，通过真实滚轮露出它。
             let (_, rect) = hits
-                .0
+                .actions
                 .iter()
                 .find(|(candidate, _)| {
                     matches!(candidate, Action::Focus(Field::Target) | Action::AddStep)
@@ -83,7 +87,7 @@ fn click(
         }
         panic!(
             "egui 自测找不到实际控件 {action:?}，当前命中表：{:?}",
-            hits.0
+            hits.actions
         );
     };
     assert!(rect.is_positive(), "控件命中矩形不可见：{action:?}");

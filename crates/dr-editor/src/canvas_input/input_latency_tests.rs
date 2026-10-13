@@ -315,3 +315,69 @@ fn keyboard_edges_still_handle_selection_copy_paste_rotation_and_tab() {
     let cursor = app.world().resource::<EditorCursor>();
     assert!(cursor.paste.is_none() && cursor.placing);
 }
+
+#[test]
+fn docked_staging_fits_and_reveals_the_ship_without_leaking_editing_shortcuts() {
+    let mut app = app();
+    app.edit_schedule(Update, |schedule| *schedule = Schedule::new(Update));
+    app.add_systems(
+        Update,
+        (
+            view::controls.run_if(crate::egui_ui::canvas_or_fit_available),
+            mouse_editor.run_if(crate::egui_ui::canvas_input_available),
+            keyboard_commands.run_if(crate::egui_ui::canvas_input_available),
+        )
+            .chain(),
+    );
+    {
+        let mut document = app.world_mut().resource_mut::<EditorDocument>();
+        document.ship = dr_core::ship_from_xml(r#"<Ship><Parts><Part id="1" partType="pod"><Pod name="分级船"><Staging currentStage="0"/></Pod></Part></Parts></Ship>"#).unwrap();
+        document.saved_ship = document.ship.clone();
+    }
+    let before = app.world().resource::<EditorDocument>().ship.clone();
+    let mut inspector = crate::properties::Inspector::default();
+    crate::properties::open(&mut inspector, app.world().resource::<EditorDocument>());
+    assert!(inspector.docked());
+    app.insert_resource(inspector);
+    app.init_resource::<crate::panels::egui_panel::UiState>();
+    {
+        let mut ui = app
+            .world_mut()
+            .resource_mut::<crate::panels::egui_panel::UiState>();
+        ui.canvas_area = Some(bevy_egui::egui::Rect::from_min_max(
+            bevy_egui::egui::pos2(380.0, 220.0),
+            bevy_egui::egui::pos2(1440.0, 900.0),
+        ));
+        ui.pixels_per_point = 1.0;
+        ui.fit_requested = true;
+    }
+    app.world_mut()
+        .resource_mut::<view::ViewOptions>()
+        .ship_visible = false;
+    key(&mut app, KeyCode::KeyR, ButtonState::Pressed);
+    key(&mut app, KeyCode::F4, ButtonState::Pressed);
+    app.update();
+    assert!(
+        !app.world()
+            .resource::<crate::panels::egui_panel::UiState>()
+            .fit_requested
+    );
+    assert!(app.world().resource::<view::ViewOptions>().ship_visible);
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(!app.world().resource::<EditorDocument>().history.can_undo());
+    app.world_mut()
+        .resource_mut::<crate::panels::egui_panel::UiState>()
+        .fit_requested = true;
+    app.init_resource::<crate::files::PendingFileAction>();
+    app.init_resource::<crate::help::HelpState>();
+    app.world_mut()
+        .resource_mut::<crate::help::HelpState>()
+        .open = true;
+    app.update();
+    assert!(
+        app.world()
+            .resource::<crate::panels::egui_panel::UiState>()
+            .fit_requested,
+        "帮助/确认仍阻止自动适配，不能绕过更高优先级输入隔离"
+    );
+}

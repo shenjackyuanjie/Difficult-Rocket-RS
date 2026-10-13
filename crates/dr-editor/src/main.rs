@@ -188,7 +188,7 @@ fn main() -> anyhow::Result<()> {
                 properties::cancel_for_file_action,
                 placement::cancel_for_file_action,
                 files::file_actions,
-                view::controls.run_if(egui_ui::canvas_input_available),
+                view::controls.run_if(egui_ui::canvas_or_fit_available),
                 view::camera_controls,
                 canvas_input::mouse_editor.run_if(egui_ui::canvas_input_available),
                 canvas_input::keyboard_commands.run_if(egui_ui::canvas_input_available),

@@ -99,7 +99,12 @@ class DemoTests(unittest.TestCase):
                         for case_id in demo.DETAILED_CASE_IDS[chapter["id"]]
                     ]}), encoding="utf-8")
                 if name == "editor-staging-performance.json":
-                    artifact.write_text(json.dumps({"stages":64, "activations":1024, "edited_stage":63, "edited_activation":15}), encoding="utf-8")
+                    artifact.write_text(json.dumps({"stages":64, "activations":1024, "edited_stage":63, "edited_activation":15,
+                        "preview": {"panel_rect": [0, 220, 380, 900], "canvas_rect": [380, 220, 1440, 900],
+                                    "target_rect": [600, 320, 650, 360], "target_group": 0, "target_id": 17,
+                                    "panel_overlaps_canvas": False, "edited_target_visible": True,
+                                    "hover_target_visible": True, "hover_restored": True,
+                                    "hover_target_rect": [600, 320, 650, 360]}}), encoding="utf-8")
                 os.utime(artifact, ns=(stamp, stamp))
         path = self.output / demo.REPORT_NAME
         path.write_text(json.dumps(report), encoding="utf-8")
@@ -354,6 +359,32 @@ class DemoTests(unittest.TestCase):
             bad = dict(original, **{field: value})
             path.write_text(json.dumps(bad), encoding="utf-8")
             with self.subTest(field=field), self.assertRaisesRegex(demo.DemoError, "64 级"):
+                demo.validate_report(report, self.output, self.started_ns, "detailed")
+
+    def test_staging_cannot_claim_visible_target_with_missing_or_overlapping_geometry(self):
+        report = self.detailed_report()
+        path = self.output / "editor-staging-performance.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        for preview in [None, {}, dict(original["preview"], panel_overlaps_canvas=True),
+                        dict(original["preview"], edited_target_visible=False),
+                        dict(original["preview"], hover_target_visible=False),
+                        dict(original["preview"], hover_restored=False),
+                        dict(original["preview"], hover_target_rect=[0, 0, 20, 20]),
+                        dict(original["preview"], panel_rect=[300, 220, 500, 900]),
+                        dict(original["preview"], target_rect=[0, 0, 20, 20])]:
+            with self.subTest(preview=preview), self.assertRaisesRegex(demo.DemoError, "分级"):
+                path.write_text(json.dumps(dict(original, preview=preview)), encoding="utf-8")
+                demo.validate_report(report, self.output, self.started_ns, "detailed")
+
+    def test_staging_preview_requires_finite_positive_rectangles_and_real_identity(self):
+        report = self.detailed_report()
+        path = self.output / "editor-staging-performance.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        for field, value in [("target_group", True), ("target_id", False),
+                             ("canvas_rect", [0, 0, 0, 10]), ("target_rect", [0, 1, float("nan"), 10]),
+                             ("panel_rect", [0, True, 10, 20]), ("panel_rect", [0, 1, 10])]:
+            with self.subTest(field=field, value=value), self.assertRaisesRegex(demo.DemoError, "分级"):
+                path.write_text(json.dumps(dict(original, preview=dict(original["preview"], **{field:value}))), encoding="utf-8")
                 demo.validate_report(report, self.output, self.started_ns, "detailed")
 
     def test_exit_mode_nonzero_after_report_fails_and_cleans_owned_process(self):

@@ -46,7 +46,7 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --edi
 
 默认程序为 `target/debug/dr-editor.exe`，缺失或相关源码更新时自动 `cargo build -p dr-editor`；显式 `--editor-bin` 不代构建，`--no-build` 禁止自动构建。`--step-ms` 改节拍，`--fast` 强制 40ms/退出但不改变内容模式；简略默认超时 600s，详细默认不限时，`--timeout <秒>` 可显式限制。直接运行对应 `--demo-showcase <新目录> --demo-mode brief|detailed`。
 
-正常观看按技术/导航/拖动/点击分配停顿、抵达目标才发输入边沿，逐帧移动紫色指针；快速回归跳过移动动画。`UiTestInput` 的短点击按下/抬起成对交给同一次 egui pass，避免慢帧变长按，不重复释放；长按/拖动仍分帧。章节底部说明和动作提示不拦截画布。
+正常观看按技术/导航/拖动/点击分配停顿、抵达目标才发输入边沿，逐帧移动紫色指针；快速回归跳过移动动画。`UiTestInput` 的短点击按下/抬起成对交给同一次 egui pass，避免慢帧变长按，不重复释放；长按/拖动仍分帧。章节底部说明和动作提示不拦截画布，分级停靠期间隐藏章节横幅，避免挡住船底目标。
 
 | 基础十章 | 内容 |
 | --- | --- |
@@ -61,7 +61,7 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --edi
 | 船体目录 | 临时千船体目录、坏 XML、虚拟滚动与末项打开 |
 | 未保存确认 | 主窗口模态取消、隔离及放弃 |
 
-详细模式穿插放置（3）、精确重叠（6）、自由连接（7）、整组变换（6）、连线（5）、交互回放（4）、历史/属性（7）、拓扑（4）、文件（3）九组，共 45 例。每例核对内存文档/历史和真实 metrics，不宣称穷举。严格 5% 的几何例用精确事务参数；对接类型夹具显式设置 `dock=true`，不改原资源。详细分级为 64 级/1,024 动作，简略为 8 级/48 动作；驱动核对真实规模及末项修改。
+详细模式穿插放置（3）、精确重叠（6）、自由连接（7）、整组变换（6）、连线（5）、交互回放（4）、历史/属性（7）、拓扑（4）、文件（3）九组，共 45 例。每例核对内存文档/历史和真实 metrics，不宣称穷举。严格 5% 的几何例用精确事务参数；对接类型夹具显式设置 `dock=true`，不改原资源。详细分级为 64 级/1,024 动作，简略为 8 级/48 动作；驱动核对真实规模及末项修改。详细分级报告另记录实际停靠/船体/目标矩形与组/ID，检查面板不覆盖船体、修改目标完整可见，不能只用布尔字段宣称通过。
 
 - 成功报告 `demo-report.json` 在全模式完成后才原子发布；模式、章节顺序、状态、耗时、路径及新鲜非空产物均须通过。
 - `demo-timeline.jsonl` 记录章首/章尾时间；`demo-actions.jsonl` 仅记录实际重播后的按下/滚轮，供音效同步，不记录移动/松开。
@@ -75,10 +75,14 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --edi
 
 ```powershell
 uv run --no-project --python 3.12 python -B -X utf8 scripts/validate_narrow_windows.py --editor target/release/dr-editor.exe --assets ../Difficult-Rocket/assets --output target/narrow-new
+# 同一工具与三种尺寸，另验真实分级正文、末项修改及船上目标联动
+uv run --no-project --python 3.12 python -B -X utf8 scripts/validate_narrow_windows.py --editor target/release/dr-editor.exe --assets ../Difficult-Rocket/assets --staging --output target/narrow-staging-new
 cargo run --release --locked -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --smoke-test --smoke-window-size 390x844
 ```
 
 窄窗串行检查 390×844、640×360、320×640，核对 Win32 客户区、Bevy 逻辑/物理尺寸与 DPI、原始 PNG。仅只读观测，不改系统窗口几何。启动截图约 5s 后输出 `target/editor-smoke.png` / `editor-smoke-window.json` 并退出；它证明启动/尺寸，不代替完整侧栏内容、初始自动整船取景、交互或物理设备验收。
+
+`--staging` 复用窗口身份/尺寸观测与既有 `staging_smoke`，在同一窄窗内滚动 64 级/1,024 动作至末项、只移动指针验证悬停高亮及移开恢复，再修改草稿、应用、撤销重做及 XML 往返；核对 `editor-staging-performance.json` 的真实布局/悬停/目标几何，截图使用 `editor-staging-draft.png`。驱动取本帧实际滚动正文中心，不从按钮位置猜固定偏移。组合 `--smoke-test --staging-smoke-test --smoke-window-size` 时由分级流程截图退出，不被启动自测的 5s 退出截断。仍是内部注入、非物理触摸，动作行不换行及图标的视觉质量须另看原图。
 
 ## 单项窗口与系统输入
 

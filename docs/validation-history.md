@@ -204,11 +204,11 @@
 ## 2026-10-12 统一触控与小屏适配收尾
 
 - 鼠标、键盘和 Bevy TouchInput 在同一编辑模式使用；独立触摸指针锁定 UI / 画布起点归属，单指拖动 / 空白平移，放置及粘贴抬指提交。第二指取消未提交编辑并切入中点导航，全部抬指解锁，第三指封锁当前手势。兼容鼠标尾锁只来自触摸接管，纯鼠标失焦后的新 Shift+Left 边沿正常消费。
-- 文件顶栏与常用编辑按钮换行，最小窗口 320×320；窄屏默认关单侧目录抽屉，主要按钮可触达。帮助、连接编辑、线设置和未保存确认限宽 / 滚动；适配视野使用真实剩余画布，窗口视图自测也按真实画布与 DPI 核对位置、比例及贴图角点。操作与平台边界见[适配说明](./mobile-support.md#L21-L54)。
+- 文件顶栏与常用编辑按钮换行，最小窗口 320×320；窄屏默认关单侧目录抽屉，主要按钮可触达。帮助、连接编辑、线设置和未保存确认限宽 / 滚动；适配视野使用真实剩余画布，窗口视图自测也按真实画布与 DPI 核对位置、比例及贴图角点。操作与平台边界见[适配说明](./mobile-support.md)。
 - 最终集成工作树实际执行 workspace Release 测试 351 项（core 101 / editor 250）、格式检查、严格全目标 Release Clippy、Release build，均通过；收尾再次执行 Python 全套 127 项并通过。对应日志：[Rust](../target/validation-mobile-workspace-canvas-corrected.log)、[Clippy](../target/validation-mobile-clippy-canvas-corrected.log)、[构建](../target/validation-mobile-build-canvas-corrected.log)、[Python](../target/validation-mobile-python-closeout.log)。
 - 最新构建在进程级 `WGPU_BACKEND=dx12` 下，详细快速 40ms 与观看 450ms 两档均完整通过，仍为 19 章 / 45 例 / 95 证据，源样本 SHA256 不变。分别见[快速报告](../target/demo-mobile-fast-20261012-canvas-final/demo-report.json)、[观看报告](../target/demo-mobile-watch-20261012-canvas-final/demo-report.json)。真实零长四点路径在两档均为安全跳过：长度 0、方向样本 0、提交顶点 0；[快速零长证据](../target/demo-mobile-fast-20261012-canvas-final/line-cases.json)、[观看零长证据](../target/demo-mobile-watch-20261012-canvas-final/line-cases.json)。
 - [窄窗验收工具](../scripts/validate_narrow_windows.py#L38-L98) 从初始 Bevy 尺寸启动自建进程，仅只读测量 Win32 客户区，并交叉检查 Bevy JSON 与原始 PNG。较早构建[三尺寸完整报告](../target/mobile-narrow-20261012-owned-window/report.json)已通过；最新补充复验[Vulkan 报告](../target/mobile-narrow-20261012-vulkan-final/report.json)中 390×844 通过、640×360 运行中变为 390×844 后截图超时；[DX12 报告](../target/mobile-narrow-20261012-canvas-final/report.json)中首例变为 1440×900 后超时。最新三尺寸全量未通过，不用历史结果替代；尺寸变化来源和默认 Vulkan 详细回放时序作为后续独立核查项，本轮按用户要求收尾、不再扩大诊断。
-- 修改按独立块提交：零长路径验证 `37489c0`、统一触控 / 小屏布局 `c19426a`、初始窄窗与三重验收 `534a785`；最终文档另作一个提交。未推送、未重写历史；[二审建议](./demo-review-suggestions.md#L1-L30)保留七个未实施 corner 提案，基线规模不扩张。
+- 修改按独立块提交：零长路径验证 `37489c0`、统一触控 / 小屏布局 `c19426a`、初始窄窗与三重验收 `534a785`；最终文档另作一个提交。未推送、未重写历史；[二审建议](./demo-review-suggestions.md)保留七个未实施 corner 提案，基线规模不扩张。
 - 本轮未制作 Android / iOS 安装包，未测物理触屏、移动真机或输入到显示的物理延迟；输入法专项按约定跳过。既有[Windows ZIP](../target/dist/dr-editor-win64-20261012-4ef8aa7.zip)保持适配前快照，不覆盖、不宣称包含本轮改动。
 
 ## 2026-10-13 依赖升级与原生按钮迁移
@@ -309,3 +309,46 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/validate_narrow_wind
 普通编辑保留默认更新策略与 `AutoVsync`；自动演示及启动冒烟使用持续更新与 `AutoNoVsync`。自动策略本身不代表交换链最终采用 Immediate，也不保证解决后端时序问题。此前默认 Vulkan 的详细回放曾出现约 1 秒按下区间，超过 egui 默认 0.8 秒短点击规则；同一真实行的 45ms / 1s 对照回归确认短点击与长按语义正确，因此没有调大点击时限或放宽放置断言。最新两档详细 DX12 回放通过，但默认 Vulkan 的回放间隔来源仍未定位；最新窄窗尺寸变化在两个后端均有记录，不归结为已确诊的单一图形后端问题。
 
 本轮按用户要求收尾，不再扩大诊断。后续窗口稳定性专项需定位尺寸变化来源，再用同一构建重新跑满三个尺寸；已有消息回归、布局回归与较早截图仍按各自验证层次使用。
+
+## 2026-10-13 结构与文档清理
+
+本次清理不新增功能或平台工程、不重写历史、不推送；代码独立提交 `41caff4`。README 从 339 行精简到 51 行，仅保留定位、启动、功能和导航；详细操作/验证各有单一入口，历史状态冻结，不再在首页重复累加测试计数。清除旧 Bevy 0.19、“最小 960×640”、旧独占分类和旧窄窗失败冒充当前状态等矛盾描述。
+
+### 代码与测试整理
+
+- main.rs 从 1,274 行缩为 231 行，只保留资源/插件/系统接线；不改调度顺序。
+- 文档/保存点归 document，窗口配置与截图归 window，画布输入归 canvas_input；拖拽、游标、相机与 HUD 归现有 selection、placement、view、render，不增加另一套管理层。
+- 共享文档/目录/鼠标夹具归仅测试编译的 test_support；目录直接用内存 catalog_from_xml，不反复创建临时目录文件；删除旧 movement_for 测试包装。
+- 根测试归各自模块；目录 UI 大文件按行、布局、手势、分组分开。视频字幕同步四组折叠，不再描述旧独占筛选。
+- 删除 7 个测试入口：4 个 egui 依赖自身/旧分帧短点击诊断、1 个缺同步指针的纯 Touch 依赖行为、1 个静态帮助文案检查、1 个重复插值夹具。插值首/末帧、延迟按下及完成状态并回真实调度测试，默认帮助关闭并回实际打开/隔离测试；不减少现行输入、XML 与原子事务的独立断言。
+
+### 本次实际验收
+
+| 检查 | 本次实际结果 / 证据 |
+| --- | --- |
+| Rust | `cargo test --workspace --release --locked`：372 项（core 104 / editor 268）通过；[日志](../target/cleanup-20261013/rust-final.log) |
+| Python | `uv run --no-project --python 3.12 python -B -X utf8 -m unittest discover -s scripts -p 'test_*.py' -v`：148 项通过；[日志](../target/cleanup-20261013/python-passed.log) |
+| 格式 / Release | fmt check、全目标 Release Clippy `-D warnings`、workspace Release build 均通过；[fmt](../target/cleanup-20261013/fmt.log)、[Clippy](../target/cleanup-20261013/clippy.log)、[build](../target/cleanup-20261013/build.log) |
+| 详细窗口演示 | 同一 Release 程序 DX12 40ms，19 章/45 例/95 个唯一非空证据通过，退出 0；[报告](../target/demo-cleanup-fast-20261013/demo-report.json)、[驱动日志](../target/cleanup-20261013/demo.log) |
+| 串行窄窗 | 390×844、640×360、320×640 三重尺寸校验、退出 0；原始 PNG 均已查看；[报告](../target/narrow-cleanup-dx12-20261013/report.json) |
+| XML | 27 类/793 字段目录往返退出 0；185 船体/125,856 部件往返、5 个既有异常明确拒绝，verify_ships 如实退出 1；[目录](../target/cleanup-20261013/catalog.log)、[船体](../target/cleanup-20261013/ships.log) |
+| 不变性 / 整理审计 | 191 份源 XML 哈希未变，4 份窗口副本与源程序 SHA 一致；[汇总](../target/cleanup-20261013/summary.json)、[迁移正文/调度核对](../target/cleanup-20261013/migration-check.json)、[测试删除核对](../target/cleanup-20261013/test-audit.json) |
+
+本次程序 SHA-256：`b169b9e94806b86ab70aaa83a46cb8ef833cce0e3f8aadc223621e7e384805d8`。本次未运行 450ms 观看档、Vulkan、物理触屏/移动真机、系统键鼠/文字/输入法/原生路径专项，也未录制视频、重新打包。此前 379/373 项和观看结果均属于其他构建，不代替本次。
+
+### 失败与验证边界
+
+模块迁移首次 fmt 因自动提取误加可见性到 anyhow 宏报错；首次 Rust 编译暴露原入口隐式 imports（58 项缺失），第二次编译暴露 HUD 系统签名的私有类型。均以显式所有者导入及适当模块内可见性修正，未压制警告、未放宽断言。[首次编译](../target/cleanup-20261013/refactor-compile-first.log)、[第二次编译](../target/cleanup-20261013/refactor-compile-second.log)、[迁移后回归](../target/cleanup-20261013/rust-first.log)、[测试归位后回归](../target/cleanup-20261013/rust-final.log)。
+
+Python 两轮首次回归均为 147 通过/1 失败：视频字幕已同步组折叠，测试仍要求旧“分类筛选/恢复全部”文字。同步两条断言至现行“独立收起/全部展开”，其余真实三键与显示说明不变，全套 148 项复跑通过。[首轮](../target/cleanup-20261013/python.log)、[第二轮](../target/cleanup-20261013/python-final.log)。文档活动链接及章节已核对；历史 30 个缺失 target 链接明确保留，不伪造日志。记录勘误：`7de95b8` 提交正文将链接数误写为 229，实际报告为 215；这里只更正记录，不重写历史提交。
+
+## 2026-10-13 分级界面中间验证与失败
+
+以下均为中间构建，不能代替最终悬停联动版本的验收。
+
+- 初次停靠回归暴露 640×360 下 ScrollArea 默认最小高度将面板撑出窗口；设 `min_scrolled_height(0)` 并压缩短窗辅助标题，保留真实几何断言。[越界复现](../target/staging-ui-20261013/dock-bounds-failed.log)。首次 Clippy 的参数类型复杂度及无用更新语法也直接修正，不加警告抑制。[首次 Clippy](../target/staging-ui-20261013/clippy-first.log)。
+- 补图标时首次编译漏改一个 show 调用；首轮新布局测试把空 Button 的空文字 Shape 当实际标签，修正为核对非空文字，真实列宽/比例/单行断言保留。[编译](../target/staging-ui-20261013/rust-icons-first.log)、[测试](../target/staging-ui-20261013/rust-icons-second.log)。
+- 整套 Rust 首次为 core 69 通过/35 失败，均因系统 TEMP 拒绝访问；仅为本次进程设置工作区 TEMP/TMP 后全套复跑，不放宽数据断言。[失败](../target/staging-ui-20261013/rust-icons-final.log)、[复跑](../target/staging-ui-20261013/rust-icons-passed.log)。
+- 停靠版及图标版分别完成 DX12 40ms 详细 19 章/45 例/95 证据，退出 0，但不是最后构建。[停靠版](../target/demo-staging-docked-fast-20261013/demo-report.json)、[图标版](../target/demo-staging-icons-fast-20261013/demo-report.json)。人工查看图标版截图发现底部演示横幅遮住船底目标；随后在分级停靠期间隐藏横幅，不把“已绘制/矩形在画布内”冒充无遮挡。
+- 第一次真实窄窗分级：390×844、640×360 通过，320×640 到 180s 仍未完成，应用明确退出 101；不是焦点失败，未冒充通过或自动重复置前。[完整失败报告](../target/narrow-staging-dx12-20261013/report.json)、[320×640 日志](../target/narrow-staging-dx12-20261013/320x640/editor.log)。随后滚动驱动改取实际正文中心，短横屏压缩标题；最终复跑结果见当前进度。
+- 新窗口策略无头测试最初在 crate 目录生成窗口 JSON，已改为不创建窗口、不写证据；真实尺寸留给串行窗口专项，移除本次测试生成的无用文件。

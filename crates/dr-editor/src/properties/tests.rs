@@ -471,3 +471,89 @@ fn native_property_click_opens_once_and_drops_compatible_mouse_activation() {
     assert_eq!(app.world().resource::<EditorDocument>().ship, before);
     assert!(!app.world().resource::<EditorDocument>().history.can_undo());
 }
+
+#[test]
+fn staging_preview_resolves_only_current_unique_group_targets_without_a_transaction() {
+    let mut document = document();
+    document.ship.disconnected.push(dr_core::ShipGroup {
+        parts: vec![document.ship.parts[1].clone()],
+        ..default()
+    });
+    document.select_only(Some(PartKey::new(0, 1, 0)));
+    let before = document.ship.clone();
+    let selection = document.selected_keys();
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    inspector.draft.as_mut().unwrap().staging = Some(StagingState {
+        steps: vec![StageStep {
+            activations: vec![Activation {
+                id: 2,
+                moved: false,
+            }],
+        }],
+        ..default()
+    });
+    act(
+        &Action::SelectActivation(0, 0),
+        &mut inspector,
+        &mut document,
+    );
+    assert_eq!(
+        inspector.preview_keys(&document),
+        vec![PartKey::new(0, 2, 0)]
+    );
+    act(&Action::SelectStage(0), &mut inspector, &mut document);
+    assert_eq!(
+        inspector.preview_keys(&document),
+        vec![PartKey::new(0, 2, 0)]
+    );
+    assert_eq!(document.ship, before);
+    assert_eq!(document.selected_keys(), selection);
+    assert!(!document.dirty && !document.history.can_undo());
+    inspector.preview = Preview::Target;
+    inspector.draft.as_mut().unwrap().target = "999".into();
+    assert!(inspector.preview_keys(&document).is_empty());
+    inspector.draft.as_mut().unwrap().target = "2".into();
+    document.ship.parts.push(document.ship.parts[1].clone());
+    assert!(
+        inspector.preview_keys(&document).is_empty(),
+        "同组重号不能猜测实例"
+    );
+    document.ship.parts.pop();
+    document.ship.parts[0].active = !document.ship.parts[0].active;
+    assert!(
+        inspector.preview_keys(&document).is_empty(),
+        "过期草稿不标注新快照"
+    );
+}
+
+#[test]
+fn stage_reorder_and_action_edits_keep_preview_on_the_edited_target_and_one_undo() {
+    let mut document = document();
+    let before = document.ship.clone();
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    inspector.draft.as_mut().unwrap().target = "2".into();
+    for _ in 0..2 {
+        act(&Action::AddStep, &mut inspector, &mut document);
+    }
+    act(&Action::AddActivation(0), &mut inspector, &mut document);
+    assert_eq!(
+        inspector.preview_keys(&document),
+        vec![PartKey::new(0, 2, 0)]
+    );
+    act(&Action::MoveStep(0, true), &mut inspector, &mut document);
+    assert_eq!(inspector.preview, Preview::Stage(1));
+    assert_eq!(
+        inspector.preview_keys(&document),
+        vec![PartKey::new(0, 2, 0)]
+    );
+    act(&Action::Moved(1, 0), &mut inspector, &mut document);
+    assert_eq!(inspector.preview, Preview::Activation(1, 0));
+    assert_eq!(document.ship, before);
+    act(&Action::Apply, &mut inspector, &mut document);
+    assert!(!inspector.is_open());
+    assert_eq!(document.history.undo_len(), 1);
+    assert!(document.undo());
+    assert_eq!(document.ship, before);
+}

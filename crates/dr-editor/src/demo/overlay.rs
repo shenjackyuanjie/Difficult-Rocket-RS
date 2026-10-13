@@ -68,7 +68,8 @@ pub(crate) fn overlay(
         }
     }
     // 帮助需要完整阅读：暂停章节横幅，并把按键提示放在窗口下方空隙。
-    if help.open {
+    if help.open || inspector.docked() {
+        // 分级自身已有标题；让出画布，避免底部说明把真实目标轮廓遮住。
         return;
     }
     if showcase.presentation {
@@ -119,7 +120,7 @@ pub(crate) fn overlay(
     let left_of = if details.is_some() && inspector.is_open() {
         // 用本帧真实控件位置避让，而不是假定模态高度；错误文字和取消必须可见。
         let Some((_, apply)) = property_hits
-            .0
+            .actions
             .iter()
             .find(|(action, _)| *action == properties::Action::Apply)
         else {

@@ -87,6 +87,30 @@ fn smoke_window_capture_requires_matching_logical_physical_dimensions_and_dpi() 
 }
 
 #[test]
+fn combined_staging_smoke_does_not_request_startup_exit_or_timeout() {
+    let mut mode = SmokeTest::from_args(
+        &["--smoke-test".into(), "--staging-smoke-test".into()],
+        None,
+    );
+    // 普通启动自测已超过超时；组合自测必须仍交由分级事务自身验收。
+    mode.started = std::time::Instant::now() - std::time::Duration::from_secs(31);
+    let mut app = App::new();
+    app.insert_resource(mode)
+        .init_resource::<ButtonInput<KeyCode>>()
+        .add_systems(Update, capture_screenshot);
+    // 不创建窗口，避免无头测试向仓库写窗口证据；真实尺寸观测由串行窗口专项核对。
+    app.update();
+    app.update();
+    assert_eq!(
+        app.world_mut()
+            .query::<&bevy::render::view::screenshot::Screenshot>()
+            .iter(app.world())
+            .count(),
+        0
+    );
+}
+
+#[test]
 fn automated_window_updates_continuously_without_changing_normal_editor_policy() {
     use bevy::winit::{UpdateMode, WinitSettings};
     let (automated, present_mode) = window_runtime_policy(true);

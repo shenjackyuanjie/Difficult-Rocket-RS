@@ -7,6 +7,7 @@ import argparse
 import ctypes
 from ctypes import wintypes
 import editor_session
+from demo_editor import validate_detailed_staging
 import json
 from pathlib import Path
 import struct
@@ -104,7 +105,7 @@ def ownership_lost(result, detail, handle, elapsed):
     )
 
 
-def run_case(editor, assets, output, size, user, callback_type):
+def run_case(editor, assets, output, size, user, callback_type, staging=False):
     width, height = size
     case = output / f"{width}x{height}"
     (case / "target").mkdir(parents=True, exist_ok=True)
@@ -113,8 +114,9 @@ def run_case(editor, assets, output, size, user, callback_type):
               "client_samples": [], "log": str(log_path), "passed": False}
     try:
         identity = editor_session.copy_for_run(editor, case)
-        command = [identity["copy_path"], "--assets", str(assets), "--catalog", str(assets / "builtin/PartList.xml"),
-                   "--ship", str(assets / "ships/Test.xml"), "--smoke-test", "--smoke-window-size", f"{width}x{height}"]
+        command = [identity["copy_path"], "--assets", str(assets), "--catalog", str(assets / "builtin/PartList.xml")]
+        command += ["--staging-smoke-test"] if staging else ["--ship", str(assets / "ships/Test.xml")]
+        command += ["--smoke-test", "--smoke-window-size", f"{width}x{height}"]
         result["command"] = command
         result["identity"] = identity
         with log_path.open("w", encoding="utf-8") as log:
@@ -122,7 +124,7 @@ def run_case(editor, assets, output, size, user, callback_type):
                                        creationflags=subprocess.CREATE_NO_WINDOW)
             started = time.monotonic()
             try:
-                deadline = started + 45
+                deadline = started + (190 if staging else 45)
                 handle = None
                 while time.monotonic() < deadline and process.poll() is None:
                     if handle is None:
@@ -163,11 +165,14 @@ def run_case(editor, assets, output, size, user, callback_type):
                 if process.poll() is None:
                     process.terminate()
                     process.wait(timeout=5)
-        screenshot = case / "target/editor-smoke.png"
+        screenshot = case / ("target/editor-staging-draft.png" if staging else "target/editor-smoke.png")
         window = json.loads((case / "target/editor-smoke-window.json").read_text(encoding="utf-8"))
         result["bevy_window"] = window
         png = screenshot.read_bytes()
         dimensions = validate_dimensions(size, result["client_observations"], window, png)
+        if staging:
+            validate_detailed_staging({"artifacts": ["editor-staging-performance.json"]}, case / "target")
+            result["staging"] = json.loads((case / "target/editor-staging-performance.json").read_text(encoding="utf-8"))
         result.update(screenshot=str(screenshot), png_size=list(dimensions), bytes=len(png), passed=True)
     except Exception as error:
         result["error"] = str(error)
@@ -182,6 +187,7 @@ def main():
     parser.add_argument("--editor", type=Path, required=True)
     parser.add_argument("--assets", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--staging", action="store_true", help="同一窄窗执行 64 级/1024 动作、目标可见与历史/XML 验收")
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("Win32 客户区交叉验收需要在 Windows 运行")
@@ -201,9 +207,10 @@ def main():
     user.SetProcessDpiAwarenessContext.argtypes = [ctypes.c_void_p]
     user.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
     report = {"cases": [], "physical_touch_measured": False,
-              "input_path": "初始 Bevy 窗口尺寸；仅只读测量 Win32 客户区，无外部改窗、键鼠或触摸注入"}
+              "input_path": "初始 Bevy 窗口尺寸；仅只读测量 Win32 客户区，无外部改窗、键鼠或触摸注入",
+              "staging_mode": args.staging}
     for size in SIZES:
-        report["cases"].append(run_case(editor, assets, output, size, user, callback_type))
+        report["cases"].append(run_case(editor, assets, output, size, user, callback_type, args.staging))
         report["passed"] = all(case["passed"] for case in report["cases"])
         (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         if not report["passed"]:

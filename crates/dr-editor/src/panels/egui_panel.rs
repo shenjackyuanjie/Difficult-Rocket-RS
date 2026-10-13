@@ -8,13 +8,6 @@ mod tests;
 const PREVIEW_SIZE: f32 = 48.0;
 const PART_ROW_HEIGHT: f32 = 64.0;
 
-/// 缩略图使用真实像素宽高，缩放到固定图片列，不挤成方形。
-fn preview_image(texture: egui::TextureId, size: Vec2) -> egui::Image<'static> {
-    egui::Image::new((texture, egui::vec2(size.x, size.y)))
-        .maintain_aspect_ratio(true)
-        .fit_to_exact_size(egui::Vec2::splat(PREVIEW_SIZE))
-}
-
 /// 内置 Button 负责整行交互，图片和 Label 放入各自固定的列区域。
 fn part_row(
     ui: &mut egui::Ui,
@@ -38,12 +31,11 @@ fn part_row(
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &name)
     });
     let rect = response.rect;
-    let image_size = size / size.max_element().max(1.0) * PREVIEW_SIZE;
     let image_rect = egui::Rect::from_center_size(
         egui::pos2(rect.left() + 32.0, rect.center().y),
-        egui::vec2(image_size.x, image_size.y),
+        egui::Vec2::splat(PREVIEW_SIZE),
     );
-    preview_image(texture, size).paint_at(ui, image_rect);
+    crate::egui_ui::paint_part_image(ui, (texture, size), image_rect);
     let text_rect = egui::Rect::from_min_max(
         egui::pos2(rect.left() + 72.0, rect.top()),
         egui::pos2(rect.right() - 8.0, rect.bottom()),
@@ -382,7 +374,7 @@ pub fn draw(
     ),
     mut state: ResMut<UiState>,
     mut actions: MessageWriter<PanelButton>,
-    mut images: Local<std::collections::HashMap<String, egui::TextureId>>,
+    mut images: ResMut<crate::egui_ui::PartImages>,
     mut counts: Local<std::collections::HashMap<String, usize>>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
@@ -476,7 +468,7 @@ pub fn draw(
         actions.write(action);
     }
     state.areas.push(header.response.rect);
-    if !compact || state.drawer == Some(Drawer::Ships) {
+    if !inspector.docked() && (!compact || state.drawer == Some(Drawer::Ships)) {
         let left = egui::Panel::left("ship_browser_sidebar")
             .exact_size(sidebar_width(width, 248.0))
             .resizable(false)
@@ -567,7 +559,7 @@ pub fn draw(
             });
         state.areas.push(left.response.rect);
     }
-    if !compact || state.drawer == Some(Drawer::Parts) {
+    if !inspector.docked() && (!compact || state.drawer == Some(Drawer::Parts)) {
         let right = egui::Panel::right("part_palette_sidebar")
         .exact_size(sidebar_width(width, 296.0))
         .resizable(false)
@@ -666,17 +658,7 @@ pub fn draw(
                     let group = category_group(ui, category, open, |ui| {
                         for index in indices {
                             let kind = kinds[index];
-                            let texture = *images.entry(kind.sprite.clone()).or_insert_with(|| {
-                                contexts.add_image(bevy_egui::EguiTextureHandle::Strong(
-                                    if kind.sprite.is_empty() {
-                                        Handle::<Image>::default()
-                                    } else {
-                                        assets.load(format!("textures/parts/{}", kind.sprite))
-                                    },
-                                ))
-                            });
-                            let size = render::image_size(&kind.sprite, &assets, &image_assets)
-                                .unwrap_or_else(|| render::fallback_size(Some(kind)));
+                            let (texture, size) = images.get(&mut contexts, &assets, &image_assets, kind);
                             let count = counts.get(&kind.id).copied().unwrap_or(0);
                             let limit = kind
                                 .max_occurrences

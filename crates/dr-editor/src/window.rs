@@ -36,7 +36,7 @@ pub(crate) struct SmokeTest {
     pub(crate) started: std::time::Instant,
 }
 
-/// 仅窗口截图验收指定初始尺寸；普通编辑与演示保留既有窗口配置。
+/// 窗口截图/组合分级验收指定初始尺寸；普通编辑与演示保留既有窗口配置。
 pub(crate) fn smoke_window_size(args: &[String]) -> anyhow::Result<Option<UVec2>> {
     let mut indices = args
         .iter()
@@ -164,12 +164,14 @@ pub(crate) fn capture_screenshot(
     } else {
         true
     };
-    let smoke = mode.enabled && !*captured && size_ready && mode.started.elapsed().as_secs() >= 5;
+    // 组合分级自测沿用尺寸观测，但由 staging_smoke 完成草稿、历史和 XML 后截图退出。
+    let startup_smoke = mode.enabled && !mode.staging;
+    let smoke = startup_smoke && !*captured && size_ready && mode.started.elapsed().as_secs() >= 5;
     if mode.enabled
         && let Some(window) = window
     {
         let observed = (window.physical_size(), window.scale_factor());
-        if *observed_window != Some(observed) || smoke {
+        if *observed_window != Some(observed) || *stable_size_frames == 2 || smoke {
             info!(
                 "截图自测窗口观测：{:?} → {:?}，经过 {:.3}s",
                 *observed_window,
@@ -194,7 +196,7 @@ pub(crate) fn capture_screenshot(
             .expect("记录截图自测窗口尺寸");
         }
     }
-    if mode.enabled && mode.started.elapsed().as_secs() > 30 {
+    if startup_smoke && mode.started.elapsed().as_secs() > 30 {
         panic!("窗口截图自测超时");
     }
     if smoke || keys.just_pressed(KeyCode::F12) {

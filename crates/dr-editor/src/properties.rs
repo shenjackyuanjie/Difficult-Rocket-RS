@@ -132,6 +132,19 @@ pub struct Inspector {
     pub repair: Option<DuplicateRepair>,
     pub focus: Option<Field>,
     pub error: String,
+    pub preview: Preview,
+    /// 本帧悬停优先显示，离开控件后恢复 preview；不创建编辑动作。
+    pub hovered: Option<Preview>,
+}
+
+/// 仅界面焦点，不写分级数据、文档选择或历史。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Preview {
+    #[default]
+    Owner,
+    Target,
+    Stage(usize),
+    Activation(usize, usize),
 }
 
 impl Inspector {
@@ -141,6 +154,52 @@ impl Inspector {
 
     pub fn guard_file_input(&mut self) {
         self.error = "请先应用或取消属性草稿，再打开文件或关闭窗口".into();
+    }
+
+    pub fn docked(&self) -> bool {
+        self.repair.is_none()
+            && self
+                .draft
+                .as_ref()
+                .is_some_and(|draft| draft.original.pod.is_some())
+    }
+
+    pub fn preview_keys(&self, document: &EditorDocument) -> Vec<PartKey> {
+        let Some(draft) = self.draft.as_ref().filter(|_| self.docked()) else {
+            return vec![];
+        };
+        if document.ship.part_at(draft.key) != Some(&draft.original) {
+            return vec![];
+        }
+        let ids: Vec<_> = match self.hovered.unwrap_or(self.preview) {
+            Preview::Owner => return vec![draft.key],
+            Preview::Target => draft.target.trim().parse().ok().into_iter().collect(),
+            Preview::Stage(stage) => draft
+                .staging
+                .as_ref()
+                .and_then(|staging| staging.steps.get(stage))
+                .map(|step| {
+                    step.activations
+                        .iter()
+                        .map(|activation| activation.id)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            Preview::Activation(stage, index) => draft
+                .staging
+                .as_ref()
+                .and_then(|staging| staging.steps.get(stage))
+                .and_then(|step| step.activations.get(index))
+                .map(|activation| activation.id)
+                .into_iter()
+                .collect(),
+        };
+        ids.into_iter()
+            .filter(|id| document.ship.group_part(draft.key.group, *id).is_some())
+            .map(|id| PartKey::new(draft.key.group, id, 0))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
     }
 }
 
@@ -165,6 +224,8 @@ pub enum Action {
     AddActivation(usize),
     RemoveActivation(usize, usize),
     Moved(usize, usize),
+    SelectStage(usize),
+    SelectActivation(usize, usize),
 }
 
 fn button(action: Action) -> impl Bundle {
@@ -275,6 +336,14 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
             inspector.error.clear();
             return;
         }
+        Action::SelectStage(stage) => {
+            inspector.preview = Preview::Stage(*stage);
+            return;
+        }
+        Action::SelectActivation(stage, index) => {
+            inspector.preview = Preview::Activation(*stage, *index);
+            return;
+        }
         Action::RepairTarget(index) => {
             if let Some(repair) = &mut inspector.repair
                 && let Some((_, target)) = repair.references().get(*index)
@@ -299,9 +368,13 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
     match *action {
         Action::Focus(field) => {
             inspector.focus = Some(field);
+            if field == Field::Target {
+                inspector.preview = Preview::Target;
+            }
         }
         Action::Active => draft.active = !draft.active,
         Action::CycleTarget(forward) => {
+            inspector.preview = Preview::Target;
             let group = document
                 .ship
                 .group(draft.key.group)
@@ -337,12 +410,14 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
                 .get_or_insert_with(StagingState::default)
                 .steps
                 .push(StageStep::default());
+            inspector.preview = Preview::Stage(draft.staging.as_ref().unwrap().steps.len() - 1);
         }
         Action::RemoveStep(index) => {
             if let Some(staging) = &mut draft.staging
                 && index < staging.steps.len()
             {
                 staging.steps.remove(index);
+                inspector.preview = Preview::Owner;
             }
         }
         Action::MoveStep(index, down) => {
@@ -357,6 +432,7 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
                     && to < staging.steps.len()
                 {
                     staging.steps.swap(index, to);
+                    inspector.preview = Preview::Stage(to);
                 }
             }
         }
@@ -373,6 +449,7 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
                             id: target,
                             moved: false,
                         });
+                        inspector.preview = Preview::Activation(index, step.activations.len() - 1);
                     }
                 }
             } else {
@@ -384,6 +461,7 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
                 && index < step.activations.len()
             {
                 step.activations.remove(index);
+                inspector.preview = Preview::Owner;
             }
         }
         Action::Moved(stage, index) => {
@@ -394,6 +472,7 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
                 .and_then(|step| step.activations.get_mut(index))
             {
                 activation.moved = !activation.moved;
+                inspector.preview = Preview::Activation(stage, index);
             }
         }
         _ => {}

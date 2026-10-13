@@ -7,6 +7,14 @@ fn detailed_property_caption_leaves_real_error_and_apply_cancel_visible_without_
     for width in [1440., 1920.] {
         let ctx = crate::egui_ui::test_context();
         let mut document = crate::test_support::document();
+        document.catalog = crate::test_support::catalog();
+        document.ship.parts = vec![
+            document
+                .catalog
+                .get("tank")
+                .unwrap()
+                .instantiate(1, (0.0, 0.0)),
+        ];
         document.select_only(Some(PartKey::new(0, 1, 0)));
         let mut inspector = properties::Inspector::default();
         properties::act(&properties::Action::Open, &mut inspector, &mut document);
@@ -39,7 +47,20 @@ fn detailed_property_caption_leaves_real_error_and_apply_cancel_visible_without_
             }
             ctx.begin_pass(input);
             hits.clear();
-            let action = properties::egui_panel::show(&ctx, &mut inspector, &document, &mut hits);
+            let action = properties::egui_panel::show(
+                &ctx,
+                &mut inspector,
+                &document,
+                &mut hits,
+                ctx.content_rect(),
+                &mut |kind| {
+                    (
+                        egui::TextureId::User(321),
+                        render::fallback_size(Some(kind)),
+                    )
+                },
+            )
+            .and_then(|shown| shown.action);
             let rect = |action| {
                 hits.iter()
                     .find(|(candidate, _)| *candidate == action)

@@ -162,7 +162,7 @@ impl Context<'_, '_> {
     fn property_button(&mut self, state: &mut Run, action: properties::Action) -> bool {
         let Some((_, rect)) = self
             .property_hits
-            .0
+            .actions
             .iter()
             .find(|(candidate, _)| *candidate == action)
         else {

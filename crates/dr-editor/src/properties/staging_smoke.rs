@@ -25,6 +25,10 @@ pub(crate) struct State {
     apply_ms: f64,
     undo_ms: f64,
     redo_ms: f64,
+    preview: serde_json::Value,
+    hover_phase: u8,
+    preview_before_hover: Option<Preview>,
+    hover_rect: Option<bevy_egui::egui::Rect>,
 }
 
 fn staging_target(ship: &Ship) -> Option<(PartKey, usize, usize, bool, usize, usize)> {
@@ -70,7 +74,12 @@ pub(crate) fn run(
     }
     assert!(
         demo::within_timeout(showcase.as_deref(), mode.started, 180),
-        "复杂分级交互自测超时"
+        "复杂分级交互自测超时：phase={}，hover={}，正文={:?}，目标级/动作={}/{}",
+        state.phase,
+        state.hover_phase,
+        hits.body,
+        state.stage,
+        state.activation,
     );
     let Ok(mut input) = inputs.single_mut() else {
         return;
@@ -124,6 +133,64 @@ pub(crate) fn run(
             state.timer = Some(Instant::now());
         }
         2 => {
+            // 在末项上先只移动指针、不按下；核对本帧船体高亮，再移开恢复原焦点。
+            let select = Action::SelectActivation(state.stage, state.activation);
+            match state.hover_phase {
+                0 => {
+                    if !hits.scrolling
+                        && let Some((_, rect)) =
+                            hits.actions.iter().find(|(action, _)| *action == select)
+                    {
+                        state.preview_before_hover = Some(inspector.preview);
+                        input
+                            .0
+                            .events
+                            .push(bevy_egui::egui::Event::PointerMoved(rect.center()));
+                        state.hover_phase = 1;
+                    } else {
+                        state.input.click(select, &hits, &mut input);
+                    }
+                    return;
+                }
+                1 => {
+                    assert_eq!(
+                        inspector.hovered,
+                        Some(Preview::Activation(state.stage, state.activation))
+                    );
+                    assert_eq!(Some(inspector.preview), state.preview_before_hover);
+                    assert_eq!(state.before.as_ref(), Some(&document.ship));
+                    assert!(!document.history.can_undo());
+                    let draft = inspector.draft.as_ref().unwrap();
+                    let id = draft.staging.as_ref().unwrap().steps[state.stage].activations
+                        [state.activation]
+                        .id;
+                    let key = PartKey::new(draft.key.group, id, 0);
+                    assert_eq!(inspector.preview_keys(&document), vec![key]);
+                    let rect = hits
+                        .targets
+                        .iter()
+                        .find(|(target, _)| *target == key)
+                        .expect("仅悬停也必须实际绘制对应部件高亮")
+                        .1;
+                    let canvas = hits.dock.unwrap().canvas;
+                    assert!(canvas.contains_rect(rect));
+                    state.hover_rect = Some(rect);
+                    input
+                        .0
+                        .events
+                        .push(bevy_egui::egui::Event::PointerMoved(canvas.center()));
+                    state.hover_phase = 2;
+                    return;
+                }
+                2 => {
+                    assert_eq!(inspector.hovered, None, "移开指针后不能保留旧悬停");
+                    assert_eq!(Some(inspector.preview), state.preview_before_hover);
+                    assert_eq!(state.before.as_ref(), Some(&document.ship));
+                    assert!(!document.history.can_undo());
+                    state.hover_phase = 3;
+                }
+                _ => {}
+            }
             let action = Action::Moved(state.stage, state.activation);
             if !state.input.click(action, &hits, &mut input) {
                 return;
@@ -137,6 +204,33 @@ pub(crate) fn run(
                 !state.moved_before
             );
             assert_eq!(state.before.as_ref(), Some(&document.ship));
+            let dock = hits.dock.expect("分级必须是停靠面板，不能用整屏 Modal");
+            assert!(
+                !dock.panel.intersect(dock.canvas).is_positive(),
+                "面板不能覆盖船体区域"
+            );
+            let target =
+                draft.staging.as_ref().unwrap().steps[state.stage].activations[state.activation].id;
+            let key = PartKey::new(draft.key.group, target, 0);
+            assert_eq!(inspector.preview_keys(&document), vec![key]);
+            let (_, rect) = hits
+                .targets
+                .iter()
+                .find(|(drawn, _)| *drawn == key)
+                .expect("修改的分级目标必须实际在船体上绘制标记");
+            assert!(
+                dock.canvas.contains_rect(*rect),
+                "目标部件标记必须完整处于船体区域"
+            );
+            let rect_value =
+                |rect: bevy_egui::egui::Rect| [rect.min.x, rect.min.y, rect.max.x, rect.max.y];
+            state.preview = serde_json::json!({
+                "panel_rect": rect_value(dock.panel), "canvas_rect": rect_value(dock.canvas),
+                "target_rect": rect_value(*rect), "target_group": key.group, "target_id": key.id,
+                "panel_overlaps_canvas": false, "edited_target_visible": true,
+                "hover_target_visible": true, "hover_restored": state.hover_phase == 3,
+                "hover_target_rect": rect_value(state.hover_rect.unwrap()),
+            });
             state.edit_ms = state.timer.take().unwrap().elapsed().as_secs_f64() * 1000.0;
             use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
             commands
@@ -199,29 +293,16 @@ pub(crate) fn run(
                 document.ship
             );
             let load_ms = load_started.elapsed().as_secs_f64() * 1000.0;
-            let report = format!(
-                concat!(
-                    "{{\"actual_ship\":{},\"parts\":{},\"connections\":{},",
-                    "\"stages\":{},\"activations\":{},\"edited_stage\":{},",
-                    "\"edited_activation\":{},\"open_ms\":{:.3},\"edit_ms\":{:.3},",
-                    "\"apply_ms\":{:.3},\"undo_ms\":{:.3},\"redo_ms\":{:.3},",
-                    "\"save_ms\":{:.3},\"load_ms\":{:.3}}}\n"
-                ),
-                state.actual_ship,
-                state.parts,
-                state.connections,
-                state.stages,
-                state.activations,
-                state.stage,
-                state.activation,
-                state.open_ms,
-                state.edit_ms,
-                state.apply_ms,
-                state.undo_ms,
-                state.redo_ms,
-                save_ms,
-                load_ms,
-            );
+            let report = serde_json::json!({
+                "actual_ship": state.actual_ship, "parts": state.parts,
+                "connections": state.connections, "stages": state.stages,
+                "activations": state.activations, "edited_stage": state.stage,
+                "edited_activation": state.activation, "open_ms": state.open_ms,
+                "edit_ms": state.edit_ms, "apply_ms": state.apply_ms,
+                "undo_ms": state.undo_ms, "redo_ms": state.redo_ms,
+                "save_ms": save_ms, "load_ms": load_ms, "preview": state.preview,
+            });
+            let report = serde_json::to_string_pretty(&report).unwrap();
             std::fs::write("target/editor-staging-performance.json", &report).unwrap();
             info!("复杂分级 UI 自测通过：{}", report.trim());
             use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
