@@ -4,6 +4,8 @@
 
 当前使用 Bevy 0.20.0 / bevy_egui 0.43.1、quick-xml 0.42.0 与 serde_json 1.0.154。原生按钮直接使用 `ui_widgets::Button`、picking 和 `Activate`，鼠标左键按下触发、触摸抬指一次；不保留旧 `Interaction` 兼容层。依赖升级的逐阶段验证见[升级记录](docs/editor-progress.md#2026-10-13-依赖升级与原生按钮迁移)。
 
+2026-10-13 最终集成验收：373 项 Rust、148 项 Python、严格 Release Clippy / build 通过；同一程序的 DX12 详细 40ms / 450ms 两档与三个窄窗均通过。XML 正常样本往返通过，5 个既有异常输入仍明确拒绝。失败过程、截图及未验证范围见[最终记录](docs/editor-progress.md#2026-10-13-最终集成验收)。
+
 原生顶栏与 egui 共用深色配色、16px 按钮字号和 6px 圆角；继续保留至少 44px 的触控目标。配置归入现有 `native_buttons` / `egui_ui`，复用按钮构造、状态反馈及 egui 原生布局，不另起主题系统。
 
 从本仓库根目录运行，默认复用相邻 `Difficult-Rocket/assets` 中的部件目录、贴图和字体：

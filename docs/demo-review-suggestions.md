@@ -1,6 +1,8 @@
 # 演示评审建议（第二轮只读二审汇总）
 
-本文件汇总四路只读二审的结论，作为后续演示改动与验收的输入。「驱动契约」已实施并提交；零长路径修正已作为 `37489c0` 提交，并由触控适配阶段（Bevy 0.19）的完整 DX12 两档回放验收。XML 已独立提交 `9e47977`；Bevy 0.20.0 / bevy_egui 0.43.1 原生按钮迁移已通过本阶段 Rust / Python / Release、详细 DX12 40ms 与三个 DX12 窄窗，450ms 回放仍待最终构建执行。当前记录见[依赖升级](./editor-progress.md#2026-10-13-依赖升级与原生按钮迁移)。其余新增 corner 均为提案、尚未实现，已有覆盖不重复提需求。
+本文件汇总四路历史只读二审的结论，作为后续演示改动与验收的输入。「驱动契约」已实施并提交；零长路径修正已作为 `37489c0` 提交，并由触控适配阶段（Bevy 0.19）的完整 DX12 两档回放验收。三个依赖升级已独立提交；Bevy 0.20.0 / bevy_egui 0.43.1、serde_json 1.0.154 与统一风格的最终程序通过 373 项 Rust、148 项 Python、严格 Release Clippy / build、完整详细 DX12 40ms / 450ms 两档及三个 DX12 窄窗。失败过程与验证范围见[最终集成记录](./editor-progress.md#2026-10-13-最终集成验收)。本轮不再增加 corner 样例或委派审查；其余新增 corner 均为提案、尚未实现，已有覆盖不重复提需求。
+
+部分历史 `target` 证据已不在当前工作区，旧链接仅定位当时记录；最终 2026-10-13 证据已独立核对存在，不补造历史产物。
 
 ## 口径与基线
 
@@ -9,6 +11,7 @@
 - 演示证据以内部 Bevy/egui 输入注入与回放为准（见 [selection_smoke.rs](../crates/dr-editor/src/selection_smoke.rs#L48)），不声称 OS 键鼠或 input-to-photon 结论；'physical_display_latency_measured' 保持 false（[gestures.rs](../crates/dr-editor/src/demo_cases/gestures.rs#L431)）。
 - 历史阶段验收（触控适配 / Bevy 0.19，已冻结）：351 项 Rust 测试通过（core 101 / editor 250）、127 项 Python 回归通过、严格 Release Clippy 与 Release build 通过；纯鼠标与触控失焦仲裁两项回归通过。该阶段的完整 DX12 快速 40ms 与观看 450ms 两档均通过，分别见[快速报告](../target/demo-mobile-fast-20261012-canvas-final/demo-report.json)、[观看报告](../target/demo-mobile-watch-20261012-canvas-final/demo-report.json)。三种真实窄窗[较早完整记录](../target/mobile-narrow-20261012-owned-window/report.json)保留；最新复验 Vulkan 仅首例通过、第二例尺寸变化后超时，DX12 首例尺寸变化后超时，未计为全量通过，详见[适配验收边界](./mobile-support.md#L77-L111)。
 - 阶段边界：XML 已独立提交 `9e47977`，其后 354 项 Rust（core 104 / editor 250）属 XML 加旧 Bevy 0.19 阶段。Bevy 0.20.0 / bevy_egui 0.43.1 本阶段为 366 项 Rust（core 104 / editor 262）和 148 项 Python，通过严格 Release Clippy / build、详细 DX12 40ms 与三尺寸窄窗；没有沿用旧阶段的通过结论。原生按钮已直接迁至 [ui_widgets / picking / Activate](../crates/dr-editor/src/native_buttons.rs)，不再有自持 Button 标记、弃用别名或旧 `Interaction` 兼容层；`smoke_window_size` 使用全限定 `anyhow::Context`。
+- 最终复验另行记录：`980abe0` 复用 `UiTestInput` 的完整短点击，删除重复释放状态，普通长按 / 拖动 / 触摸语义不变；没有靠延长点击阈值或放宽断言通过。最终 373 项 Rust（core 104 / editor 269）与 148 项 Python、同一 Release 程序的两档详细回放和三个窄窗通过，不拿基础迁移的 366 项记录代替。
 
 ## 已采纳
 
@@ -28,7 +31,7 @@
 - 同一 unit 含正常线正向对照与目录复原：先画一条正常线确认确实提交顶点，再验证退化路径零增量（[demo_cases/tests.rs](../crates/dr-editor/src/demo_cases/tests.rs#L205-L214)）；专用夹具的挂点取自真实中心，随后一例复位目录与原目录项（[demo_cases/tests.rs](../crates/dr-editor/src/demo_cases/tests.rs#L174-L190)）。
 - 底层安全路径保持不变：along 在总弧长 < 1e-4 时返回 None（[connection_lines.rs 的 along](../crates/dr-editor/src/connection_lines.rs#L107-L124)），draw_path 折叠重复点后 'points.len() < 2' 提前返回（[connection_lines.rs 的 draw_path](../crates/dr-editor/src/connection_lines.rs#L127-L147)）。
 
-实际验收（触控适配 / Bevy 0.19 阶段）：[快速逐例证据](../target/demo-mobile-fast-20261012-canvas-final/line-cases.json)与[450ms 逐例证据](../target/demo-mobile-watch-20261012-canvas-final/line-cases.json)的 `line-zero-length` 均为 passed：`path_point_count=4`、`path_length=0.0`、`direction_sample_count=0`、`queued_vertex_count=0`、`degenerate_path_safely_skipped=true`，流动与箭头均开启，dirty 为 false、undo/redo 均为 0。该阶段两个完整报告均为 19 章 / 45 例 / 95 证据，不用早期部分 probe 替代该阶段全量结果；0.20 的本阶段详细 40ms 回放同样通过，见[本阶段连线证据](../target/demo-bevy020-fast-20261013/line-cases.json)；450ms 尚待最终构建验证。
+实际验收（触控适配 / Bevy 0.19 历史阶段）：[快速逐例证据](../target/demo-mobile-fast-20261012-canvas-final/line-cases.json)与[450ms 逐例证据](../target/demo-mobile-watch-20261012-canvas-final/line-cases.json)的 `line-zero-length` 均为 passed：`path_point_count=4`、`path_length=0.0`、`direction_sample_count=0`、`queued_vertex_count=0`、`degenerate_path_safely_skipped=true`，流动与箭头均开启，dirty 为 false、undo/redo 均为 0。该阶段两个完整报告均为 19 章 / 45 例 / 95 证据，不用早期部分 probe 替代全量结果；0.20 / serde_json 1.0.154 最终构建的[40ms 连线证据](../target/demo-closeout-fast-20261013/line-cases.json)与[450ms 连线证据](../target/demo-click-packet-watch-20261013/line-cases.json)同样完整通过，零长指标与文档 / 历史不变的口径相同。
 
 ## 优先候选
 
@@ -94,7 +97,7 @@
 
 - 已实施：detailed 报告逐例校验四类契约——通用字段非空且类型正确（part_count / undo_len / redo_len / dirty，见 [通用字段校验](../scripts/demo_editor.py#L224-L232)）、interaction 误差与计数在有限范围内且 physical=false（[手势校验](../scripts/demo_editor.py#L239-L252)）、几何值 finite 且 accepted 与严格 5% 判定一致（[几何校验](../scripts/demo_editor.py#L255-L265)）、metrics 为对象（[样例校验入口](../scripts/demo_editor.py#L226)），并由 [逐例接线](../scripts/demo_editor.py#L292) 调用；[validate_report](../scripts/demo_editor.py#L146-L196) 与 [validate_cases](../scripts/demo_editor.py#L268-L292) 另行校验章节顺序、状态、耗时、新鲜非空产物与逐例证据。通用 metrics 字段由运行层写入（[demo_cases.rs](../crates/dr-editor/src/demo_cases.rs#L373-L376)）。
 - 驱动契约已作为 `fa97971` 提交；该历史节点全套 Python 为 120 项。触控适配阶段（Bevy 0.19）收尾重新执行全套 Python 127 项并通过，其中 [test_demo_editor.py](../scripts/test_demo_editor.py#L60) 含 43 项演示专项测试；新增 7 项为窄窗工具回归。见[本次 Python 日志](../target/validation-mobile-python-closeout.log)。
-- 阶段口径：触控适配阶段（Bevy 0.19）的 Rust 验证为 351 项（core 101 / editor 250），该阶段的完整 DX12 快节奏与 450ms 回放均已通过（选择章及按实际 UI 画布核对的视图章同时通过，纯鼠标失焦尾锁已修）；XML 独立提交 `9e47977` 之后为 354 项（core 104 / editor 250），仍属旧 Bevy 0.19 阶段。Bevy 0.20.0 / bevy_egui 0.43.1 的本阶段结果已另行记录，仍不预写后续 UI 风格调整、serde_json 升级或 450ms 回放结论。详见[适配说明](./mobile-support.md#L77-L111)。
+- 阶段口径：触控适配阶段（Bevy 0.19）的 Rust 验证为 351 项（core 101 / editor 250），该阶段的完整 DX12 快节奏与 450ms 回放均已通过（选择章及按实际 UI 画布核对的视图章同时通过，纯鼠标失焦尾锁已修）；XML 独立提交 `9e47977` 之后为 354 项（core 104 / editor 250），仍属旧 Bevy 0.19 阶段。0.20 基础迁移与之后的 UI 风格、serde_json、短点击精简分别属于不同构建，不混用测试计数；最终两档及窄窗通过结论见[最终集成记录](./editor-progress.md#2026-10-13-最终集成验收)。
 - 除上述已落地项外，本文件其余 corner 仍为提案，尚未实现。
 
 ## 后续新工具（非本轮）

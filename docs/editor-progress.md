@@ -4,6 +4,8 @@
 
 2026-10-05 新增 [DRRS 与 dr-core 功能覆盖核对](drrs-core-coverage.md)，并按用户编号补齐 1/2/3/6、明确 5 的 main/all 合同。原审计记录已标为历史基线；第 4 项旧保存策略及 Python/平台适配不属于本轮实现，不能据此宣称 DRRS 全功能迁移完成。
 
+2026-10-13 收尾核对发现部分旧 `target` 日志、报告及 ZIP 已不在当前工作区；历史链接仅用于定位原记录，不保证本机仍可打开，也不作为本次验收证据。本次新增证据链接均已检查存在，见“最终集成验收”。
+
 ## 对照来源
 
 - `Difficult-Rocket/mods/dr_game/sr1_ship.py`：船体文件选择、贴图与断开组渲染、镜像旋转、视图平移缩放、文件拖入、保存、截图和调试显示。
@@ -229,6 +231,29 @@
 - 自连接窗口断言失败已无头复现并定位到首次测量阶段过早发布拓扑命中矩形：只注册 `response.enabled()` 且非 sizing pass 的控件，保留真实点击、拒绝错误及历史断言。Painter 说明层重写的对照实验没有修复该问题，已撤回，不保留无证据的额外改动。
 - 本阶段在 serde_json 1.0.151 下实际执行 371 项 workspace Release 测试（core 104 / editor 267）、格式检查、严格全目标 Release Clippy 及 Release build，均通过：[测试](../target/validation-theme-rust-complete-20261013.log)、[Clippy](../target/validation-theme-clippy-complete-20261013.log)、[构建](../target/validation-theme-build-complete-20261013.log)。五项新增回归属于真实执行，不是窗口验收替代品。
 - 窗口失败如实保留：首轮 `demo-theme-fast-20261013` 原生顶栏被 egui 背景盖住，停在第 17 章，编辑器退出 0 但无完整报告、驱动退出 1；第二轮 `demo-theme-fast-fixed-20261013` 的极大滚动偏移方案仍未完成第 17 章，主动终止已核实路径的本次副本，编辑器退出 `4294967295`、驱动退出 1；第三轮 `demo-theme-measured-fast-20261013` 在第 15 章自连接断言失败，编辑器退出 101、驱动退出 1。全部未计为通过、未归类为焦点失败；开发中的 API 编译错误、布局失败和对照日志也保留在 `target/validation-theme-*`。最新修正后的完整窗口回放待最终 serde_json 集成构建重新执行。
+
+## 2026-10-13 最终集成验收
+
+- 三个依赖块独立提交：quick-xml 0.42.0 为 `9e47977`，Bevy 0.20.0 / bevy_egui 0.43.1 为 `3e3b8f2`，serde_json 1.0.154 为 `9ef6734`。风格统一单独提交 `d84524b`，窗口进程隔离为 `c37c036`，短点击复用与精简为 `980abe0`；未推送、未重写历史、未新增平台打包工程。
+- 原生文件 / 属性 / 帮助入口和 egui 共用现有模块中的字体、配色、圆角与状态反馈，不新增主题框架。已实际查看最终[目录截图](../target/demo-closeout-fast-20261013/editor-panels-smoke.png)、[拓扑截图](../target/demo-click-packet-watch-20261013/editor-topology-smoke.png)及三个窄窗原始 PNG：顶栏正常显示，触控入口保留 44px 高度。窄窗默认相机没有自动适配整船，320×640 / 640×360 初始截图中船体被顶栏遮挡或裁切；需使用已有“适配视野”入口，不能把尺寸 / 入口验收写成初始整船取景通过。
+- 正式 450ms 首轮在第 5 章 `lines.open` 断言失败，编辑器退出 101、驱动退出 1，见[失败日志](../target/demo-final-watch-20261013/demo-editor.log)。随后两轮临时诊断在目录点击处失败，同为 101 / 1；[带帧间隔诊断](../target/demo-watch-trace2-detailed-20261013/demo-editor.log)显示同一真实控件矩形保持稳定，但按下 / 抬起相隔约 1.02s，未判为点击。未将这些断言失败归为焦点干扰，也不把诊断构建算作最终通过程序。
+- 复用 `UiTestInput::click_rect` 同帧交付完整短按事件对，属性 Action 点击也调用该入口；动画仍在抵达控件后交付。删除驱动 `release` 与演示 `click_release` 两套重复释放状态，保留等待、真实分帧长按 / 拖动、单次动作记录与触摸语义，不修改 egui 长按阈值、不伪造时间、不保留临时诊断代码。新增短点击契约测试[修正前失败](../target/validation-click-packet-before-20261013.log)，修正后覆盖 16ms / 1s / 10s 帧间隔、真实目录行、两档动画抵达和不重复点击；真实 1s 长按仍不得当作短点击。
+
+最终实际验证使用同一 Release 程序，SHA-256 为 `608dc9d9688cf00a243f15597d22e90d21f49e44acba378d288059237384f594`；每份窗口身份记录均核对源 / 副本一致，见[集成摘要](../target/validation-closeout-summary-20261013.json)。下表不沿用前述阶段的通过记录：
+
+| 检查 | 本次结果与证据 |
+| --- | --- |
+| Rust | `TEMP/TMP=target/test-temp` 下执行 `cargo test --workspace --release --locked`，373 项通过（core 104 / editor 269）；[日志](../target/validation-click-packet-rust-20261013.log) |
+| Python | `uv run --no-project --python 3.12 python -B -X utf8 -m unittest discover -s scripts -p 'test_*.py' -v`，148 项通过；[日志](../target/validation-click-packet-python-20261013.log) |
+| fmt / Release | `cargo fmt --all --check`、`cargo clippy --workspace --all-targets --release --locked -- -D warnings`、`cargo build --workspace --release --locked` 均通过；[Clippy](../target/validation-click-packet-clippy-20261013.log)、[构建](../target/validation-click-packet-build-20261013.log) |
+| DX12 详细观看 450ms | 串行单窗口完成 19 章 / 45 例 / 95 证据，编辑器与驱动退出码均为 0；[报告](../target/demo-click-packet-watch-20261013/demo-report.json)、[驱动日志](../target/validation-click-packet-watch-20261013.log) |
+| DX12 详细快速 40ms | 观看档结束后再启动，规模相同，编辑器与驱动退出码均为 0；[报告](../target/demo-closeout-fast-20261013/demo-report.json)、[驱动日志](../target/validation-closeout-fast-20261013.log) |
+| DX12 窄窗 | 随后串行运行 390×844、640×360、320×640，三例均通过 Win32 客户区 / Bevy 尺寸与 scale factor 1 / 原始 PNG 三重核对，退出码均为 0；[报告](../target/narrow-closeout-dx12-20261013/report.json) |
+| XML | `verify_catalog` 27 类 / 793 字段通过，退出 0；`verify_ships` 185 船体 / 125,856 部件通过，另 5 个既有异常输入仍拒绝，实际退出 1；191 份源 XML 前后 SHA-256 一致；[目录](../target/validation-closeout-catalog-20261013.log)、[船体](../target/validation-closeout-ships-20261013.log)、[哈希](../target/validation-closeout-xml-20261013.json) |
+
+- 两档详细回放都保持 Test.xml / Heronb.xml 源哈希不变；64 级 / 1,024 动作的末项编辑、应用、撤销重做及 XML 往返均通过。两份 `line-cases.json` 的真实零长路径均为四点、长度 0、方向采样 0、提交顶点 0、安全跳过，流动 / 箭头开启且文档 / 历史不变。
+- 观看回放前段仍观察到约 1s 的慢帧，后段恢复较快更新；用户协助保持窗口可见，未自动抢占前台。耗时包含观看节拍、滚轮与截图等待，不是性能或物理输入延迟测量；未确诊慢帧来源，也不宣称呈现策略已经解决所有后端时序问题。运行日志仍有 `DockingConnector.PNG` 的多 AssetLoader 警告，本轮未改资源加载管线。
+- 本次窗口结果限定 DX12；默认 Vulkan 未复验。物理触屏、Android / iOS 真机、系统键鼠、原生路径选择、输入法与系统文字输入专项未执行；不以内部输入或窄窗截图替代。旧 Windows ZIP 仅保留适配前的历史记录，当前工作区未找到该归档，本次未重新打包、不宣称旧包包含改动。全历史证据链接首次检查[失败日志](../target/validation-closeout-doc-links-first-20261013.log)保留；缺失的是旧本地证据，不抹去历史执行记录或伪造旧产物。当前依赖升级目标已完成，项目整体复刻的下列缺口仍继续保留。
 
 ## 后续必须完成的工作
 
