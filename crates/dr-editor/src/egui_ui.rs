@@ -1,7 +1,5 @@
-//! Bevy 与 egui 的最小适配层；文本编辑、剪贴板和 IME 均由 bevy_egui 处理。
-//!
-//! 集成时保留 properties::setup/actions 工具栏；在 Update 原 properties::input
-//! 的位置调用 prepare_input，移除旧 properties::input/render 系统。
+//! Bevy 与 egui 的适配层：共享样式、贴图、输入隔离及属性界面接线。
+//! 文本编辑、剪贴板和 IME 由 bevy_egui 处理；原生工具栏沿用 properties::setup/actions。
 //! EguiPrimaryContextPass 由插件在 PostUpdate::EndPass 内执行，不应手动运行。
 
 use super::*;
@@ -155,11 +153,7 @@ pub fn prepare_input(
         if let Some(touch) = touch.as_mut() {
             touch.navigation = None;
         }
-        cursor.manual_connection = None;
-        drag.cancel();
-        cursor.cancel_placement();
-        cursor.paste = None;
-        camera_drag.0 = None;
+        canvas_input::cancel_preview(&mut drag, &mut cursor, &mut camera_drag);
         pointer.blocked = true;
         return;
     }
@@ -182,11 +176,7 @@ pub fn prepare_input(
         if let Some(touch) = touch.as_mut() {
             touch.navigation = None;
         }
-        cursor.manual_connection = None;
-        drag.cancel();
-        cursor.cancel_placement();
-        cursor.paste = None;
-        camera_drag.0 = None;
+        canvas_input::cancel_preview(&mut drag, &mut cursor, &mut camera_drag);
     }
     // 沿用现有 Bevy 工具栏的命中结果，而不是覆盖它。
     pointer.blocked |= inspector.is_open() || topology_open || line_open;

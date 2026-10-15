@@ -101,12 +101,9 @@ impl GestureInput {
 }
 
 fn cancel_preview(drag: &mut DragState, cursor: &mut EditorCursor, camera_drag: &mut CameraDrag) {
-    drag.cancel();
-    cursor.cancel_placement();
-    cursor.paste = None;
-    cursor.manual_connection = None;
+    canvas_input::cancel_preview(drag, cursor, camera_drag);
+    // 触摸取消后需等待下一次有效触点，不能沿用取消前的画布位置。
     cursor.valid = false;
-    camera_drag.0 = None;
 }
 
 /// 起点决定整次触摸归属；UI 滚动越过边界也不会变成画布拖拽。

@@ -19,6 +19,79 @@ fn pointer(app: &mut App, logical: (f64, f64)) {
 }
 
 #[test]
+fn cancel_preview_drops_pending_edits_but_keeps_reusable_cursor_settings() {
+    let mut document = crate::test_support::document();
+    document.catalog = crate::test_support::catalog();
+    document.free_mode = true;
+    let key = PartKey::new(0, 1, 0);
+    let fragment = dr_core::ShipFragment::capture(&document.ship, &[key]).unwrap();
+    let mut cursor = EditorCursor {
+        clipboard: Some(fragment.clone()),
+        paste: Some(fragment),
+        world: (3.0, 4.0),
+        catalog_index: 2,
+        placing: true,
+        palette_drag: true,
+        rotation: 3,
+        fine_rotation: 0.25,
+        flip_x: true,
+        flip_y: true,
+        valid: true,
+        ..default()
+    };
+    assert!(free_mode::click(
+        &mut document,
+        &mut cursor,
+        (0.5, 0.0),
+        0.1
+    ));
+    assert!(cursor.manual_connection.is_some());
+    let before = document.ship.clone();
+    let selected = document.selected_keys();
+    let mut drag = DragState {
+        id: Some(key),
+        members: [key].into_iter().collect(),
+        blocked: true,
+        command: Some(EditorCommand::Delete(key.id)),
+        rectangle: Some((1.0, 2.0)),
+        turns: 2,
+        fine_rotation: 0.5,
+        flip_x: true,
+        flip_y: true,
+        ..default()
+    };
+    let mut camera_drag = CameraDrag(Some(Vec2::new(10.0, 20.0)));
+    // 重复取消仍应保留可复用设置，不产生文档事务。
+    for _ in 0..2 {
+        cancel_preview(&mut drag, &mut cursor, &mut camera_drag);
+        assert!(drag.id.is_none() && drag.members.is_empty());
+        assert!(drag.command.is_none() && drag.rectangle.is_none() && !drag.blocked);
+        assert_eq!((drag.turns, drag.fine_rotation), (0, 0.0));
+        assert!(!drag.flip_x && !drag.flip_y);
+        assert!(cursor.manual_connection.is_none() && cursor.paste.is_none());
+        assert!(!cursor.placing && !cursor.palette_drag);
+        assert!(camera_drag.0.is_none());
+        assert!(cursor.valid);
+        assert_eq!(cursor.world, (3.0, 4.0));
+        assert_eq!(cursor.catalog_index, 2);
+        assert_eq!((cursor.rotation, cursor.fine_rotation), (3, 0.25));
+        assert!(cursor.flip_x && cursor.flip_y);
+        assert_eq!(
+            cursor
+                .clipboard
+                .as_ref()
+                .unwrap()
+                .parts()
+                .collect::<Vec<_>>(),
+            before.parts.iter().collect::<Vec<_>>()
+        );
+        assert_eq!(document.ship, before);
+        assert_eq!(document.selected_keys(), selected);
+        assert!(!document.dirty && !document.history.can_undo());
+    }
+}
+
+#[test]
 fn actual_mouse_drag_follows_sub_grid_motion_and_release_cleans_highlight_and_history() {
     let mut app = mouse_app();
     let before = app.world().resource::<EditorDocument>().ship.clone();

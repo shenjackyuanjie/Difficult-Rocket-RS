@@ -9,6 +9,20 @@ use dr_core::{
     geometry::{Vec2d, contains_point},
 };
 
+/// 取消未提交的画布交互；保留剪贴板、目录选择和预览变换设置。
+/// 输入屏蔽、触摸导航及光标有效性由各入口按自身策略处理。
+pub(crate) fn cancel_preview(
+    drag: &mut DragState,
+    cursor: &mut EditorCursor,
+    camera_drag: &mut CameraDrag,
+) {
+    cursor.manual_connection = None;
+    drag.cancel();
+    cursor.cancel_placement();
+    cursor.paste = None;
+    camera_drag.0 = None;
+}
+
 /// 处理全局快捷键，并将所有会改变船体的操作记录到历史栈。
 pub(crate) fn keyboard_commands(
     keys: Res<ButtonInput<KeyCode>>,

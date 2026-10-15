@@ -87,11 +87,7 @@ pub(crate) fn input(
     // 关闭的这一帧也不把 Esc/按钮点击漏给画布。
     state.suppress_frame = state.open || was_open || toggle;
     if state.suppress_frame {
-        cursor.manual_connection = None;
-        drag.cancel();
-        cursor.cancel_placement();
-        cursor.paste = None;
-        camera_drag.0 = None;
+        canvas_input::cancel_preview(&mut drag, &mut cursor, &mut camera_drag);
         pointer.blocked = true;
     }
 }

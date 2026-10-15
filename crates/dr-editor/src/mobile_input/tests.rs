@@ -56,6 +56,20 @@ fn camera(app: &mut App) -> (Vec2, f32) {
 }
 
 #[test]
+fn touch_cancel_also_invalidates_the_last_canvas_position() {
+    let mut drag = DragState::default();
+    let mut cursor = EditorCursor {
+        valid: true,
+        placing: true,
+        ..default()
+    };
+    let mut camera_drag = CameraDrag(Some(Vec2::ONE));
+    cancel_preview(&mut drag, &mut cursor, &mut camera_drag);
+    assert!(!cursor.valid && !cursor.placing);
+    assert!(camera_drag.0.is_none());
+}
+
+#[test]
 fn single_touch_drag_preserves_grab_offset_and_release_position_in_one_undo_step() {
     let mut app = app();
     let before = app.world().resource::<EditorDocument>().ship.clone();
