@@ -4,10 +4,32 @@ use super::*;
 pub(crate) struct State {
     phase: u8,
     delay: u8,
+    wait_passes: u16,
     input: crate::egui_ui::UiTestInput,
     before: Option<Ship>,
     last: Option<PathBuf>,
     scan_ms: f64,
+}
+
+/// 先通过正式 Ships 入口导航，再等待当前目录的实际可见文件命中。
+/// 抽屉关闭时 browser_rows/offset 仍可能是旧值，不能拿这些缓存判断布局已就绪。
+fn wait_for_browser(
+    files: &[PathBuf],
+    ui: &egui_panel::UiState,
+    input: &mut bevy_egui::EguiInput,
+    driver: &mut crate::egui_ui::UiTestInput,
+) -> bool {
+    if !ui.browser_area.is_some_and(|area| area.is_positive()) {
+        if let Some(toggle) = ui.ship_toggle.filter(|rect| rect.is_positive()) {
+            driver.click_rect(toggle, input);
+        }
+        return false;
+    }
+    !ui.scrolling
+        && ui.hits.iter().any(|(action, rect)| {
+            rect.is_positive()
+                && matches!(action, PanelButton::Open(path) if files.binary_search(path).is_ok())
+        })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -27,13 +49,38 @@ pub(crate) fn run(
     }
     assert!(
         demo::within_timeout(showcase.as_deref(), mode.started, 90),
-        "大目录交互自测超时"
+        "大目录交互自测超时：phase={} ships={:?} rows={} offset={} max={} hits={:?}",
+        state.phase,
+        ui.browser_area,
+        ui.browser_rows,
+        ui.browser_offset,
+        ui.browser_max_scroll,
+        ui.hits
     );
     let Ok(mut input) = inputs.single_mut() else {
         return;
     };
     if state.input.tick(&mut input) {
         return;
+    }
+    // 详细演示允许超出旧的总时长，但单阶段仍要在有限次实际导航后给出诊断。
+    if matches!(state.phase, 1 | 2) {
+        state.wait_passes += 1;
+        assert!(
+            state.wait_passes <= 120,
+            "船体目录导航未就绪：phase={} passes={} ships={:?} toggle={:?} \
+             rows={} offset={} max={} requested_scroll={:?} scrolling={} hits={:?}",
+            state.phase,
+            state.wait_passes,
+            ui.browser_area,
+            ui.ship_toggle,
+            ui.browser_rows,
+            ui.browser_offset,
+            ui.browser_max_scroll,
+            ui.browser_scroll,
+            ui.scrolling,
+            ui.hits,
+        );
     }
     match state.phase {
         0 => {
@@ -58,6 +105,10 @@ pub(crate) fn run(
             state.last = browser.files.last().cloned();
         }
         1 => {
+            if !wait_for_browser(&browser.files, &ui, &mut input, &mut state.input) {
+                state.delay = 0;
+                return;
+            }
             state.delay += 1;
             if state.delay < 5 {
                 return;
@@ -70,6 +121,9 @@ pub(crate) fn run(
             ui.browser_scroll = Some(ui.browser_max_scroll);
         }
         2 => {
+            if !wait_for_browser(&browser.files, &ui, &mut input, &mut state.input) {
+                return;
+            }
             if ui.browser_offset <= 10000.0 {
                 return;
             }
@@ -114,5 +168,79 @@ pub(crate) fn run(
         }
         _ => return,
     }
+    state.wait_passes = 0;
     state.phase += 1;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_egui::{EguiInput, egui};
+
+    fn rect(y: f32) -> egui::Rect {
+        egui::Rect::from_min_size(egui::pos2(12.0, y), egui::vec2(44.0, 44.0))
+    }
+
+    #[test]
+    fn closed_browser_navigates_real_ships_toggle_despite_stale_scroll_cache() {
+        let files = vec![PathBuf::from("samples/ship-0000.xml")];
+        let toggle = rect(848.0);
+        let mut ui = egui_panel::UiState::default();
+        ui.ship_toggle = Some(toggle);
+        ui.browser_rows = 24;
+        ui.browser_offset = 43000.0;
+        ui.browser_max_scroll = 43000.0;
+        ui.hits = vec![(PanelButton::Open(files[0].clone()), rect(200.0))];
+        let mut input = EguiInput::default();
+        let mut driver = crate::egui_ui::UiTestInput::default();
+        assert!(!wait_for_browser(&files, &ui, &mut input, &mut driver));
+        assert_eq!(input.0.events.len(), 3);
+        assert!(matches!(
+            input.0.events.first(),
+            Some(egui::Event::PointerMoved(pos)) if *pos == toggle.center()
+        ));
+        assert!(matches!(
+            input.0.events.get(1),
+            Some(egui::Event::PointerButton { pressed: true, .. })
+        ));
+        assert!(matches!(
+            input.0.events.get(2),
+            Some(egui::Event::PointerButton { pressed: false, .. })
+        ));
+        assert!(driver.tick(&mut input));
+        assert!(driver.tick(&mut input));
+        assert!(!driver.tick(&mut input));
+        input.0.events.clear();
+        ui.ship_toggle = None;
+        assert!(!wait_for_browser(&files, &ui, &mut input, &mut driver));
+        assert!(input.0.events.is_empty(), "入口缺失时不能用旧侧栏坐标代替");
+    }
+
+    #[test]
+    fn browser_readiness_requires_current_directory_visible_hits_and_stable_layout() {
+        let files = vec![PathBuf::from("samples/ship-0000.xml")];
+        let mut ui = egui_panel::UiState::default();
+        ui.browser_area = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(248.0, 844.0),
+        ));
+        ui.hits = vec![(
+            PanelButton::Open(PathBuf::from("old/ship.xml")),
+            rect(200.0),
+        )];
+        let mut input = EguiInput::default();
+        let mut driver = crate::egui_ui::UiTestInput::default();
+        assert!(!wait_for_browser(&files, &ui, &mut input, &mut driver));
+        ui.hits = vec![(PanelButton::Open(files[0].clone()), egui::Rect::NOTHING)];
+        assert!(!wait_for_browser(&files, &ui, &mut input, &mut driver));
+        ui.hits = vec![(PanelButton::Open(files[0].clone()), rect(200.0))];
+        assert!(wait_for_browser(&files, &ui, &mut input, &mut driver));
+        assert!(
+            input.0.events.is_empty(),
+            "真实布局就绪时不能点击文件或重复开关抽屉"
+        );
+        ui.scrolling = true;
+        assert!(!wait_for_browser(&files, &ui, &mut input, &mut driver));
+        assert!(input.0.events.is_empty());
+    }
 }
