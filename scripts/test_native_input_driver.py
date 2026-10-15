@@ -37,7 +37,7 @@ class DriverTests(unittest.TestCase):
         self.assertEqual(main.call_count, 3)
         self.assertEqual(report.call_count, 1)
         arguments = report.call_args.args[0]
-        self.assertEqual(arguments[arguments.index("--room") + 1], "sr1")
+        self.assertEqual(arguments[arguments.index("--room") + 1], "inner")
         self.assertEqual(sleep.call_count, 2)
         arguments = report.call_args.args[0]
         self.assertIn("noticer-progress", arguments[5])

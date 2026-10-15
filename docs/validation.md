@@ -112,7 +112,7 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/check_native_input.p
 uv run --no-project --python 3.12 python -B -X utf8 scripts/check_native_input.py --editor-bin target/release/dr-editor.exe --window-case keys
 ```
 
-前台驱动只操作自己启动的编辑器及失焦辅助窗口，核对真实前台，置前/失焦最多自动重试三次，之后按项目默认向 `sr1` 提醒；程序崩溃/数据断言立即失败，不冒充焦点失败。其他 `--window-case` 是前台受控的内部注入式专项，并未变成系统输入。当前约定跳过输入法/系统文字专项，确需运行时另行安排。
+前台驱动只操作自己启动的编辑器及失焦辅助窗口，核对真实前台，置前/失焦最多自动重试三次，之后按项目默认向 `inner` 提醒；程序崩溃/数据断言立即失败，不冒充焦点失败。其他 `--window-case` 是前台受控的内部注入式专项，并未变成系统输入。当前约定跳过输入法/系统文字专项，确需运行时另行安排。
 
 ## 录制无配音 1080p 视频
 

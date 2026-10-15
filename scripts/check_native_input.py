@@ -386,7 +386,7 @@ if __name__ == "__main__":
                 if skill.is_file():
                     try:
                         subprocess.run(["uv", "run", "--no-project", "--python", "3.12", str(skill),
-                            "--state", "progress", "--room", "sr1", "--task", "DR 编辑器前台测试焦点提醒",
+                            "--state", "progress", "--room", "inner", "--task", "DR 编辑器前台测试焦点提醒",
                             "--message", "前台窗口测试连续三次受到焦点或真实键鼠干扰，当前专项未通过。测试短暂运行时请尽量暂停桌面键鼠输入；Agent 会继续其他工作并按需重新验证，不把失败当通过。"],
                             check=True, creationflags=subprocess.CREATE_NO_WINDOW)
                     except (OSError, subprocess.CalledProcessError) as notify_error:
