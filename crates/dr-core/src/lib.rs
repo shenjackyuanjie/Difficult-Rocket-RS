@@ -11,6 +11,8 @@ pub mod edit;
 pub mod geometry;
 pub mod io;
 pub mod model;
+pub mod staging;
+pub use staging::{StagingError, generate_basic_staging};
 
 pub use edit::{
     CommandError, ConnectionRole, DuplicateRepair, EditorCommand, EditorHistory, EditorState,
