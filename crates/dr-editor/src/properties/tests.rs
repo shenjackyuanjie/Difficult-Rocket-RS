@@ -118,6 +118,92 @@ fn duplicate_pod_draft_targets_its_group_and_limits_staging_choices() {
 }
 
 #[test]
+fn unique_target_choices_keep_source_order_and_cycle_within_their_group() {
+    let mut document = document();
+    let pod = document.ship.parts[0].clone();
+    let tank = document.ship.parts[1].clone();
+    let parts = |ids: &[i64]| {
+        ids.iter()
+            .map(|id| {
+                let mut part = tank.clone();
+                part.id = *id;
+                part
+            })
+            .collect::<Vec<_>>()
+    };
+    document.ship.parts = parts(&[9, 4, 2, 4]);
+    document.ship.parts.push(pod);
+    document.ship.disconnected.push(dr_core::ShipGroup {
+        parts: parts(&[4, 2, 2, 8]),
+        connections: vec![],
+    });
+    assert_eq!(
+        unique_target_parts(&document.ship.parts)
+            .map(|part| part.id)
+            .collect::<Vec<_>>(),
+        vec![9, 2, 1]
+    );
+    assert_eq!(
+        unique_target_parts(&document.ship.disconnected[0].parts)
+            .map(|part| part.id)
+            .collect::<Vec<_>>(),
+        vec![4, 8]
+    );
+    let before = document.ship.clone();
+    document.selected = Some(PartKey::new(0, 1, 0));
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    for (forward, targets) in [(true, ["9", "2", "1", "9"]), (false, ["1", "2", "9", "1"])] {
+        inspector.draft.as_mut().unwrap().target.clear();
+        for target in targets {
+            act(&Action::CycleTarget(forward), &mut inspector, &mut document);
+            assert_eq!(inspector.draft.as_ref().unwrap().target, target);
+            assert_eq!(inspector.preview, Preview::Target);
+        }
+    }
+    // 循环操作仍直接 parse；不把 UI 目标显示使用的 trim 顺带引入此处。
+    for target in ["4", "999", " 2 "] {
+        for (forward, expected) in [(true, "9"), (false, "1")] {
+            inspector.draft.as_mut().unwrap().target = target.into();
+            act(&Action::CycleTarget(forward), &mut inspector, &mut document);
+            assert_eq!(inspector.draft.as_ref().unwrap().target, expected);
+        }
+    }
+    document.selected = Some(PartKey::new(1, 4, 0));
+    open(&mut inspector, &document);
+    for target in ["4", "8", "4"] {
+        act(&Action::CycleTarget(true), &mut inspector, &mut document);
+        assert_eq!(inspector.draft.as_ref().unwrap().target, target);
+    }
+    assert_eq!(document.ship, before);
+    assert!(!document.dirty && !document.history.can_undo());
+}
+
+#[test]
+fn cycling_empty_or_ambiguous_target_choices_keeps_the_draft_target() {
+    let mut document = document();
+    let pod = document.ship.parts[0].clone();
+    for parts in [vec![], vec![pod.clone(), pod.clone()]] {
+        document.ship.parts = parts;
+        assert!(unique_target_parts(&document.ship.parts).next().is_none());
+        let before = document.ship.clone();
+        let mut inspector = Inspector {
+            draft: Some(Draft::new(PartKey::new(0, 1, 0), &pod)),
+            ..default()
+        };
+        inspector.draft.as_mut().unwrap().target = " 2 ".into();
+        for forward in [true, false] {
+            inspector.preview = Preview::Owner;
+            act(&Action::CycleTarget(forward), &mut inspector, &mut document);
+            assert_eq!(inspector.draft.as_ref().unwrap().target, " 2 ");
+            assert_eq!(inspector.preview, Preview::Target);
+            assert_eq!(document.ship, before);
+            assert!(!document.dirty && !document.history.can_undo());
+        }
+    }
+}
+
+#[test]
 fn staged_changes_cancel_or_apply_and_undo_together() {
     let mut document = document();
     let before = document.ship.clone();

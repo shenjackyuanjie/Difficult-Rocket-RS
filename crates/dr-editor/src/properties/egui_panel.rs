@@ -404,10 +404,6 @@ fn properties_body(
     if *focused == Some(Field::Target) {
         *preview = Preview::Target;
     }
-    let mut counts = std::collections::HashMap::<i64, usize>::new();
-    for part in group_parts {
-        *counts.entry(part.id).or_default() += 1;
-    }
     let target = draft.target.trim().parse::<i64>().ok();
     let target_name = target
         .and_then(|id| document.ship.group_part(draft.key.group, id))
@@ -423,7 +419,7 @@ fn properties_body(
         .wrap_mode(egui::TextWrapMode::Truncate)
         .height(240.0)
         .show_ui(ui, |ui| {
-            for part in group_parts.iter().filter(|part| counts[&part.id] == 1) {
+            for part in unique_target_parts(group_parts) {
                 if ui
                     .selectable_label(target == Some(part.id), part_description(document, part))
                     .clicked()

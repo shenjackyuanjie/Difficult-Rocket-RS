@@ -277,6 +277,15 @@ pub fn open(inspector: &mut Inspector, document: &EditorDocument) {
     }
 }
 
+/// 按本组原部件顺序保留唯一编号目标，排除重号的所有实例。
+fn unique_target_parts(parts: &[Part]) -> impl Iterator<Item = &Part> {
+    let mut counts = std::collections::HashMap::<i64, usize>::new();
+    for part in parts {
+        *counts.entry(part.id).or_default() += 1;
+    }
+    parts.iter().filter(move |part| counts[&part.id] == 1)
+}
+
 pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument) {
     match action {
         Action::Open => {
@@ -380,15 +389,7 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
                 .group(draft.key.group)
                 .map(|(parts, _)| parts)
                 .unwrap_or_default();
-            let mut counts = std::collections::HashMap::<i64, usize>::new();
-            for part in group {
-                *counts.entry(part.id).or_default() += 1;
-            }
-            let parts: Vec<_> = group
-                .iter()
-                .filter(|part| counts[&part.id] == 1)
-                .map(|part| part.id)
-                .collect();
+            let parts: Vec<_> = unique_target_parts(group).map(|part| part.id).collect();
             if !parts.is_empty() {
                 let current = draft
                     .target
