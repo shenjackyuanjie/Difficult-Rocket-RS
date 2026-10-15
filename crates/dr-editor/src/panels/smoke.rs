@@ -28,14 +28,24 @@ fn palette_scroll_point(ui: &egui_panel::UiState) -> Option<bevy_egui::egui::Pos
     })
 }
 
+/// 同一实际 Part 命中同时提供 egui 点和 Window 逻辑点，缩放只换算一次。
+fn palette_window_point(
+    ui: &egui_panel::UiState,
+    window: &Window,
+) -> Option<(bevy_egui::egui::Pos2, Vec2)> {
+    let point = palette_scroll_point(ui)?;
+    let scale = ui.pixels_per_point / window.scale_factor();
+    (scale.is_finite() && scale > 0.).then(|| (point, Vec2::new(point.x, point.y) * scale))
+}
+
 fn panel_description(phase: u8) -> &'static str {
     match phase {
-        0..=1 => "左键点击右侧部件目录进入预览；移到画布后才放置，不改原船体。",
+        0..=1 => "左键点击部件抽屉中的部件进入预览；移到画布后才放置，不改原船体。",
         2..=3 => "R 旋转、X 镜像待放置预览；左键确认前仍可取消。",
         4..=5 => "红色预览表示碰撞：左键点击被拒绝，船体保持不变。",
         6..=7 => "移到空白处，左键放置部件并提交一步历史。",
         8..=9 => "Ctrl+Z / Ctrl+Y 撤销与重做整个放置操作。",
-        10..=11 => "侧栏阻挡画布输入；滚轮只滚部件目录，Esc 取消待放置预览。",
+        10..=11 => "部件抽屉阻挡画布输入；滚轮只滚抽屉中的列表，Esc 取消待放置预览。",
         12 => "原版分组：左键点击标题收起一个类别，其他类别继续显示。",
         _ => "类别已收起；点击「全部展开」恢复完整目录，折叠不修改船体。",
     }
@@ -202,24 +212,25 @@ pub(crate) fn run(
             assert_eq!(state.after.as_ref(), Some(&document.ship), "重做未恢复部件");
             keys.reset_all();
             window.focused = true;
-            window.set_cursor_position(Some(Vec2::new(120.0, 400.0)));
+            let Some((_, window_point)) = palette_window_point(&ui, &window) else {
+                return;
+            };
+            window.set_cursor_position(Some(window_point));
             mouse.press(MouseButton::Left);
         }
         11 => {
             assert_eq!(
                 state.after.as_ref(),
                 Some(&document.ship),
-                "侧栏点击穿透到了画布"
+                "部件抽屉点击穿透到了画布"
             );
-            let Some(point) = palette_scroll_point(&ui) else {
+            let Some((point, window_point)) = palette_window_point(&ui, &window) else {
                 return;
             };
             state.palette_before_scroll = ui.palette_offset;
             mouse.release(MouseButton::Left);
             keys.press(KeyCode::Escape);
             window.focused = true;
-            let window_point =
-                Vec2::new(point.x, point.y) * ui.pixels_per_point / window.scale_factor();
             window.set_cursor_position(Some(window_point));
             input.0.events.extend([
                 bevy_egui::egui::Event::PointerMoved(point),
@@ -308,7 +319,7 @@ pub(crate) fn run(
                 .observe(save_to_disk("target/editor-panels-smoke.png"))
                 .observe(
                     |_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-                        info!("面板交互自测通过：选择、碰撞拒绝及红色预览、放置、撤销重做、取消及侧栏输入隔离");
+                        info!("面板交互自测通过：选择、碰撞拒绝及红色预览、放置、撤销重做、取消及部件抽屉输入隔离");
                         exit.write(AppExit::Success);
                     },
                 );
@@ -347,46 +358,100 @@ mod tests {
     }
 
     #[test]
-    fn smoke_scroll_targets_visible_palette_row_instead_of_fixed_x() {
-        for width in [1440., 1920.] {
-            let mut ui = egui_panel::UiState::default();
-            let left = width - 296.;
-            ui.palette_area = Some(egui::Rect::from_min_max(
-                egui::pos2(left, 52.),
-                egui::pos2(width, 900.),
-            ));
-            let row = egui::Rect::from_min_max(
-                egui::pos2(left + 8., 300.),
-                egui::pos2(width - 16., 352.),
-            );
-            ui.hits = vec![
-                (
-                    PanelButton::ExpandCategories,
-                    egui::Rect::from_min_size(egui::pos2(left + 8., 100.), egui::vec2(60., 20.)),
-                ),
-                (
-                    PanelButton::Part(0),
-                    egui::Rect::from_min_size(egui::pos2(100., 100.), egui::vec2(40., 40.)),
-                ),
-                (PanelButton::Part(1), row),
-            ];
-            assert_eq!(palette_scroll_point(&ui), Some(row.center()));
-            assert!(ui.palette_area.unwrap().contains(row.center()));
-            if width == 1920. {
-                assert!(row.center().x > 1600.);
+    fn smoke_scroll_targets_actual_part_drawer_hits_instead_of_a_fixed_side() {
+        for width in [320., 1440., 1920.] {
+            for left in [0., width - 296.] {
+                let mut ui = egui_panel::UiState::default();
+                let area =
+                    egui::Rect::from_min_max(egui::pos2(left, 52.), egui::pos2(left + 296., 844.));
+                ui.palette_area = Some(area);
+                let unclipped = egui::Rect::from_min_max(
+                    egui::pos2(left + 8., 36.),
+                    egui::pos2(left + 280., 86.),
+                );
+                let row = unclipped.intersect(area);
+                ui.hits = vec![
+                    (PanelButton::ExpandCategories, area),
+                    (PanelButton::Part(0), egui::Rect::NOTHING),
+                    (
+                        PanelButton::Part(1),
+                        egui::Rect::from_min_size(
+                            egui::pos2(left + 304., 100.),
+                            egui::vec2(40., 40.),
+                        ),
+                    ),
+                    (PanelButton::Part(2), row),
+                ];
+                assert_ne!(row, unclipped, "使用 ScrollArea 已裁剪的实际命中");
+                assert_eq!(palette_scroll_point(&ui), Some(row.center()));
+                assert!(area.contains(row.center()));
             }
         }
     }
 
     #[test]
-    fn smoke_scroll_waits_for_positive_clipped_row_hits() {
+    fn smoke_palette_waits_for_an_actual_positive_part_hit() {
         let mut ui = egui_panel::UiState::default();
+        ui.pixels_per_point = 1.;
+        let window = Window::default();
         assert!(palette_scroll_point(&ui).is_none());
-        ui.palette_area = Some(egui::Rect::from_min_size(
-            egui::pos2(1600., 52.),
-            egui::vec2(296., 900.),
-        ));
-        ui.hits.push((PanelButton::Part(0), egui::Rect::NOTHING));
+        assert!(palette_window_point(&ui, &window).is_none());
+        let area = egui::Rect::from_min_size(egui::pos2(0., 52.), egui::vec2(296., 792.));
+        ui.palette_area = Some(area);
+        assert!(
+            palette_window_point(&ui, &window).is_none(),
+            "无命中时等待下一帧"
+        );
+        ui.hits = vec![
+            (PanelButton::ExpandCategories, area),
+            (PanelButton::Part(0), egui::Rect::NOTHING),
+            (
+                PanelButton::Part(1),
+                egui::Rect::from_min_size(egui::pos2(8., 100.), egui::vec2(0., 40.)),
+            ),
+            (
+                PanelButton::Part(2),
+                egui::Rect::from_min_size(egui::pos2(304., 100.), egui::vec2(40., 40.)),
+            ),
+        ];
         assert!(palette_scroll_point(&ui).is_none());
+        assert!(palette_window_point(&ui, &window).is_none());
+    }
+
+    #[test]
+    fn smoke_palette_window_point_converts_egui_and_window_dpi_once() {
+        let mut ui = egui_panel::UiState::default();
+        let area = egui::Rect::from_min_size(egui::pos2(0., 52.), egui::vec2(296., 792.));
+        let row = egui::Rect::from_min_size(egui::pos2(8., 300.), egui::vec2(272., 52.));
+        ui.palette_area = Some(area);
+        ui.hits.push((PanelButton::Part(0), row));
+        for window_scale in [1., 1.25, 2.] {
+            let window = Window {
+                resolution: bevy::window::WindowResolution::new(1440, 900)
+                    .with_scale_factor_override(window_scale),
+                ..default()
+            };
+            for pixels_per_point in [1., 1.5, 2.] {
+                ui.pixels_per_point = pixels_per_point;
+                let (point, window_point) = palette_window_point(&ui, &window).unwrap();
+                assert_eq!(point, row.center());
+                let physical = Vec2::new(point.x, point.y) * pixels_per_point;
+                assert!(window_point.abs_diff_eq(physical / window_scale, 0.001));
+                assert!((window_point * window.scale_factor()).abs_diff_eq(physical, 0.001));
+            }
+        }
+    }
+
+    #[test]
+    fn smoke_palette_window_point_waits_for_valid_dpi() {
+        let mut ui = egui_panel::UiState::default();
+        let row = egui::Rect::from_min_size(egui::pos2(8., 300.), egui::vec2(272., 52.));
+        ui.palette_area = Some(row);
+        ui.hits.push((PanelButton::Part(0), row));
+        for pixels_per_point in [0., -1., f32::NAN, f32::INFINITY] {
+            ui.pixels_per_point = pixels_per_point;
+            assert_eq!(palette_scroll_point(&ui), Some(row.center()));
+            assert!(palette_window_point(&ui, &Window::default()).is_none());
+        }
     }
 }

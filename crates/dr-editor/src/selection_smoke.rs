@@ -1,4 +1,5 @@
 use super::*;
+use bevy_egui::{EguiInput, egui};
 
 #[derive(Resource)]
 pub(crate) struct PreviewCaptured;
@@ -15,6 +16,7 @@ pub(crate) struct State {
     camera_before: Option<Vec2>,
     camera_reset_started: bool,
     small_motion: bool,
+    cancel_history: Option<(usize, usize, bool)>,
     input: egui_ui::UiTestInput,
 }
 
@@ -29,18 +31,48 @@ fn selection_description(phase: u8) -> &'static str {
         17..=25 => "左键确认粘贴；重叠落点保留，删除后仍可整步撤销重做。",
         26..=32 => "拖拽预览可取消，失焦不提交；放置与选择使用真实输入路径。",
         33..=34 => "默认左键拖空白：取消选择并平移视角，不是框选。",
-        35 => "右侧已有配置：将框选按键从中键切为左键。",
+        35 => "工具抽屉已有配置：将框选按键从中键切为左键。",
         36..=38 => "左键框选模式：左键拖空白画矩形，不再平移视角。",
         39..=41 => "左键框选模式下，中键拖动负责平移视角。",
         42 => "恢复默认中键框选；后代跟随默认关闭。",
         43..=54 => "左键拖部件时按 R 旋转：预览不改文档，松手提交且仅产生一步历史。",
-        55 => "开启右侧「子节点跟随」：下次拖父节点将带上全部后代。",
+        55 => "开启工具抽屉「子节点跟随」：下次拖父节点将带上全部后代。",
         56..=60 => "后代跟随已开启：父、子、孙一起移动，保留内部连接但不带外部父节点。",
         61 => "关闭「子节点跟随」，对比同一船体的拖动范围。",
         62..=67 => "后代跟随已关闭：只拖选中的父节点，后代留在原处。",
-        68..=70 => "左侧船体目录不是删除落区：拖入后松手不会删除部件。",
-        _ => "右侧部件目录是删除落区：拖入松手删除整个相连分量，可一次撤销重做。",
+        68..=70 => "船体目录不是删除落区：真实打开抽屉，拖入后松手不会删除部件。",
+        _ => "部件目录是删除落区：真实切换抽屉，拖入松手删除整个相连分量，可一次撤销重做。",
     }
+}
+
+/// 只点正式抽屉入口；下一轮必须看见真实布局，不能把导航点击当成已经打开。
+fn wait_for_drawer(
+    area: Option<egui::Rect>,
+    toggle: Option<egui::Rect>,
+    driver: &mut egui_ui::UiTestInput,
+    input: &mut EguiInput,
+) -> bool {
+    if area.is_some_and(|rect| rect.is_positive()) {
+        return true;
+    }
+    if let Some(toggle) = toggle.filter(|rect| rect.is_positive()) {
+        driver.click_rect(toggle, input);
+    }
+    false
+}
+
+/// 使用已登记的真实 UI 区域取消拖动，并排除画布和 Parts 删除落区。
+fn non_delete_ui_target(
+    state: &panels::egui_panel::UiState,
+    target: Option<egui::Rect>,
+) -> Option<egui::Rect> {
+    target.filter(|rect| {
+        let center = rect.center();
+        rect.is_positive()
+            && state.areas.iter().any(|area| area.contains(center))
+            && state.palette_area.is_none_or(|area| !area.contains(center))
+            && state.canvas_area.is_none_or(|area| !area.contains(center))
+    })
 }
 
 // 将 UI 资源与输入查询打包，保持 Bevy 系统参数数量在支持范围内。
@@ -73,7 +105,19 @@ pub(crate) fn run(
     }
     assert!(
         demo::within_timeout(ui.2.as_deref(), mode.started, 90),
-        "多选交互自测超时"
+        "多选交互自测超时：phase={} pointer={:?} blocked={} palette_drop={} \
+         parts={:?} ships={:?} tools={:?} canvas={:?} drag_members={} history={}/{}",
+        state.phase,
+        state.pointer,
+        ui.1.blocked,
+        ui.1.palette_drop,
+        ui.0.palette_area,
+        ui.0.browser_area,
+        ui.0.tools_area,
+        ui.0.canvas_area,
+        drag.members.len(),
+        document.history.undo_len(),
+        document.history.redo_len()
     );
     let Ok(mut window) = windows.single_mut() else {
         return;
@@ -318,21 +362,73 @@ pub(crate) fn run(
         26 => {
             assert_eq!(document.selected_keys().len(), 5);
             keys.reset_all();
+            if !wait_for_drawer(
+                ui.0.palette_area,
+                ui.0.part_toggle,
+                &mut state.input,
+                &mut input,
+            ) {
+                return;
+            }
             point(0.0, 0.0);
+            if ui.1.blocked {
+                state.pointer = pointer;
+                return;
+            }
+            state.cancel_history = Some((
+                document.history.undo_len(),
+                document.history.redo_len(),
+                document.dirty,
+            ));
             mouse.press(MouseButton::Left);
         }
         27 => {
             assert_eq!(drag.members.len(), 5);
-            pointer = Some(Vec2::new(100.0, 400.0));
+            assert!(ui.0.palette_area.is_some_and(|rect| rect.is_positive()));
+            // Parts 抽屉本体是删除落区；正式入口位于底栏，只取消而不删除。
+            let target = non_delete_ui_target(&ui.0, ui.0.part_toggle)
+                .expect("Parts 入口必须是已登记且在画布/删除落区外的真实 UI");
+            let center = target.center();
+            let scale = ui.0.pixels_per_point / window.scale_factor();
+            pointer = Some(Vec2::new(center.x, center.y) * scale);
             window.set_cursor_position(pointer);
         }
         28 => {
+            assert!(
+                ui.1.blocked && !ui.1.palette_drop,
+                "Parts 入口必须真实阻塞画布且不触发删除：pointer={pointer:?} toggle={:?} palette={:?}",
+                ui.0.part_toggle,
+                ui.0.palette_area,
+            );
+            assert_eq!(state.after.as_ref(), Some(&document.ship));
             mouse.release(MouseButton::Left);
         }
         29 => {
             assert!(drag.id.is_none(), "侧栏上释放没有取消整体拖动");
             assert_eq!(state.after.as_ref(), Some(&document.ship));
+            assert_eq!(
+                state.cancel_history,
+                Some((
+                    document.history.undo_len(),
+                    document.history.redo_len(),
+                    document.dirty,
+                )),
+                "UI 上取消整体拖动不得产生历史或改变脏状态",
+            );
+            // 后续配置来自 Tools；先通过真实入口恢复互斥抽屉，再开始失焦用拖动。
+            if !wait_for_drawer(
+                ui.0.tools_area,
+                ui.0.more_toggle,
+                &mut state.input,
+                &mut input,
+            ) {
+                return;
+            }
             point(0.0, 0.0);
+            if ui.1.blocked {
+                state.pointer = pointer;
+                return;
+            }
             mouse.press(MouseButton::Left);
         }
         30 => {
@@ -663,19 +759,28 @@ pub(crate) fn run(
             reset_drag_fixture(&mut document, state.before.as_ref().unwrap());
         }
         68 => {
+            if !wait_for_drawer(
+                ui.0.browser_area,
+                ui.0.ship_toggle,
+                &mut state.input,
+                &mut input,
+            ) {
+                return;
+            }
             point(0.0, 0.0);
+            if ui.1.blocked {
+                state.pointer = pointer;
+                return;
+            }
             mouse.press(MouseButton::Left);
         }
         69 => {
             assert!(drag.id.is_some());
-            // 左侧船体目录属于 UI，但不是右侧部件删除落区。
-            let area =
-                ui.0.areas
-                    .iter()
-                    .find(|rect| rect.center().x < window.width() / 2.0)
-                    .expect("左侧目录必须存在");
+            // 抽屉互斥：使用已实际打开的 Ships，不假定 Parts 同时存在。
+            let area = non_delete_ui_target(&ui.0, ui.0.browser_area)
+                .expect("真实船体目录必须存在，且不是画布或部件删除落区");
             let center = area.center();
-            assert!(!ui.0.palette_area.unwrap().contains(center));
+            assert!(ui.0.palette_area.is_none_or(|area| !area.contains(center)));
             let scale = ui.0.pixels_per_point / window.scale_factor();
             pointer = Some(Vec2::new(center.x, center.y) * scale);
             window.set_cursor_position(pointer);
@@ -691,7 +796,20 @@ pub(crate) fn run(
         71 => {
             assert!(drag.id.is_none());
             assert_preview_unchanged(&document, state.before.as_ref().unwrap());
+            // 上一轮取消已结束；真实切到 Parts，等删除落区布局后再从画布起拖。
+            if !wait_for_drawer(
+                ui.0.palette_area,
+                ui.0.part_toggle,
+                &mut state.input,
+                &mut input,
+            ) {
+                return;
+            }
             point(0.0, 0.0);
+            if ui.1.blocked {
+                state.pointer = pointer;
+                return;
+            }
             mouse.press(MouseButton::Left);
         }
         72 => {
@@ -859,4 +977,119 @@ fn assert_redone_once(document: &EditorDocument, after: &Ship) {
     assert!(document.dirty);
     assert_eq!(document.history.undo_len(), 1);
     assert_eq!(document.history.redo_len(), 0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(x: f32, y: f32, width: f32, height: f32) -> egui::Rect {
+        egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(width, height))
+    }
+
+    #[test]
+    fn drawer_navigation_clicks_the_formal_toggle_then_waits_for_layout() {
+        let toggle = rect(48.0, 848.0, 44.0, 44.0);
+        let area = rect(1144.0, 0.0, 296.0, 844.0);
+        let mut driver = egui_ui::UiTestInput::default();
+        let mut input = EguiInput::default();
+        assert!(!wait_for_drawer(
+            None,
+            Some(toggle),
+            &mut driver,
+            &mut input
+        ));
+        assert!(matches!(
+            input.0.events.as_slice(),
+            [
+                egui::Event::PointerMoved(moved),
+                egui::Event::PointerButton {
+                    pos: pressed,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    ..
+                },
+                egui::Event::PointerButton {
+                    pos: released,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    ..
+                }
+            ] if *moved == toggle.center()
+                && *pressed == toggle.center()
+                && *released == toggle.center()
+        ));
+        assert!(driver.tick(&mut input));
+        assert!(driver.tick(&mut input));
+        assert!(!driver.tick(&mut input));
+        input.0.events.clear();
+        assert!(wait_for_drawer(
+            Some(area),
+            Some(toggle),
+            &mut driver,
+            &mut input,
+        ));
+        assert!(
+            input.0.events.is_empty(),
+            "已实际打开时不能重复点击关闭抽屉"
+        );
+    }
+
+    #[test]
+    fn drawer_navigation_needs_a_real_toggle_and_positive_layout() {
+        let mut driver = egui_ui::UiTestInput::default();
+        let mut input = EguiInput::default();
+        assert!(!wait_for_drawer(None, None, &mut driver, &mut input));
+        assert!(!wait_for_drawer(
+            Some(rect(0.0, 0.0, 0.0, 0.0)),
+            Some(rect(0.0, 0.0, 0.0, 0.0)),
+            &mut driver,
+            &mut input,
+        ));
+        assert!(input.0.events.is_empty());
+    }
+
+    #[test]
+    fn parts_toggle_is_a_cancel_target_but_the_parts_drawer_remains_a_delete_target() {
+        let mut state = panels::egui_panel::UiState::default();
+        let toolbar = rect(0.0, 844.0, 1440.0, 56.0);
+        let toggle = rect(48.0, 848.0, 44.0, 44.0);
+        let palette = rect(1144.0, 0.0, 296.0, 844.0);
+        let canvas = rect(0.0, 0.0, 1144.0, 844.0);
+        state.areas = vec![toolbar, palette];
+        state.part_toggle = Some(toggle);
+        state.palette_area = Some(palette);
+        state.canvas_area = Some(canvas);
+        assert_eq!(
+            non_delete_ui_target(&state, state.part_toggle),
+            Some(toggle)
+        );
+        assert_eq!(non_delete_ui_target(&state, state.palette_area), None);
+        assert_eq!(non_delete_ui_target(&state, state.canvas_area), None);
+        assert_eq!(non_delete_ui_target(&state, None), None);
+        state.areas.clear();
+        assert_eq!(non_delete_ui_target(&state, state.part_toggle), None);
+        state.areas.push(toolbar);
+        state.palette_area = Some(toolbar);
+        assert_eq!(non_delete_ui_target(&state, state.part_toggle), None);
+        state.palette_area = Some(palette);
+        state.canvas_area = Some(toolbar);
+        assert_eq!(non_delete_ui_target(&state, state.part_toggle), None);
+    }
+
+    #[test]
+    fn ships_cancel_target_does_not_require_simultaneous_parts_layout() {
+        let mut state = panels::egui_panel::UiState::default();
+        let browser = rect(0.0, 0.0, 248.0, 844.0);
+        state.browser_area = Some(browser);
+        state.canvas_area = Some(rect(248.0, 0.0, 1192.0, 844.0));
+        state.areas = vec![browser];
+        assert!(state.palette_area.is_none());
+        assert_eq!(
+            non_delete_ui_target(&state, state.browser_area),
+            Some(browser)
+        );
+        state.palette_area = Some(browser);
+        assert_eq!(non_delete_ui_target(&state, state.browser_area), None);
+    }
 }

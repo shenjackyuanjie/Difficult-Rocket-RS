@@ -15,7 +15,7 @@ pub(crate) struct State {
     phase: u8,
     before: Option<Ship>,
     after: Option<Ship>,
-    release: Option<egui::Pos2>,
+    input: crate::egui_ui::UiTestInput,
     capture: Option<Arc<AtomicBool>>,
     initial_debug: bool,
     initial_visible: bool,
@@ -45,64 +45,14 @@ fn select_all(input: &mut EguiInput) {
     );
 }
 
-/// 按下与释放隔一帧，保证测试经过 egui 的完整点击/聚焦流程。
-/// 只接受实际绘制且被剪裁后仍可见的命中矩形。
+/// 共享正式控件导航：先展开高级区或选择 Activation，再等待目标控件真实可见。
 fn click(
     action: Action,
     hits: &crate::egui_ui::UiHits,
     input: &mut EguiInput,
     state: &mut State,
 ) -> bool {
-    if hits.scrolling {
-        return false;
-    }
-    let Some((_, rect)) = hits
-        .actions
-        .iter()
-        .find(|(candidate, _)| *candidate == action)
-    else {
-        if hits.actions.is_empty() {
-            // 等待 Modal 首次测量结束，不点击尚不可交互的布局 pass。
-            return false;
-        }
-        if matches!(action, Action::Moved(_, _)) {
-            // 较小窗口中分级动作可能在滚动区域下方，通过真实滚轮露出它。
-            let (_, rect) = hits
-                .actions
-                .iter()
-                .find(|(candidate, _)| {
-                    matches!(candidate, Action::Focus(Field::Target) | Action::AddStep)
-                })
-                .expect("egui 自测找不到可滚动的属性正文");
-            input.0.events.extend([
-                egui::Event::PointerMoved(rect.center()),
-                egui::Event::MouseWheel {
-                    phase: egui::TouchPhase::Move,
-                    unit: egui::MouseWheelUnit::Point,
-                    delta: egui::vec2(0.0, -180.0),
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ]);
-            return false;
-        }
-        panic!(
-            "egui 自测找不到实际控件 {action:?}，当前命中表：{:?}",
-            hits.actions
-        );
-    };
-    assert!(rect.is_positive(), "控件命中矩形不可见：{action:?}");
-    let pos = rect.center();
-    input.0.events.extend([
-        egui::Event::PointerMoved(pos),
-        egui::Event::PointerButton {
-            pos,
-            button: egui::PointerButton::Primary,
-            pressed: true,
-            modifiers: egui::Modifiers::NONE,
-        },
-    ]);
-    state.release = Some(pos);
-    true
+    state.input.click(action, hits, input)
 }
 
 fn protected_canvas_keys(keys: &mut ButtonInput<KeyCode>) {
@@ -143,17 +93,7 @@ pub(crate) fn run(
         return;
     };
     window.focused = true;
-    input.0.focused = true;
-    if let Some(pos) = state.release.take() {
-        input.0.events.extend([
-            egui::Event::PointerMoved(pos),
-            egui::Event::PointerButton {
-                pos,
-                button: egui::PointerButton::Primary,
-                pressed: false,
-                modifiers: egui::Modifiers::NONE,
-            },
-        ]);
+    if state.input.tick(&mut input) {
         return;
     }
     match state.phase {
@@ -349,4 +289,99 @@ pub(crate) fn run(
         _ => return,
     }
     state.phase += 1;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::egui_ui::UiHits;
+
+    fn rect(y: f32) -> egui::Rect {
+        egui::Rect::from_min_size(egui::pos2(12.0, y), egui::vec2(44.0, 44.0))
+    }
+
+    fn assert_click_at(input: &EguiInput, rect: egui::Rect) {
+        assert!(matches!(
+            input.0.events.as_slice(),
+            [
+                egui::Event::PointerMoved(moved),
+                egui::Event::PointerButton {
+                    pos: pressed,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    ..
+                },
+                egui::Event::PointerButton {
+                    pos: released,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    ..
+                }
+            ] if *moved == rect.center()
+                && *pressed == rect.center()
+                && *released == rect.center()
+        ));
+    }
+
+    #[test]
+    fn smoke_name_focus_navigates_default_advanced_before_advancing() {
+        let toggle = rect(12.0);
+        let field = rect(72.0);
+        let mut state = State {
+            phase: 1,
+            ..default()
+        };
+        let mut input = EguiInput::default();
+        let mut hits = UiHits {
+            actions: vec![(Action::ToggleAdvanced, toggle)],
+            ..default()
+        };
+        assert!(!click(
+            Action::Focus(Field::Name),
+            &hits,
+            &mut input,
+            &mut state
+        ));
+        assert_eq!(state.phase, 1, "导航点击不得推进到文本注入阶段");
+        assert_click_at(&input, toggle);
+        assert!(state.input.tick(&mut input));
+        assert!(state.input.tick(&mut input));
+        assert!(!state.input.tick(&mut input));
+        input.0.events.clear();
+        hits.advanced_open = true;
+        hits.actions = vec![(Action::Focus(Field::Name), field)];
+        assert!(click(
+            Action::Focus(Field::Name),
+            &hits,
+            &mut input,
+            &mut state
+        ));
+        assert_click_at(&input, field);
+    }
+
+    #[test]
+    fn smoke_moved_navigates_real_activation_context_before_advancing() {
+        let tile = rect(120.0);
+        let moved = rect(200.0);
+        let mut state = State {
+            phase: 5,
+            ..default()
+        };
+        let mut input = EguiInput::default();
+        let mut hits = UiHits {
+            actions: vec![(Action::SelectActivation(0, 0), tile)],
+            ..default()
+        };
+        assert!(!click(Action::Moved(0, 0), &hits, &mut input, &mut state));
+        assert_eq!(state.phase, 5, "选择缩略图不得当作已改变 moved");
+        assert_click_at(&input, tile);
+        assert!(state.input.tick(&mut input));
+        assert!(state.input.tick(&mut input));
+        assert!(!state.input.tick(&mut input));
+        input.0.events.clear();
+        hits.selected_activation = Some((0, 0));
+        hits.actions = vec![(Action::Moved(0, 0), moved)];
+        assert!(click(Action::Moved(0, 0), &hits, &mut input, &mut state));
+        assert_click_at(&input, moved);
+    }
 }

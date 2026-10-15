@@ -1,6 +1,6 @@
 //! 真实窗口中的 2D 姿态与自由连接演示；复用实际控件、鼠标与快捷键路径。
 use super::*;
-use bevy_egui::EguiInput;
+use bevy_egui::{EguiInput, egui};
 
 #[derive(Default)]
 pub(crate) struct State {
@@ -16,6 +16,16 @@ pub(crate) struct State {
     group_fixture: Option<Ship>,
     group_after: Option<Ship>,
     delay: u8,
+    tools_search_phase: Option<u8>,
+    part_search: PartSearch,
+}
+
+#[derive(Debug, Default)]
+struct PartSearch {
+    expanded: bool,
+    reset: bool,
+    previous_offset: Option<f32>,
+    stalled_scrolls: u8,
 }
 
 #[derive(Resource, Default)]
@@ -64,6 +74,120 @@ fn angle(document: &EditorDocument, id: i64, degrees: f64) {
 fn assist_position(degrees: f64) -> (f64, f64) {
     let (sin, cos) = degrees.to_radians().sin_cos();
     (-2.0 + sin, -cos)
+}
+
+/// 配置项只从真实工具抽屉点击；换目标时先滚回顶部，再沿正文向下查找。
+fn config_control(
+    state: &mut State,
+    ui: &panels::egui_panel::UiState,
+    input: &mut EguiInput,
+    target: Option<egui::Rect>,
+) -> bool {
+    if ui.scrolling {
+        return false;
+    }
+    let Some(area) = ui.tools_area.filter(|rect| rect.is_positive()) else {
+        state.tools_search_phase = None;
+        if let Some(rect) = ui.settings_toggle {
+            state.driver.click_rect(rect, input);
+        }
+        return false;
+    };
+    if let Some(rect) = target.filter(|rect| rect.is_positive()) {
+        state.driver.click_rect(rect, input);
+        return true;
+    }
+    let delta = if state.tools_search_phase == Some(state.phase) {
+        // 小步滚动，短横屏也不会跳过一整行控件。
+        -96.0
+    } else {
+        state.tools_search_phase = Some(state.phase);
+        10_000.0
+    };
+    input.0.events.extend([
+        egui::Event::PointerMoved(area.center()),
+        egui::Event::MouseWheel {
+            phase: egui::TouchPhase::Move,
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, delta),
+            modifiers: egui::Modifiers::NONE,
+        },
+    ]);
+    false
+}
+
+/// 部件选择继承前章的目录位置；从真实入口展开分类并回到顶部，再逐行查找。
+fn part_control(
+    state: &mut State,
+    ui: &panels::egui_panel::UiState,
+    input: &mut EguiInput,
+    index: usize,
+) -> bool {
+    use panels::PanelButton;
+
+    if ui.scrolling {
+        return false;
+    }
+    let Some(area) = ui.palette_area.filter(|rect| rect.is_positive()) else {
+        state.part_search = PartSearch::default();
+        if let Some(rect) = ui.part_toggle.filter(|rect| rect.is_positive()) {
+            state.driver.click_rect(rect, input);
+        }
+        return false;
+    };
+    // UiState.hits 已与正式控件的 clip_rect 相交；再约束到当前抽屉，忽略旧区域。
+    let hit = |wanted: PanelButton| {
+        ui.hits.iter().find_map(|(action, rect)| {
+            let rect = rect.intersect(area);
+            (*action == wanted && rect.is_positive()).then_some(rect)
+        })
+    };
+    if let Some(rect) = hit(PanelButton::Part(index)) {
+        state.driver.click_rect(rect, input);
+        return true;
+    }
+    if !state.part_search.expanded {
+        if let Some(rect) = hit(PanelButton::ExpandCategories) {
+            state.driver.click_rect(rect, input);
+            state.part_search.expanded = true;
+        }
+        return false;
+    }
+    let delta = if !state.part_search.reset {
+        state.part_search.reset = true;
+        10_000.0
+    } else {
+        if state
+            .part_search
+            .previous_offset
+            .is_some_and(|offset| (offset - ui.palette_offset).abs() < 0.5)
+        {
+            state.part_search.stalled_scrolls += 1;
+        } else {
+            state.part_search.stalled_scrolls = 0;
+        }
+        assert!(
+            state.part_search.stalled_scrolls < 3,
+            "部件目录导航停滞：阶段 {}，目标 Part({index})，offset {:.1}，区域 {:?}，可见命中 {:?}",
+            state.phase,
+            ui.palette_offset,
+            area,
+            ui.hits
+        );
+        state.part_search.previous_offset = Some(ui.palette_offset);
+        // 小步滚动保留短窗口里的行命中，避免向下越过顶部目标后无限滚到底。
+        -96.0
+    };
+    input.0.events.extend([
+        egui::Event::PointerMoved(area.center()),
+        egui::Event::MouseWheel {
+            phase: egui::TouchPhase::Move,
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, delta),
+            modifiers: egui::Modifiers::NONE,
+        },
+    ]);
+    false
 }
 
 fn line_control(
@@ -173,8 +297,15 @@ pub(crate) fn run(
     }
     assert!(
         demo::within_timeout(showcase.as_deref(), mode.started, 180),
-        "旋转镜像与自由模式窗口自测超时，阶段 {}",
-        state.phase
+        "旋转镜像与自由模式窗口自测超时：阶段 {}，工具查找 {:?}，部件导航 {:?}，palette_offset {:.1}，scrolling {}，palette_area {:?}，tools_area {:?}，可见命中 {:?}",
+        state.phase,
+        state.tools_search_phase,
+        state.part_search,
+        ui.palette_offset,
+        ui.scrolling,
+        ui.palette_area,
+        ui.tools_area,
+        ui.hits
     );
     let (Ok(mut window), Ok(mut input)) = (windows.single_mut(), inputs.single_mut()) else {
         return;
@@ -233,10 +364,9 @@ pub(crate) fn run(
         }
         5 => {
             angle(&document, 2, 16.0);
-            let Some(rect) = ui.rotate_right else {
+            if !config_control(&mut state, &ui, &mut input, ui.rotate_right) {
                 return;
-            };
-            state.driver.click_rect(rect, &mut input);
+            }
             describe(
                 &mut showcase,
                 "实际点击侧栏 +15° / −15°；精调不会把已有非直角角度覆盖成 90°",
@@ -244,10 +374,9 @@ pub(crate) fn run(
         }
         6 => {
             angle(&document, 2, 31.0);
-            let Some(rect) = ui.rotate_left else {
+            if !config_control(&mut state, &ui, &mut input, ui.rotate_left) {
                 return;
-            };
-            state.driver.click_rect(rect, &mut input);
+            }
         }
         7 => {
             angle(&document, 2, 16.0);
@@ -343,10 +472,9 @@ pub(crate) fn run(
         15 => {
             assert_eq!(state.assisted.as_ref(), Some(&document.ship));
             state.undo = document.history.undo_len();
-            let Some(rect) = ui.free_mode else {
+            if !config_control(&mut state, &ui, &mut input, ui.free_mode) {
                 return;
-            };
-            state.driver.click_rect(rect, &mut input);
+            }
             describe(
                 &mut showcase,
                 "实际开启自由模式：不吸附、不依靠距离/碰撞/占用决定连接，移动旋转镜像保留已有连接",
@@ -516,14 +644,9 @@ pub(crate) fn run(
                 .visible()
                 .position(|kind| kind.id == "fuselage-1")
                 .unwrap();
-            let Some((_, rect)) = ui
-                .hits
-                .iter()
-                .find(|(action, _)| *action == panels::PanelButton::Part(index))
-            else {
+            if !part_control(&mut state, &ui, &mut input, index) {
                 return;
-            };
-            state.driver.click_rect(*rect, &mut input);
+            }
             describe(
                 &mut showcase,
                 "自由模式新部件预览：精细旋转与双轴镜像，允许完全重叠放置，但不自动连接",
@@ -661,10 +784,9 @@ pub(crate) fn run(
             );
         }
         55 => {
-            let Some(rect) = ui.connection_lines else {
+            if !config_control(&mut state, &ui, &mut input, ui.connection_lines) {
                 return;
-            };
-            state.driver.click_rect(rect, &mut input);
+            }
         }
         56 => {
             assert!(lines.open);
@@ -1009,10 +1131,9 @@ pub(crate) fn run(
         100 => {
             assert_eq!(state.group_fixture.as_ref(), Some(&document.ship));
             document.select_only(Some(PartKey::new(0, 1, 0)));
-            let Some(rect) = ui.follow_children else {
+            if !config_control(&mut state, &ui, &mut input, ui.follow_children) {
                 return;
-            };
-            state.driver.click_rect(rect, &mut input);
+            }
             describe(
                 &mut showcase,
                 "开启子节点跟随：只抓父节点，也会带上全部后代同步做非直角旋转与组合镜像，松手只提交一次",
@@ -1127,5 +1248,221 @@ pub(crate) fn run(
     state.phase += 1;
     if state.phase >= 69 {
         info!("整组变换专项进入阶段 {}", state.phase);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(x: f32, y: f32, width: f32, height: f32) -> egui::Rect {
+        egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(width, height))
+    }
+
+    fn assert_click(input: &EguiInput, target: egui::Rect) {
+        assert!(matches!(input.0.events.as_slice(), [
+            egui::Event::PointerMoved(position),
+            egui::Event::PointerButton { pos: down, pressed: true, .. },
+            egui::Event::PointerButton { pos: up, pressed: false, .. },
+        ] if *position == target.center() && down == position && up == position));
+    }
+
+    #[test]
+    fn closed_tools_are_opened_by_the_real_settings_button_first() {
+        let mut state = State::default();
+        let mut ui = panels::egui_panel::UiState::default();
+        let toggle = rect(248.0, 590.0, 44.0, 44.0);
+        ui.settings_toggle = Some(toggle);
+        let mut input = EguiInput::default();
+        // 即使上一帧残留配置矩形，也先使用当前可见的正式入口。
+        assert!(!config_control(
+            &mut state,
+            &ui,
+            &mut input,
+            Some(rect(20.0, 20.0, 50.0, 44.0))
+        ));
+        assert_click(&input, toggle);
+        assert!(!ui.drawer_open(), "驱动不能绕过真实输入直接打开抽屉");
+        assert_eq!(state.phase, 0);
+    }
+
+    #[test]
+    fn closed_parts_use_the_real_toggle_and_keep_transform_placement_at_phase_35() {
+        use panels::PanelButton;
+        let toggle = rect(144.0, 590.0, 44.0, 44.0);
+        for toggle_visible in [false, true] {
+            let mut state = State {
+                phase: 35,
+                ..default()
+            };
+            let mut ui = panels::egui_panel::UiState::default();
+            ui.part_toggle = toggle_visible.then_some(toggle);
+            // 当前工具条命中与过期 Part 混合时，仍只能从真实入口打开抽屉。
+            ui.hits
+                .push((PanelButton::Undo, rect(192.0, 590.0, 44.0, 44.0)));
+            ui.hits
+                .push((PanelButton::Part(7), rect(1120.0, 120.0, 44.0, 44.0)));
+            let mut input = EguiInput::default();
+            let ready = part_control(&mut state, &ui, &mut input, 7);
+            // 与 phase35 一致：只有实际 Part 点击完成才允许后续预览阶段推进。
+            if ready {
+                state.phase += 1;
+            }
+            assert!(!ready, "打开入口不等于已选择部件");
+            assert_eq!(state.phase, 35, "等待抽屉命中时不能提前推进阶段");
+            assert!(ui.palette_area.is_none());
+            assert!(
+                !ui.drawer_open(),
+                "驱动只能发真实点击，不能直接修改抽屉状态"
+            );
+            if toggle_visible {
+                assert_click(&input, toggle);
+            } else {
+                assert!(
+                    input.0.events.is_empty(),
+                    "入口尚未布局时等待，不回退到固定坐标"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn part_navigation_expands_resets_and_searches_until_a_clipped_hit_is_ready() {
+        use panels::PanelButton;
+
+        let mut state = State {
+            phase: 35,
+            ..default()
+        };
+        let mut ui = panels::egui_panel::UiState::default();
+        let area = rect(1100.0, 20.0, 280.0, 700.0);
+        let expand = rect(1110.0, 70.0, 180.0, 30.0);
+        ui.palette_area = Some(area);
+        ui.palette_offset = 1800.0;
+        ui.hits.push((PanelButton::ExpandCategories, expand));
+        // 旧区域的 Part 即使仍为正面积，也不能绕过真实目录导航。
+        ui.hits
+            .push((PanelButton::Part(7), rect(1110.0, 900.0, 180.0, 60.0)));
+        let mut input = EguiInput::default();
+
+        assert!(!part_control(&mut state, &ui, &mut input, 7));
+        assert_click(&input, expand);
+        input.0.events.clear();
+        assert!(!part_control(&mut state, &ui, &mut input, 7));
+        assert!(matches!(input.0.events.as_slice(), [
+            egui::Event::PointerMoved(position),
+            egui::Event::MouseWheel { delta, .. },
+        ] if *position == area.center() && delta.y == 10_000.0));
+
+        input.0.events.clear();
+        ui.scrolling = true;
+        assert!(!part_control(&mut state, &ui, &mut input, 7));
+        assert!(input.0.events.is_empty(), "回顶惯性结束前不能继续寻址");
+        ui.scrolling = false;
+        ui.palette_offset = 0.0;
+        assert!(!part_control(&mut state, &ui, &mut input, 7));
+        assert!(matches!(input.0.events.as_slice(), [
+            egui::Event::PointerMoved(position),
+            egui::Event::MouseWheel { delta, .. },
+        ] if *position == area.center() && delta.y == -96.0));
+
+        let target = rect(1110.0, 708.0, 180.0, 60.0);
+        ui.hits.push((PanelButton::Part(7), target));
+        input.0.events.clear();
+        ui.scrolling = true;
+        assert!(!part_control(&mut state, &ui, &mut input, 7));
+        assert!(input.0.events.is_empty(), "实际命中出现后仍等待滚动结束");
+        ui.scrolling = false;
+        assert!(part_control(&mut state, &ui, &mut input, 7));
+        assert_click(&input, target.intersect(area));
+        assert_eq!(state.phase, 35, "只有调用方在真实Part点击后推进阶段");
+        assert_eq!(ui.palette_offset, 0.0, "驱动只发事件，不直接写滚动位置");
+        assert!(!ui.drawer_open(), "测试快照也不能由驱动直接改抽屉");
+    }
+
+    #[test]
+    fn moving_palette_offsets_reset_stall_detection_and_inertia_does_not_count() {
+        let mut state = State {
+            phase: 35,
+            part_search: PartSearch {
+                expanded: true,
+                reset: true,
+                previous_offset: Some(500.0),
+                stalled_scrolls: 2,
+            },
+            ..default()
+        };
+        let mut ui = panels::egui_panel::UiState::default();
+        ui.palette_area = Some(rect(1100.0, 20.0, 280.0, 700.0));
+        ui.palette_offset = 596.0;
+        let mut input = EguiInput::default();
+        assert!(!part_control(&mut state, &ui, &mut input, 7));
+        assert_eq!(state.part_search.stalled_scrolls, 0);
+        assert_eq!(state.part_search.previous_offset, Some(596.0));
+        input.0.events.clear();
+        ui.scrolling = true;
+        assert!(!part_control(&mut state, &ui, &mut input, 7));
+        assert!(input.0.events.is_empty());
+        assert_eq!(state.part_search.stalled_scrolls, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "部件目录导航停滞：阶段 35，目标 Part(7)")]
+    fn repeated_scrolls_at_the_boundary_report_navigation_failure() {
+        let mut state = State {
+            phase: 35,
+            part_search: PartSearch {
+                expanded: true,
+                reset: true,
+                ..default()
+            },
+            ..default()
+        };
+        let mut ui = panels::egui_panel::UiState::default();
+        ui.palette_area = Some(rect(1100.0, 20.0, 280.0, 700.0));
+        ui.palette_offset = 2500.0;
+        let mut input = EguiInput::default();
+        for _ in 0..4 {
+            input.0.events.clear();
+            assert!(!part_control(&mut state, &ui, &mut input, 7));
+            assert_eq!(state.phase, 35);
+        }
+    }
+
+    #[test]
+    fn missing_controls_scroll_the_actual_tools_area_and_restart_for_a_new_target() {
+        let mut state = State {
+            phase: 5,
+            ..default()
+        };
+        let mut ui = panels::egui_panel::UiState::default();
+        let area = rect(214.0, 22.0, 226.0, 252.0);
+        ui.tools_area = Some(area);
+        let mut input = EguiInput::default();
+        for (phase, sign) in [(5, 1.0), (5, -1.0), (15, 1.0)] {
+            state.phase = phase;
+            input.0.events.clear();
+            assert!(!config_control(&mut state, &ui, &mut input, None));
+            assert!(matches!(input.0.events.as_slice(), [
+                egui::Event::PointerMoved(position),
+                egui::Event::MouseWheel { delta, unit: egui::MouseWheelUnit::Point, .. },
+            ] if *position == area.center() && delta.y * sign > 0.0));
+            assert_eq!(state.phase, phase, "滚动查找不能提前推进专项阶段");
+        }
+    }
+
+    #[test]
+    fn visible_controls_are_clicked_only_after_scrolling_stops() {
+        let mut state = State::default();
+        let mut ui = panels::egui_panel::UiState::default();
+        ui.tools_area = Some(rect(214.0, 22.0, 226.0, 252.0));
+        ui.scrolling = true;
+        let target = rect(220.0, 210.0, 120.0, 44.0);
+        let mut input = EguiInput::default();
+        assert!(!config_control(&mut state, &ui, &mut input, Some(target)));
+        assert!(input.0.events.is_empty());
+        ui.scrolling = false;
+        assert!(config_control(&mut state, &ui, &mut input, Some(target)));
+        assert_click(&input, target);
     }
 }

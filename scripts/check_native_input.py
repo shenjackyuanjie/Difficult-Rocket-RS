@@ -274,12 +274,12 @@ def main():
                     time.sleep(0.02)
                 assert completed_window_case(root, options.window_case, started_ns, process.returncode), "窗口提前退出或缺少本次最终验收产物"
             else:
-                for step in range(100 if options.window_case == "keys" else 21):
+                for step in range(100 if options.window_case == "keys" else 22):
                     request = run / f"step-{step}.json"
                     def ready():
                         if options.window_case == "keys" and (run / "report.json").exists():
                             return True
-                        check_front(helper if options.window_case == "native" and step == 18 else hwnd)
+                        check_front(helper if options.window_case == "native" and step == 19 else hwnd)
                         return request.exists()
                     wait_for(ready, f"输入步骤 {step}")
                     if options.window_case == "keys" and (run / "report.json").exists():

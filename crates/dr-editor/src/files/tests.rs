@@ -1302,3 +1302,283 @@ fn real_button_press_routes_toolbar_action_in_the_same_update() {
         "按住期间不得重复路由"
     );
 }
+
+#[test]
+fn setup_creates_one_native_menu_button_without_resident_file_text() {
+    let mut app = App::new();
+    app.add_systems(Startup, setup_file_toolbar);
+    app.update();
+    let world = app.world_mut();
+    let mut menu = world.query_filtered::<(&Node, Entity), With<MenuButton>>();
+    let (node, entity) = menu.single(world).unwrap();
+    assert_eq!(node.width, px(48));
+    assert_eq!(node.height, px(48));
+    assert_eq!(node.left, px(0));
+    assert_eq!(node.bottom, px(4));
+    assert!(world.get::<Button>(entity).is_some());
+    assert!(
+        world
+            .get::<bevy::ui_widgets::ActivateOnPress>(entity)
+            .is_some()
+    );
+    assert!(world.get::<panels::ToolbarItem>(entity).is_some());
+    assert_eq!(world.query::<&FileButton>().iter(world).count(), 0);
+    assert_eq!(world.query::<&Text>().iter(world).count(), 0);
+}
+
+#[test]
+fn real_menu_press_opens_once_and_leaves_file_actions_to_the_popover() {
+    let mut app = App::new();
+    app.add_plugins((
+        bevy::ui_widgets::ButtonPlugin,
+        native_buttons::NativeButtonsPlugin,
+    ))
+    .init_resource::<FileMenu>()
+    .init_resource::<ToolbarHits>()
+    .init_resource::<ToolbarPress>()
+    .add_message::<FileAction>()
+    .add_systems(
+        Update,
+        (press_toolbar_button, toolbar_actions, collect_toolbar_hits).chain(),
+    );
+    let camera = app.world_mut().spawn_empty().id();
+    app.insert_resource(ToolbarCamera(camera));
+    app.world_mut().spawn((
+        native_buttons::press_triggered(),
+        MenuButton,
+        BackgroundColor(Color::BLACK),
+    ));
+    app.world_mut().resource_mut::<ToolbarPress>().0 = true;
+    app.update();
+    assert!(app.world().resource::<FileMenu>().open);
+    assert!(app.world().resource::<ToolbarHits>().0.is_empty());
+    app.update();
+    assert!(
+        app.world().resource::<FileMenu>().open,
+        "按住不再次切换菜单"
+    );
+    assert!(app.world().resource::<ToolbarHits>().0.is_empty());
+}
+
+#[test]
+fn blocked_menu_activations_close_the_popover_and_are_not_replayed() {
+    for guard in 0..7 {
+        let (mut app, _) = toolbar_app();
+        app.init_resource::<FileMenu>()
+            .init_resource::<topology_ui::ConnectionEditor>()
+            .init_resource::<connection_lines::Settings>();
+        let entity = app
+            .world_mut()
+            .spawn((
+                native_buttons::press_triggered(),
+                MenuButton,
+                BackgroundColor(Color::BLACK),
+            ))
+            .id();
+        app.world_mut().resource_mut::<FileMenu>().open = true;
+        match guard {
+            0 => app.world_mut().resource_mut::<PendingFileAction>().action = Some(FileAction::New),
+            1 => {
+                app.world_mut()
+                    .resource_mut::<PendingFileAction>()
+                    .suppress_frame = true
+            }
+            2 => app.world_mut().resource_mut::<help::HelpState>().open = true,
+            3 => {
+                app.world_mut()
+                    .resource_mut::<help::HelpState>()
+                    .suppress_frame = true
+            }
+            4 => {
+                let mut inspector = properties::Inspector::default();
+                let mut document = context().0;
+                document.selected = Some(PartKey::new(0, 1, 0));
+                properties::open(&mut inspector, &document);
+                app.insert_resource(inspector);
+            }
+            5 => {
+                app.world_mut()
+                    .resource_mut::<topology_ui::ConnectionEditor>()
+                    .open = true
+            }
+            6 => {
+                app.world_mut()
+                    .resource_mut::<connection_lines::Settings>()
+                    .open = true
+            }
+            _ => unreachable!(),
+        }
+        app.world_mut()
+            .trigger(bevy::ui_widgets::Activate { entity });
+        app.update();
+        assert!(
+            !app.world().resource::<FileMenu>().open,
+            "门禁 {guard} 收起菜单"
+        );
+        assert!(take_toolbar_actions(&mut app).is_empty());
+        app.insert_resource(PendingFileAction::default());
+        app.insert_resource(help::HelpState::default());
+        app.insert_resource(properties::Inspector::default());
+        app.insert_resource(topology_ui::ConnectionEditor::default());
+        app.insert_resource(connection_lines::Settings::default());
+        app.update();
+        assert!(
+            !app.world().resource::<FileMenu>().open,
+            "门禁 {guard} 解除不补发"
+        );
+        app.world_mut()
+            .trigger(bevy::ui_widgets::Activate { entity });
+        app.update();
+        assert!(app.world().resource::<FileMenu>().open);
+        assert!(take_toolbar_actions(&mut app).is_empty());
+    }
+}
+
+fn menu_frame(
+    ctx: &egui::Context,
+    menu: &mut FileMenu,
+    screen: egui::Rect,
+    events: Vec<egui::Event>,
+    blocked: bool,
+) -> Option<FileAction> {
+    ctx.begin_pass(egui::RawInput {
+        screen_rect: Some(screen),
+        focused: true,
+        events,
+        ..Default::default()
+    });
+    let selected = show_menu(ctx, menu, blocked);
+    ctx.end_pass().textures_delta.clear();
+    selected
+}
+
+#[test]
+fn file_popover_fits_touch_screens_above_the_toolbar_with_44px_actions() {
+    for size in [
+        egui::vec2(320.0, 640.0),
+        egui::vec2(390.0, 844.0),
+        egui::vec2(640.0, 360.0),
+        egui::vec2(1440.0, 900.0),
+    ] {
+        let ctx = crate::egui_ui::test_context();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+        let mut menu = FileMenu {
+            open: true,
+            ..default()
+        };
+        for _ in 0..3 {
+            assert!(menu_frame(&ctx, &mut menu, screen, vec![], false).is_none());
+        }
+        let area = menu.area.expect("文件弹层应记录真实区域");
+        assert!(screen.contains_rect(area), "{size:?}: {area:?}");
+        assert!(area.bottom() <= screen.bottom() - 56.0, "{area:?}");
+        assert_eq!(menu.hits.len(), 5);
+        for (action, rect) in &menu.hits {
+            assert!(screen.contains_rect(*rect), "{size:?} {action:?}: {rect:?}");
+            assert!(rect.height() >= 44.0, "{action:?}: {rect:?}");
+        }
+    }
+}
+
+#[test]
+fn file_popover_real_button_click_emits_one_action_and_closes() {
+    let ctx = crate::egui_ui::test_context();
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, 480.0));
+    let mut menu = FileMenu {
+        open: true,
+        ..default()
+    };
+    for _ in 0..3 {
+        menu_frame(&ctx, &mut menu, screen, vec![], false);
+    }
+    let point = menu
+        .hits
+        .iter()
+        .find(|(action, _)| matches!(action, FileAction::Save))
+        .unwrap()
+        .1
+        .center();
+    for pressed in [true, false] {
+        let action = menu_frame(
+            &ctx,
+            &mut menu,
+            screen,
+            vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ],
+            false,
+        );
+        if pressed {
+            assert!(action.is_none());
+            assert!(menu.open);
+        } else {
+            assert!(matches!(action, Some(FileAction::Save)));
+        }
+    }
+    assert!(!menu.open);
+    assert!(menu.area.is_none());
+    assert!(menu.hits.is_empty());
+    assert!(menu_frame(&ctx, &mut menu, screen, vec![], false).is_none());
+}
+
+#[test]
+fn file_popover_closes_on_block_escape_or_outside_but_not_its_native_anchor() {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, 480.0));
+    for close in 0..3 {
+        let ctx = crate::egui_ui::test_context();
+        let mut menu = FileMenu {
+            open: true,
+            ..default()
+        };
+        for _ in 0..3 {
+            menu_frame(&ctx, &mut menu, screen, vec![], false);
+        }
+        let events = match close {
+            0 => vec![],
+            1 => vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::default(),
+            }],
+            _ => vec![egui::Event::PointerButton {
+                pos: screen.center(),
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            }],
+        };
+        assert!(menu_frame(&ctx, &mut menu, screen, events, close == 0).is_none());
+        assert!(!menu.open);
+        assert!(menu.area.is_none());
+        assert!(menu.hits.is_empty());
+    }
+    let ctx = crate::egui_ui::test_context();
+    let mut menu = FileMenu {
+        open: true,
+        ..default()
+    };
+    menu_frame(
+        &ctx,
+        &mut menu,
+        screen,
+        vec![egui::Event::PointerButton {
+            pos: egui::pos2(24.0, screen.bottom() - 28.0),
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::default(),
+        }],
+        false,
+    );
+    assert!(
+        menu.open,
+        "打开Menu的本次原生按下不能被外部点击逻辑立即收起"
+    );
+}

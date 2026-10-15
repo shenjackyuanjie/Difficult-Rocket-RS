@@ -7,6 +7,9 @@ struct Panel {
     hits: Vec<(Action, egui::Rect)>,
     size: egui::Vec2,
     dock: Option<Dock>,
+    body: egui::Rect,
+    last_action: Option<Action>,
+    time: f64,
 }
 
 impl Panel {
@@ -28,6 +31,9 @@ impl Panel {
             hits: vec![],
             size,
             dock: None,
+            body: egui::Rect::NOTHING,
+            last_action: None,
+            time: 0.0,
         };
         // 与目录 draw 的窄屏共享样式一致，使用真实停靠 Panel。
         if size.x < 960.0 {
@@ -44,10 +50,17 @@ impl Panel {
     }
 
     fn frame(&mut self, events: Vec<egui::Event>) {
+        self.frame_focused(events, true);
+    }
+
+    fn frame_focused(&mut self, events: Vec<egui::Event>, focused: bool) {
+        self.time += 1.0 / 60.0;
+        self.last_action = None;
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, self.size)),
             events,
-            focused: true,
+            focused,
+            time: Some(self.time),
             ..Default::default()
         };
         self.ctx.begin_pass(input);
@@ -66,6 +79,8 @@ impl Panel {
             },
         ) {
             self.dock = shown.dock;
+            self.body = shown.body;
+            self.last_action = shown.action.clone();
             if let Some(action) = shown.action {
                 act(&action, &mut self.inspector, &mut self.document);
             }
@@ -75,6 +90,23 @@ impl Panel {
     }
 
     fn click(&mut self, action: Action) {
+        if !self.hits.iter().any(|(candidate, _)| *candidate == action) {
+            match action {
+                Action::Focus(Field::Target) | Action::CycleTarget(_)
+                    if !self.inspector.targets_open =>
+                {
+                    self.click(Action::ToggleTargets)
+                }
+                Action::Focus(_) | Action::Active if !self.inspector.advanced_open => {
+                    self.click(Action::ToggleAdvanced);
+                }
+                Action::Moved(stage, index) | Action::RemoveActivation(stage, index) => {
+                    self.click(Action::SelectActivation(stage, index));
+                }
+                Action::MoveStep(stage, _) => self.click(Action::SelectStage(stage)),
+                _ => {}
+            }
+        }
         let rect = self
             .hits
             .iter()
@@ -94,6 +126,48 @@ impl Panel {
             ]);
         }
         self.frame(vec![]);
+    }
+
+    fn rect(&self, action: Action) -> egui::Rect {
+        self.hits
+            .iter()
+            .find(|(candidate, _)| *candidate == action)
+            .unwrap_or_else(|| panic!("正式控件不可见：{action:?}"))
+            .1
+    }
+
+    fn pointer(&mut self, pos: egui::Pos2, pressed: bool) {
+        self.frame(vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]);
+    }
+
+    fn begin_drag(&mut self, source: egui::Pos2) {
+        self.pointer(source, true);
+        assert!(self.last_action.is_none());
+        self.frame(vec![egui::Event::PointerMoved(
+            source + egui::vec2(12.0, 0.0),
+        )]);
+        assert!(self.last_action.is_none());
+        assert!(
+            self.ctx
+                .data_mut(|data| data.get_temp::<StagingDrag>(drag_id()))
+                .is_some(),
+            "正式 click_and_drag 必须跨帧启动拖动"
+        );
+    }
+
+    fn drag_to(&mut self, source: egui::Pos2, destination: egui::Pos2) {
+        self.begin_drag(source);
+        self.frame(vec![egui::Event::PointerMoved(destination)]);
+        assert!(self.last_action.is_none());
+        self.pointer(destination, false);
     }
 }
 
@@ -431,8 +505,8 @@ fn staging_dock_reserves_real_toolbar_space_and_never_paints_a_modal_backdrop() 
         egui::vec2(640.0, 360.0),
     ] {
         let mut panel = Panel::at_size(size);
-        let top = crate::panels::toolbar_height(size.x) + 80.0;
-        let available = egui::Rect::from_min_max(egui::pos2(0.0, top), size.to_pos2());
+        let available =
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(size.x, size.y - 56.0));
         for _ in 0..3 {
             panel.ctx.begin_pass(egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
@@ -650,7 +724,7 @@ fn activation_frame(
 }
 
 #[test]
-fn activation_columns_keep_icons_proportional_and_every_label_on_one_line() {
+fn activation_tiles_keep_icons_proportional_and_only_show_the_short_id() {
     for width in [240.0, 268.0, 430.0] {
         for size in [
             Vec2::new(129.0, 30.0),
@@ -660,17 +734,11 @@ fn activation_columns_keep_icons_proportional_and_every_label_on_one_line() {
             let ctx = crate::egui_ui::test_context();
             activation_frame(&ctx, width, size, vec![]);
             let frame = activation_frame(&ctx, width, size, vec![]);
-            assert_eq!(frame.hits.len(), 3);
-            let columns: Vec<_> = frame.hits.iter().map(|(_, rect)| *rect).collect();
-            for rect in &columns {
-                assert!(rect.height() >= 43.99);
-                assert!((rect.center().y - columns[0].center().y).abs() < 0.01);
-            }
-            assert!(columns[0].right() < columns[1].left());
-            assert!(columns[1].right() < columns[2].left());
-            assert!((columns[2].right() - columns[0].left() - width).abs() < 0.01);
-            assert!((columns[1].width() - 64.0).abs() < 0.01);
-            assert!((columns[2].width() - 56.0).abs() < 0.01);
+            assert_eq!(frame.hits.len(), 1);
+            assert_eq!(frame.hits[0].0, Action::SelectActivation(0, 0));
+            let tile = frame.hits[0].1;
+            assert!((tile.width() - 56.0).abs() < 0.01);
+            assert!((tile.height() - 56.0).abs() < 0.01);
             let mut icon = None;
             let mut labels = 0;
             for shape in frame.output.shapes {
@@ -680,57 +748,37 @@ fn activation_columns_keep_icons_proportional_and_every_label_on_one_line() {
                             brush.fill_texture_id == egui::TextureId::User(321)
                         }) =>
                     {
-                        icon = Some(rect.rect);
+                        icon = Some(rect.rect)
                     }
                     egui::Shape::Text(text) if !text.galley.job.text.is_empty() => {
                         labels += 1;
-                        assert_eq!(text.galley.rows.len(), 1, "文字不能换行");
-                        let column = if text.galley.job.text == "移动" {
-                            columns[1]
-                        } else if text.galley.job.text == "移除" {
-                            columns[2]
-                        } else {
-                            columns[0]
-                        };
-                        assert!(
-                            column
-                                .expand(1.0)
-                                .contains_rect(text.visual_bounding_rect()),
-                            "文字不得侵占相邻列：{}",
-                            text.galley.job.text
-                        );
+                        assert_eq!(text.galley.job.text, "#23");
+                        assert_eq!(text.galley.rows.len(), 1);
+                        assert!(tile.expand(1.0).contains_rect(text.visual_bounding_rect()));
                     }
                     _ => {}
                 }
             }
-            assert_eq!(labels, 3);
+            assert_eq!(labels, 1, "长名称留在 tooltip，卡片仅显示短编号");
             let icon = icon.expect("必须实际绘制部件贴图");
             let expected = size * (32.0 / size.max_element());
             assert!((icon.width() - expected.x).abs() < 1.01);
             assert!((icon.height() - expected.y).abs() < 1.01);
-            assert!(columns[0].contains_rect(icon));
+            assert!(tile.contains_rect(icon));
         }
     }
 }
 
 #[test]
-fn activation_icon_name_and_edit_controls_have_distinct_real_click_targets() {
+fn activation_tile_click_and_selected_edit_controls_have_distinct_real_targets() {
     let ctx = crate::egui_ui::test_context();
     let size = Vec2::new(129.0, 30.0);
     activation_frame(&ctx, 268.0, size, vec![]);
     let frame = activation_frame(&ctx, 268.0, size, vec![]);
-    let select = frame.hits[0].1;
-    for (pos, action) in [
-        (
-            egui::pos2(select.left() + 22.0, select.center().y),
-            Action::SelectActivation(0, 0),
-        ),
-        (
-            egui::pos2(select.right() - 12.0, select.center().y),
-            Action::SelectActivation(0, 0),
-        ),
-        (frame.hits[1].1.center(), Action::Moved(0, 0)),
-        (frame.hits[2].1.center(), Action::RemoveActivation(0, 0)),
+    let tile = frame.hits[0].1;
+    for pos in [
+        tile.center(),
+        egui::pos2(tile.right() - 12.0, tile.center().y),
     ] {
         for pressed in [true, false] {
             let frame = activation_frame(
@@ -749,10 +797,29 @@ fn activation_icon_name_and_edit_controls_have_distinct_real_click_targets() {
             );
             assert_eq!(
                 frame.pending,
-                if pressed { None } else { Some(action.clone()) }
+                if pressed {
+                    None
+                } else {
+                    Some(Action::SelectActivation(0, 0))
+                }
             );
         }
     }
+    let mut panel = Panel::new();
+    panel.click(Action::AddStep);
+    panel.inspector.draft.as_mut().unwrap().target = "1".into();
+    panel.click(Action::AddActivation(0));
+    panel.click(Action::SelectActivation(0, 0));
+    let select = panel.rect(Action::SelectActivation(0, 0));
+    let moved = panel.rect(Action::Moved(0, 0));
+    let remove = panel.rect(Action::RemoveActivation(0, 0));
+    assert!(!select.intersects(moved) && !moved.intersects(remove));
+    assert!(moved.height() >= 43.99 && remove.height() >= 43.99);
+    panel.click(Action::Moved(0, 0));
+    assert!(plan(&panel).steps[0].activations[0].moved);
+    panel.click(Action::RemoveActivation(0, 0));
+    assert!(plan(&panel).steps[0].activations.is_empty());
+    assert!(!panel.document.history.can_undo());
 }
 
 #[test]
@@ -825,4 +892,523 @@ fn target_marks_use_current_camera_dpi_rotation_and_clip_outside_the_ship_area()
             output.textures_delta.clear();
         }
     }
+}
+
+fn plan(panel: &Panel) -> &StagingState {
+    panel
+        .inspector
+        .draft
+        .as_ref()
+        .unwrap()
+        .staging
+        .as_ref()
+        .unwrap()
+}
+
+fn ids(panel: &Panel) -> Vec<Vec<i64>> {
+    plan(panel)
+        .steps
+        .iter()
+        .map(|step| step.activations.iter().map(|a| a.id).collect())
+        .collect()
+}
+
+fn generated_panel() -> Panel {
+    let mut panel = Panel::at_size(egui::vec2(1440.0, 900.0));
+    panel.document.catalog = dr_core::catalog_from_xml(
+        r#"<PartTypes><PartType id="pod" type="pod"/>
+        <PartType id="tank" type="tank"><Tank fuel="20"/></PartType>
+        <PartType id="engine" type="engine"><Engine/></PartType>
+        <PartType id="detacher" type="detacher"/></PartTypes>"#,
+    )
+    .unwrap();
+    panel.document.ship = dr_core::Ship {
+        parts: [
+            (1, "pod"),
+            (2, "tank"),
+            (3, "engine"),
+            (4, "detacher"),
+            (5, "tank"),
+            (6, "engine"),
+            (7, "detacher"),
+            (8, "tank"),
+            (9, "engine"),
+        ]
+        .into_iter()
+        .map(|(id, kind)| {
+            panel
+                .document
+                .catalog
+                .get(kind)
+                .unwrap()
+                .instantiate(id, (0.0, 0.0))
+        })
+        .collect(),
+        connections: (1..9)
+            .map(|parent| dr_core::Connection::Normal {
+                parent,
+                child: parent + 1,
+                parent_attach: 0,
+                child_attach: 1,
+            })
+            .collect(),
+        ..default()
+    };
+    panel.document.saved_ship = panel.document.ship.clone();
+    panel.document.select_only(Some(PartKey::new(0, 1, 0)));
+    panel.inspector = Inspector::default();
+    open(&mut panel.inspector, &panel.document);
+    for _ in 0..3 {
+        panel.frame(vec![]);
+    }
+    panel.click(Action::GenerateStaging);
+    assert!(panel.inspector.error.is_empty());
+    assert_eq!(
+        ids(&panel),
+        vec![vec![9], vec![7], vec![6], vec![4], vec![3]]
+    );
+    assert!(!panel.document.history.can_undo());
+    panel
+}
+
+#[test]
+fn compact_dock_defaults_to_six_real_icons_and_explicit_property_drawers() {
+    let mut panel = Panel::new();
+    for action in [
+        Action::GenerateStaging,
+        Action::AddStep,
+        Action::ToggleTargets,
+        Action::ToggleAdvanced,
+        Action::Apply,
+        Action::Cancel,
+    ] {
+        let rect = panel.rect(action);
+        assert!(rect.width() >= 43.99 && rect.height() >= 43.99);
+    }
+    assert!(!panel.inspector.advanced_open && !panel.inspector.targets_open);
+    assert!(
+        !panel
+            .hits
+            .iter()
+            .any(|(action, _)| matches!(action, Action::Focus(_) | Action::Active))
+    );
+    panel.click(Action::ToggleAdvanced);
+    assert!(
+        panel
+            .hits
+            .iter()
+            .any(|(action, _)| *action == Action::Focus(Field::Name))
+    );
+    panel.click(Action::ToggleAdvanced);
+    panel.click(Action::ToggleTargets);
+    assert!(
+        panel
+            .hits
+            .iter()
+            .any(|(action, _)| *action == Action::Focus(Field::Target))
+    );
+    panel.click(Action::ToggleTargets);
+    assert!(!panel.document.history.can_undo());
+}
+
+#[test]
+fn four_frame_activation_drag_uses_real_centers_and_header_tail_then_one_apply() {
+    let mut panel = generated_panel();
+    let before = panel.document.ship.clone();
+    let source = panel.rect(Action::SelectActivation(2, 0)).center();
+    let destination = panel.rect(Action::SelectStage(1)).center();
+    let original = plan(&panel).clone();
+    panel.begin_drag(source);
+    assert_eq!(plan(&panel), &original);
+    panel.frame(vec![egui::Event::PointerMoved(destination)]);
+    assert_eq!(plan(&panel), &original);
+    assert!(panel.last_action.is_none());
+    panel.pointer(destination, false);
+    assert_eq!(
+        panel.last_action,
+        Some(Action::MoveActivation {
+            from_stage: 2,
+            index: 0,
+            to_stage: 1,
+            to_index: 1,
+        })
+    );
+    assert_eq!(
+        ids(&panel),
+        vec![vec![9], vec![7, 6], vec![], vec![4], vec![3]]
+    );
+    assert!(plan(&panel).steps[1].activations[1].moved);
+    assert!(!plan(&panel).steps[1].activations[0].moved);
+    assert_eq!(panel.document.ship, before);
+    assert!(!panel.document.history.can_undo());
+    panel.frame(vec![]);
+    panel.click(Action::Apply);
+    assert!(!panel.inspector.is_open());
+    let after = panel.document.ship.clone();
+    assert_eq!(panel.document.history.undo_len(), 1);
+    assert_eq!(
+        dr_core::ship_from_xml(&dr_core::ship_to_xml(&after).unwrap()).unwrap(),
+        after
+    );
+    assert!(panel.document.undo());
+    assert_eq!(panel.document.ship, before);
+    assert!(!panel.document.history.can_undo());
+    assert!(panel.document.redo());
+    assert_eq!(panel.document.ship, after);
+}
+
+#[test]
+fn four_frame_stage_drag_inserts_before_or_after_and_keeps_activation_flags() {
+    for after in [false, true] {
+        let mut panel = generated_panel();
+        panel
+            .inspector
+            .draft
+            .as_mut()
+            .unwrap()
+            .staging
+            .as_mut()
+            .unwrap()
+            .steps[0]
+            .activations[0]
+            .moved = true;
+        panel.frame(vec![]);
+        let before = panel.document.ship.clone();
+        let source = panel.rect(Action::SelectStage(0)).center();
+        let target = panel.rect(Action::SelectStage(2));
+        let destination = egui::pos2(
+            target.center().x,
+            if after {
+                target.bottom() - 5.0
+            } else {
+                target.top() + 5.0
+            },
+        );
+        panel.drag_to(source, destination);
+        let to = if after { 2 } else { 1 };
+        assert_eq!(panel.last_action, Some(Action::ReorderStep { from: 0, to }));
+        let expected = if after {
+            vec![vec![7], vec![6], vec![9], vec![4], vec![3]]
+        } else {
+            vec![vec![7], vec![9], vec![6], vec![4], vec![3]]
+        };
+        assert_eq!(ids(&panel), expected);
+        assert!(plan(&panel).steps[to].activations[0].moved);
+        assert!(
+            plan(&panel)
+                .steps
+                .iter()
+                .filter(|step| step.activations[0].id != 9)
+                .all(|step| !step.activations[0].moved)
+        );
+        assert_eq!(panel.document.ship, before);
+        assert!(!panel.document.history.can_undo());
+    }
+}
+
+#[test]
+fn same_card_tile_drag_uses_final_insertion_index_and_keeps_moved_flags() {
+    let mut panel = generated_panel();
+    panel.inspector.preview = Preview::Owner;
+    panel.inspector.draft.as_mut().unwrap().staging = Some(StagingState {
+        current_stage: 0,
+        steps: vec![StageStep {
+            activations: vec![
+                Activation {
+                    id: 9,
+                    moved: false,
+                },
+                Activation { id: 7, moved: true },
+                Activation {
+                    id: 6,
+                    moved: false,
+                },
+            ],
+        }],
+    });
+    panel.frame(vec![]);
+    let source = panel.rect(Action::SelectActivation(0, 0)).center();
+    let target = panel.rect(Action::SelectActivation(0, 2));
+    panel.drag_to(source, egui::pos2(target.right() - 3.0, target.center().y));
+    assert_eq!(
+        panel.last_action,
+        Some(Action::MoveActivation {
+            from_stage: 0,
+            index: 0,
+            to_stage: 0,
+            to_index: 2,
+        })
+    );
+    assert_eq!(
+        plan(&panel).steps[0].activations,
+        vec![
+            Activation { id: 7, moved: true },
+            Activation {
+                id: 6,
+                moved: false
+            },
+            Activation {
+                id: 9,
+                moved: false
+            },
+        ]
+    );
+    assert!(!panel.document.history.can_undo());
+}
+
+#[test]
+fn escape_cancels_only_the_active_drag_and_a_later_escape_discards_the_draft() {
+    let mut panel = generated_panel();
+    let before = panel.document.ship.clone();
+    let original = plan(&panel).clone();
+    let source = panel.rect(Action::SelectActivation(2, 0)).center();
+    let destination = panel.rect(Action::SelectStage(1)).center();
+    panel.begin_drag(source);
+    panel.frame(vec![
+        egui::Event::PointerMoved(destination),
+        key(egui::Key::Escape, egui::Modifiers::NONE),
+    ]);
+    assert!(panel.inspector.is_open());
+    assert!(panel.last_action.is_none());
+    assert_eq!(plan(&panel), &original);
+    assert!(
+        panel
+            .ctx
+            .data_mut(|data| data.get_temp::<StagingDrag>(drag_id()))
+            .is_none()
+    );
+    panel.pointer(destination, false);
+    assert!(panel.inspector.is_open());
+    assert_eq!(plan(&panel), &original);
+    panel.frame(vec![key(egui::Key::Escape, egui::Modifiers::NONE)]);
+    assert!(!panel.inspector.is_open());
+    assert_eq!(panel.document.ship, before);
+    assert!(!panel.document.history.can_undo());
+}
+
+#[test]
+fn escape_in_the_drag_threshold_frame_keeps_the_draft_and_cancels_release() {
+    for action in [Action::SelectActivation(2, 0), Action::SelectStage(0)] {
+        let mut panel = generated_panel();
+        let before = panel.document.ship.clone();
+        let original = plan(&panel).clone();
+        let source = panel.rect(action).center();
+        let destination = panel.rect(Action::SelectStage(1)).center();
+        panel.pointer(source, true);
+        assert!(panel.last_action.is_none());
+        assert!(
+            panel
+                .ctx
+                .data_mut(|data| data.get_temp::<StagingDrag>(press_id()))
+                .is_some(),
+            "正式卡片或部件控件应在跨起拖阈值前记录按下来源"
+        );
+        panel.frame(vec![
+            egui::Event::PointerMoved(source + egui::vec2(12.0, 0.0)),
+            key(egui::Key::Escape, egui::Modifiers::NONE),
+        ]);
+        assert!(panel.inspector.is_open(), "起拖同帧的 Esc 只能取消拖动");
+        assert!(panel.last_action.is_none());
+        assert!(
+            panel
+                .ctx
+                .data_mut(|data| data.get_temp::<StagingDrag>(press_id()))
+                .is_none(),
+            "Esc 应同时清除待起拖来源"
+        );
+        assert_eq!(plan(&panel), &original);
+        assert!(
+            panel
+                .ctx
+                .data_mut(|data| data.get_temp::<StagingDrag>(drag_id()))
+                .is_none()
+        );
+        panel.pointer(destination, false);
+        assert!(panel.inspector.is_open());
+        assert!(panel.last_action.is_none());
+        assert_eq!(plan(&panel), &original, "取消后的释放不能提交拖放");
+        panel.frame(vec![key(egui::Key::Escape, egui::Modifiers::NONE)]);
+        assert!(
+            !panel.inspector.is_open(),
+            "手势取消后后续独立 Esc 仍可关闭草稿"
+        );
+        assert_eq!(panel.document.ship, before);
+        assert!(!panel.document.history.can_undo());
+    }
+}
+
+#[test]
+fn canvas_release_focus_loss_pointer_gone_and_touch_cancel_never_commit_a_drag() {
+    for cancellation in 0..4 {
+        let mut panel = generated_panel();
+        let original = plan(&panel).clone();
+        let before = panel.document.ship.clone();
+        let source = panel.rect(Action::SelectActivation(2, 0)).center();
+        let destination = panel.rect(Action::SelectStage(1)).center();
+        panel.begin_drag(source);
+        match cancellation {
+            0 => panel.pointer(panel.dock.unwrap().canvas.center(), false),
+            1 => panel.frame_focused(vec![egui::Event::WindowFocused(false)], false),
+            2 => panel.frame(vec![egui::Event::PointerGone]),
+            _ => panel.frame(vec![egui::Event::Touch {
+                device_id: egui::TouchDeviceId(1),
+                id: egui::TouchId(1),
+                phase: egui::TouchPhase::Cancel,
+                pos: destination,
+                force: None,
+            }]),
+        }
+        assert!(panel.last_action.is_none());
+        assert!(panel.inspector.is_open());
+        assert_eq!(plan(&panel), &original);
+        assert!(
+            panel
+                .ctx
+                .data_mut(|data| data.get_temp::<StagingDrag>(drag_id()))
+                .is_none()
+        );
+        panel.pointer(destination, false);
+        assert_eq!(plan(&panel), &original, "取消后释放不能重新提交");
+        assert_eq!(panel.document.ship, before);
+        assert!(!panel.document.history.can_undo());
+    }
+}
+
+#[test]
+fn narrow_activation_tiles_wrap_and_the_sixteenth_tile_remains_clickable() {
+    let mut panel = Panel::at_size(egui::vec2(390.0, 844.0));
+    let part = panel.document.ship.parts[0].clone();
+    for id in 2..=16 {
+        let mut activation_part = part.clone();
+        activation_part.id = id;
+        activation_part.pod = None;
+        panel.document.ship.parts.push(activation_part);
+    }
+    panel.document.ship.parts[0].pod.as_mut().unwrap().staging = Some(StagingState {
+        current_stage: 0,
+        steps: vec![StageStep {
+            activations: (1..=16).map(|id| Activation { id, moved: false }).collect(),
+        }],
+    });
+    panel.document.saved_ship = panel.document.ship.clone();
+    panel.inspector = Inspector::default();
+    open(&mut panel.inspector, &panel.document);
+    for _ in 0..3 {
+        panel.frame(vec![]);
+    }
+    let before = panel.document.ship.clone();
+    let original = plan(&panel).clone();
+    let first = panel.rect(Action::SelectActivation(0, 0));
+    let last = panel.rect(Action::SelectActivation(0, 15));
+    assert!(
+        last.top() > first.bottom(),
+        "16 个 tile 必须真实换行，而非横向越出正文"
+    );
+    for index in 0..16 {
+        let rect = panel.rect(Action::SelectActivation(0, index));
+        assert!(
+            panel.body.contains_rect(rect),
+            "第 {index} 个正式命中必须在正文内：{rect:?}"
+        );
+        assert_eq!(
+            rect.size(),
+            egui::vec2(56.0, 56.0),
+            "第 {index} 个 tile 不能只剩裁剪碎片"
+        );
+    }
+    panel.click(Action::SelectActivation(0, 15));
+    assert_eq!(panel.inspector.preview, Preview::Activation(0, 15));
+    assert_eq!(plan(&panel), &original);
+    assert_eq!(panel.document.ship, before);
+    assert!(!panel.document.history.can_undo());
+}
+
+#[test]
+fn clipped_stage_hits_and_real_edge_autoscroll_keep_long_drafts_atomic() {
+    let mut panel = Panel::new();
+    panel.inspector.preview = Preview::Owner;
+    panel.inspector.draft.as_mut().unwrap().staging = Some(StagingState {
+        current_stage: 0,
+        steps: (0..40)
+            .map(|_| StageStep {
+                activations: vec![Activation {
+                    id: 1,
+                    moved: false,
+                }],
+            })
+            .collect(),
+    });
+    for _ in 0..3 {
+        panel.frame(vec![]);
+    }
+    assert!(
+        !panel
+            .hits
+            .iter()
+            .any(|(action, _)| *action == Action::SelectStage(39))
+    );
+    let maximum_stage = |panel: &Panel| {
+        panel
+            .hits
+            .iter()
+            .filter_map(|(action, _)| {
+                if let Action::SelectStage(stage) = action {
+                    Some(*stage)
+                } else {
+                    None
+                }
+            })
+            .max()
+            .unwrap()
+    };
+    let initial_max = maximum_stage(&panel);
+    let before = plan(&panel).clone();
+    let source = panel.rect(Action::SelectActivation(0, 0)).center();
+    panel.begin_drag(source);
+    let edge = egui::pos2(panel.body.left() + 30.0, panel.body.bottom() - 2.0);
+    for _ in 0..80 {
+        panel.frame(vec![egui::Event::PointerMoved(edge)]);
+        for (action, rect) in &panel.hits {
+            if matches!(
+                action,
+                Action::SelectStage(_) | Action::SelectActivation(_, _)
+            ) {
+                assert!(
+                    panel.body.contains_rect(*rect),
+                    "裁剪外不能注册命中：{action:?} {rect:?}"
+                );
+            }
+        }
+        assert_eq!(plan(&panel), &before);
+        assert!(panel.last_action.is_none());
+    }
+    assert!(
+        maximum_stage(&panel) > initial_max,
+        "保持在真实正文下边缘必须向下滚动"
+    );
+    panel.pointer(panel.dock.unwrap().canvas.center(), false);
+    assert_eq!(plan(&panel), &before);
+    for _ in 0..12 {
+        panel.frame(vec![
+            egui::Event::PointerMoved(panel.body.center()),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                phase: egui::TouchPhase::Move,
+                delta: egui::vec2(0.0, -2000.0),
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]);
+    }
+    panel.click(Action::SelectActivation(39, 0));
+    for _ in 0..8 {
+        panel.frame(vec![egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            phase: egui::TouchPhase::Move,
+            delta: egui::vec2(0.0, -200.0),
+            modifiers: egui::Modifiers::NONE,
+        }]);
+    }
+    panel.click(Action::Moved(39, 0));
+    assert!(plan(&panel).steps[39].activations[0].moved);
+    assert!(!panel.document.history.can_undo());
 }

@@ -282,3 +282,67 @@ fn consumers_drop_activation_while_touch_override_is_active() {
         "解除接管后的新激活应正常消费"
     );
 }
+
+#[test]
+fn real_native_menu_uses_primary_press_and_keeps_foreign_buttons_out() {
+    let (mut app, button, window) = app();
+    app.world_mut()
+        .entity_mut(button)
+        .insert((files::MenuButton, BackgroundColor(BUTTON)));
+    app.init_resource::<files::FileMenu>()
+        .add_message::<files::FileAction>()
+        .add_systems(Update, files::toolbar_actions.after(collect_activated));
+    for mouse in [MouseButton::Right, MouseButton::Middle] {
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            send(
+                &mut app,
+                test_support::mouse_button_event(window, mouse, state),
+            );
+            assert!(!app.world().resource::<files::FileMenu>().open);
+        }
+    }
+    send(
+        &mut app,
+        test_support::mouse_button_event(window, MouseButton::Left, ButtonState::Pressed),
+    );
+    assert!(
+        app.world().resource::<files::FileMenu>().open,
+        "正式主键按下当帧打开菜单"
+    );
+    app.update();
+    assert!(
+        app.world().resource::<files::FileMenu>().open,
+        "按住不重复切换"
+    );
+    send(
+        &mut app,
+        test_support::mouse_button_event(window, MouseButton::Right, ButtonState::Pressed),
+    );
+    send(
+        &mut app,
+        test_support::mouse_button_event(window, MouseButton::Right, ButtonState::Released),
+    );
+    assert!(app.world().resource::<files::FileMenu>().open);
+    assert!(app.world().get::<Pressed>(button).is_some());
+    send(
+        &mut app,
+        test_support::mouse_button_event(window, MouseButton::Left, ButtonState::Released),
+    );
+    assert!(
+        app.world().resource::<files::FileMenu>().open,
+        "鼠标释放不再次切换"
+    );
+    send(
+        &mut app,
+        test_support::mouse_button_event(window, MouseButton::Left, ButtonState::Pressed),
+    );
+    assert!(
+        !app.world().resource::<files::FileMenu>().open,
+        "后续独立按下关闭菜单"
+    );
+    assert!(
+        app.world()
+            .resource::<Messages<files::FileAction>>()
+            .is_empty()
+    );
+}

@@ -11,33 +11,29 @@ pub(crate) struct HelpState {
 #[derive(Component)]
 pub(crate) struct HelpButton;
 
-/// 顶栏按钮标签与最小触控高度；F1 / Esc 的说明留在帮助正文里。
-pub(crate) const HELP_LABEL: &str = "? 帮助";
-pub(crate) const HELP_MIN_HEIGHT: f32 = 44.0;
-
-pub(crate) fn setup(mut commands: Commands, assets: Res<AssetServer>) {
-    let font = assets.load("fonts/HarmonyOS_Sans/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ttf");
-    commands
-        .spawn((
-            native_buttons::press_triggered(),
-            HelpButton,
-            panels::ToolbarItem::Help,
-            panels::EditorPanel,
-            Node {
-                position_type: PositionType::Absolute,
-                min_height: px(HELP_MIN_HEIGHT),
-                border: UiRect::all(px(1)),
-                border_radius: native_buttons::native_corners(),
-                padding: UiRect::axes(px(12), px(7)),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            BackgroundColor(native_buttons::BUTTON),
-        ))
-        .with_children(|button| {
-            button.spawn(native_buttons::label(HELP_LABEL, font));
-        });
+/// 图标由共享 egui Painter 覆盖，命中与按压仍属于这个正式原生按钮。
+pub(crate) fn setup(mut commands: Commands) {
+    commands.spawn((
+        native_buttons::press_triggered(),
+        HelpButton,
+        Name::new("操作帮助"),
+        panels::ToolbarItem::Help,
+        panels::EditorPanel,
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(96),
+            bottom: px(4),
+            width: px(48),
+            height: px(48),
+            min_width: px(48),
+            min_height: px(48),
+            border: UiRect::all(px(1)),
+            border_radius: native_buttons::native_corners(),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        BackgroundColor(native_buttons::BUTTON),
+    ));
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -54,12 +50,17 @@ pub(crate) fn input(
     mut cursor: ResMut<EditorCursor>,
     mut camera_drag: ResMut<CameraDrag>,
     mut pointer: ResMut<panels::UiPointer>,
+    mut ui: Option<ResMut<panels::egui_panel::UiState>>,
+    mut menu: Option<ResMut<files::FileMenu>>,
 ) {
     let touch = touch.as_deref();
     state.suppress_frame = false;
     if inspector.is_open() || topology.open || pending.is_blocked() {
         activated.clear();
         state.open = false;
+        if let Some(menu) = menu.as_deref_mut() {
+            menu.close();
+        }
         return;
     }
     let mut toggle = keys.just_pressed(KeyCode::F1)
@@ -87,6 +88,12 @@ pub(crate) fn input(
     // 关闭的这一帧也不把 Esc/按钮点击漏给画布。
     state.suppress_frame = state.open || was_open || toggle;
     if state.suppress_frame {
+        if let Some(ui) = ui.as_deref_mut() {
+            ui.close_drawer();
+        }
+        if let Some(menu) = menu.as_deref_mut() {
+            menu.close();
+        }
         canvas_input::cancel_preview(&mut drag, &mut cursor, &mut camera_drag);
         pointer.blocked = true;
     }
@@ -188,6 +195,7 @@ mod tests {
             .init_resource::<properties::Inspector>()
             .init_resource::<topology_ui::ConnectionEditor>()
             .init_resource::<files::PendingFileAction>()
+            .init_resource::<files::FileMenu>()
             .init_resource::<DragState>()
             .init_resource::<EditorCursor>()
             .init_resource::<CameraDrag>()
@@ -205,6 +213,53 @@ mod tests {
                     .chain(),
             );
         app
+    }
+
+    #[test]
+    fn help_setup_is_a_48px_native_icon_entry_without_text_children() {
+        let mut app = App::new();
+        app.add_systems(Startup, setup);
+        app.update();
+        let world = app.world_mut();
+        let (entity, node) = world
+            .query_filtered::<(Entity, &Node), With<HelpButton>>()
+            .single(world)
+            .unwrap();
+        assert_eq!(node.width, px(48));
+        assert_eq!(node.height, px(48));
+        assert_eq!(node.left, px(96));
+        assert_eq!(node.bottom, px(4));
+        assert!(world.get::<Button>(entity).is_some());
+        assert!(
+            world
+                .get::<bevy::ui_widgets::ActivateOnPress>(entity)
+                .is_some()
+        );
+        assert_eq!(world.query::<&Text>().iter(world).count(), 0);
+    }
+
+    #[test]
+    fn opening_help_closes_file_menu_and_clears_stale_menu_hits() {
+        let mut app = app();
+        {
+            let mut menu = app.world_mut().resource_mut::<files::FileMenu>();
+            menu.open = true;
+            menu.area = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(100.0, 100.0),
+            ));
+            menu.hits
+                .push((files::FileAction::Save, egui::Rect::EVERYTHING));
+        }
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::F1);
+        app.update();
+        assert!(app.world().resource::<HelpState>().open);
+        let menu = app.world().resource::<files::FileMenu>();
+        assert!(!menu.open);
+        assert!(menu.area.is_none());
+        assert!(menu.hits.is_empty());
     }
 
     #[test]

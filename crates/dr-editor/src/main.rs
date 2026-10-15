@@ -9,6 +9,7 @@ mod egui_ui;
 mod files;
 mod free_mode;
 mod help;
+mod icons;
 mod interaction_smoke;
 mod mobile_input;
 mod native_buttons;
@@ -84,6 +85,7 @@ fn main() -> anyhow::Result<()> {
     .init_resource::<panels::UiPointer>()
     .init_resource::<mobile_input::GestureInput>()
     .init_resource::<properties::Inspector>()
+    .init_resource::<files::FileMenu>()
     .insert_resource(SmokeTest::from_args(&args, smoke_size))
     .insert_resource(EditorPaths {
         ship,
@@ -181,9 +183,9 @@ fn main() -> anyhow::Result<()> {
                 panels::pointer_over_ui,
                 help::input,
                 properties::actions,
+                files::toolbar_actions,
                 egui_ui::prepare_input,
                 panels::panel_actions.run_if(properties::closed),
-                files::toolbar_actions,
                 files::file_inputs,
                 properties::cancel_for_file_action,
                 placement::cancel_for_file_action,

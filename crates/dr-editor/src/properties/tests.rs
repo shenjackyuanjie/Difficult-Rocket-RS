@@ -643,3 +643,676 @@ fn stage_reorder_and_action_edits_keep_preview_on_the_edited_target_and_one_undo
     assert!(document.undo());
     assert_eq!(document.ship, before);
 }
+
+fn staging_document() -> EditorDocument {
+    let mut document = document();
+    document.catalog = dr_core::catalog_from_xml(
+        r#"<PartTypes>
+            <PartType id="pod" type="pod" hidden="true"/>
+            <PartType id="tank" type="tank"><Tank fuel="20"/></PartType>
+            <PartType id="engine" type="engine"><Engine/></PartType>
+            <PartType id="detacher" type="detacher"/>
+            <PartType id="parachute" type="parachute"/>
+        </PartTypes>"#,
+    )
+    .unwrap();
+    document.ship = dr_core::Ship {
+        parts: [
+            (1, "pod"),
+            (2, "tank"),
+            (3, "engine"),
+            (4, "detacher"),
+            (5, "tank"),
+            (6, "engine"),
+            (7, "detacher"),
+            (8, "tank"),
+            (9, "engine"),
+            (10, "parachute"),
+        ]
+        .into_iter()
+        .map(|(id, kind)| {
+            document
+                .catalog
+                .get(kind)
+                .unwrap()
+                .instantiate(id, (0.0, 0.0))
+        })
+        .collect(),
+        connections: (1..9)
+            .map(|id| staging_connection(id, id + 1))
+            .chain([staging_connection(1, 10)])
+            .collect(),
+        ..default()
+    };
+    document.saved_ship = document.ship.clone();
+    document.select_only(Some(PartKey::new(0, 1, 0)));
+    document
+}
+
+fn staging_connection(parent: i64, child: i64) -> Connection {
+    Connection::Normal {
+        parent,
+        child,
+        parent_attach: 0,
+        child_attach: 1,
+    }
+}
+
+fn editable_plan() -> StagingState {
+    StagingState {
+        current_stage: 2,
+        steps: [
+            vec![(3, false), (6, true), (9, false)],
+            vec![(4, false)],
+            vec![(7, true), (10, false)],
+        ]
+        .into_iter()
+        .map(|activations| StageStep {
+            activations: activations
+                .into_iter()
+                .map(|(id, moved)| Activation { id, moved })
+                .collect(),
+        })
+        .collect(),
+    }
+}
+
+fn staging_inspector() -> (EditorDocument, Inspector) {
+    let document = staging_document();
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    let draft = inspector.draft.as_mut().unwrap();
+    draft.current_stage = "2".into();
+    draft.staging = Some(editable_plan());
+    (document, inspector)
+}
+
+fn draft_plan(inspector: &Inspector) -> &StagingState {
+    inspector.draft.as_ref().unwrap().staging.as_ref().unwrap()
+}
+
+fn assert_same_draft(actual: &Draft, before: &Draft) {
+    assert_eq!(actual.key, before.key);
+    assert_eq!(actual.original, before.original);
+    assert_eq!(actual.name, before.name);
+    assert_eq!(actual.fuel, before.fuel);
+    assert_eq!(actual.throttle, before.throttle);
+    assert_eq!(actual.current_stage, before.current_stage);
+    assert_eq!(actual.target, before.target);
+    assert_eq!(actual.active, before.active);
+    assert_eq!(actual.staging, before.staging);
+}
+
+fn document_snapshot(
+    document: &EditorDocument,
+) -> (dr_core::Ship, Vec<PartKey>, bool, usize, usize, u64) {
+    (
+        document.ship.clone(),
+        document.selected_keys(),
+        document.dirty,
+        document.history.undo_len(),
+        document.history.redo_len(),
+        document.revision,
+    )
+}
+
+#[test]
+fn generate_staging_only_replaces_plan_and_current_stage_and_is_idempotent() {
+    let (mut document, mut inspector) = staging_inspector();
+    assert!(document.execute(EditorCommand::SetActive(2, true)));
+    assert!(document.undo());
+    document.select_only(Some(PartKey::new(0, 1, 0)));
+    let before = document_snapshot(&document);
+    let draft = inspector.draft.as_mut().unwrap();
+    draft.name = "未提交名称".into();
+    draft.fuel = "保留原输入".into();
+    draft.throttle = "0.75".into();
+    draft.target = "10".into();
+    draft.active = !draft.active;
+    draft.current_stage = "不合法的旧输入".into();
+    let mut expected = draft.clone();
+    expected.staging = Some(
+        dr_core::generate_basic_staging(&document.ship, &document.catalog, expected.key).unwrap(),
+    );
+    expected.current_stage = "0".into();
+    inspector.preview = Preview::Target;
+    inspector.hovered = Some(Preview::Activation(2, 0));
+    inspector.focus = Some(Field::Name);
+    inspector.advanced_open = true;
+    inspector.targets_open = true;
+    inspector.error = "旧错误".into();
+
+    for _ in 0..2 {
+        act(&Action::GenerateStaging, &mut inspector, &mut document);
+        assert_same_draft(inspector.draft.as_ref().unwrap(), &expected);
+        assert!(inspector.error.is_empty());
+        assert_eq!(inspector.preview, Preview::Stage(0));
+        assert_eq!(inspector.hovered, None);
+        assert_eq!(
+            inspector.preview_keys(&document),
+            vec![PartKey::new(0, 9, 0)]
+        );
+        assert_eq!(inspector.focus, Some(Field::Name));
+        assert!(inspector.advanced_open && inspector.targets_open);
+        assert_eq!(document_snapshot(&document), before);
+    }
+    assert_eq!(document.history.redo_len(), 1);
+}
+
+#[test]
+fn generate_staging_accepts_empty_plan_and_previews_owner() {
+    let mut document = staging_document();
+    document.ship.parts.truncate(1);
+    document.ship.connections.clear();
+    document.saved_ship = document.ship.clone();
+    let before = document_snapshot(&document);
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    inspector.draft.as_mut().unwrap().current_stage = "99".into();
+    inspector.preview = Preview::Activation(1, 0);
+    act(&Action::GenerateStaging, &mut inspector, &mut document);
+    assert!(inspector.error.is_empty());
+    assert_eq!(draft_plan(&inspector), &StagingState::default());
+    assert_eq!(inspector.draft.as_ref().unwrap().current_stage, "0");
+    assert_eq!(inspector.preview, Preview::Owner);
+    assert_eq!(
+        inspector.preview_keys(&document),
+        vec![PartKey::new(0, 1, 0)]
+    );
+    assert_eq!(document_snapshot(&document), before);
+}
+
+#[test]
+fn generation_failures_keep_all_draft_fields_preview_and_history() {
+    for invalid in 0..4 {
+        let (mut document, mut inspector) = staging_inspector();
+        match invalid {
+            0 => document.catalog = PartCatalog::default(),
+            1 => document.ship.parts.push(document.ship.parts[2].clone()),
+            2 => document.ship.connections.push(staging_connection(9, 1)),
+            _ => document.ship.parts[0].active = !document.ship.parts[0].active,
+        }
+        inspector.draft.as_mut().unwrap().name = "保留手工草稿".into();
+        inspector.draft.as_mut().unwrap().current_stage = "旧分级输入".into();
+        inspector.preview = Preview::Activation(2, 1);
+        inspector.hovered = Some(Preview::Stage(1));
+        let before_draft = inspector.draft.as_ref().unwrap().clone();
+        let before_document = document_snapshot(&document);
+        act(&Action::GenerateStaging, &mut inspector, &mut document);
+        assert!(!inspector.error.is_empty(), "错误场景 {invalid}");
+        assert_same_draft(inspector.draft.as_ref().unwrap(), &before_draft);
+        assert_eq!(inspector.preview, Preview::Activation(2, 1));
+        assert_eq!(inspector.hovered, Some(Preview::Stage(1)));
+        assert_eq!(document_snapshot(&document), before_document);
+    }
+}
+
+#[test]
+fn reorder_step_inserts_at_final_index_and_preserves_flags_and_current_stage() {
+    let (mut document, mut inspector) = staging_inspector();
+    let before_document = document_snapshot(&document);
+    let original = editable_plan();
+    act(
+        &Action::ReorderStep { from: 0, to: 2 },
+        &mut inspector,
+        &mut document,
+    );
+    assert_eq!(
+        draft_plan(&inspector).steps,
+        vec![
+            original.steps[1].clone(),
+            original.steps[2].clone(),
+            original.steps[0].clone(),
+        ]
+    );
+    assert_eq!(inspector.preview, Preview::Stage(2));
+    act(
+        &Action::ReorderStep { from: 2, to: 0 },
+        &mut inspector,
+        &mut document,
+    );
+    assert_eq!(draft_plan(&inspector), &original);
+    act(
+        &Action::ReorderStep { from: 1, to: 1 },
+        &mut inspector,
+        &mut document,
+    );
+    assert_eq!(draft_plan(&inspector), &original);
+    assert_eq!(inspector.draft.as_ref().unwrap().current_stage, "2");
+    assert_eq!(inspector.preview, Preview::Stage(1));
+    assert_eq!(document_snapshot(&document), before_document);
+}
+
+#[test]
+fn reorder_step_rejects_invalid_indices_and_missing_plan_atomically() {
+    for action in [
+        Action::ReorderStep { from: 3, to: 0 },
+        Action::ReorderStep { from: 0, to: 3 },
+        Action::ReorderStep {
+            from: usize::MAX,
+            to: usize::MAX,
+        },
+    ] {
+        let (mut document, mut inspector) = staging_inspector();
+        inspector.preview = Preview::Target;
+        inspector.hovered = Some(Preview::Owner);
+        let before = inspector.draft.as_ref().unwrap().clone();
+        act(&action, &mut inspector, &mut document);
+        assert!(!inspector.error.is_empty());
+        assert_same_draft(inspector.draft.as_ref().unwrap(), &before);
+        assert_eq!(inspector.preview, Preview::Target);
+        assert_eq!(inspector.hovered, Some(Preview::Owner));
+        assert_eq!(document.history.undo_len(), 0);
+    }
+    let (mut document, mut inspector) = staging_inspector();
+    inspector.draft.as_mut().unwrap().staging = None;
+    act(
+        &Action::ReorderStep { from: 0, to: 0 },
+        &mut inspector,
+        &mut document,
+    );
+    assert!(!inspector.error.is_empty());
+    assert!(inspector.draft.as_ref().unwrap().staging.is_none());
+}
+
+#[test]
+fn move_activation_between_cards_marks_moved_and_keeps_empty_source_card() {
+    let (mut document, mut inspector) = staging_inspector();
+    let before_document = document_snapshot(&document);
+    inspector.hovered = Some(Preview::Owner);
+    act(
+        &Action::MoveActivation {
+            from_stage: 0,
+            index: 2,
+            to_stage: 1,
+            to_index: 0,
+        },
+        &mut inspector,
+        &mut document,
+    );
+    assert!(inspector.error.is_empty());
+    assert_eq!(
+        draft_plan(&inspector).steps[0].activations,
+        vec![
+            Activation {
+                id: 3,
+                moved: false
+            },
+            Activation { id: 6, moved: true },
+        ]
+    );
+    assert_eq!(
+        draft_plan(&inspector).steps[1].activations,
+        vec![
+            Activation { id: 9, moved: true },
+            Activation {
+                id: 4,
+                moved: false
+            },
+        ]
+    );
+    assert_eq!(inspector.preview, Preview::Activation(1, 0));
+    assert_eq!(inspector.hovered, None);
+    assert_eq!(
+        inspector.preview_keys(&document),
+        vec![PartKey::new(0, 9, 0)]
+    );
+    act(
+        &Action::MoveActivation {
+            from_stage: 1,
+            index: 1,
+            to_stage: 2,
+            to_index: 2,
+        },
+        &mut inspector,
+        &mut document,
+    );
+    assert_eq!(
+        draft_plan(&inspector).steps[2].activations.last(),
+        Some(&Activation { id: 4, moved: true })
+    );
+    act(
+        &Action::MoveActivation {
+            from_stage: 1,
+            index: 0,
+            to_stage: 0,
+            to_index: 0,
+        },
+        &mut inspector,
+        &mut document,
+    );
+    assert!(inspector.error.is_empty());
+    assert!(draft_plan(&inspector).steps[1].activations.is_empty());
+    assert_eq!(draft_plan(&inspector).steps.len(), 3);
+    assert_eq!(draft_plan(&inspector).current_stage, 2);
+    assert_eq!(inspector.draft.as_ref().unwrap().current_stage, "2");
+    assert_eq!(document_snapshot(&document), before_document);
+}
+
+#[test]
+fn move_activation_within_card_uses_post_removal_index_and_preserves_flags() {
+    let (mut document, mut inspector) = staging_inspector();
+    let original = editable_plan();
+    act(
+        &Action::MoveActivation {
+            from_stage: 0,
+            index: 0,
+            to_stage: 0,
+            to_index: 2,
+        },
+        &mut inspector,
+        &mut document,
+    );
+    assert_eq!(
+        draft_plan(&inspector).steps[0].activations,
+        vec![
+            Activation { id: 6, moved: true },
+            Activation {
+                id: 9,
+                moved: false
+            },
+            Activation {
+                id: 3,
+                moved: false
+            },
+        ]
+    );
+    assert_eq!(inspector.preview, Preview::Activation(0, 2));
+    act(
+        &Action::MoveActivation {
+            from_stage: 0,
+            index: 2,
+            to_stage: 0,
+            to_index: 0,
+        },
+        &mut inspector,
+        &mut document,
+    );
+    for index in 0..2 {
+        act(
+            &Action::MoveActivation {
+                from_stage: 0,
+                index,
+                to_stage: 0,
+                to_index: index,
+            },
+            &mut inspector,
+            &mut document,
+        );
+        assert!(inspector.error.is_empty());
+        assert_eq!(draft_plan(&inspector), &original);
+    }
+    assert_eq!(document.history.undo_len(), 0);
+}
+
+#[test]
+fn invalid_activation_moves_preserve_source_destination_and_preview() {
+    for (from_stage, index, to_stage, to_index) in [
+        (3, 0, 0, 0),
+        (0, 3, 1, 0),
+        (0, 0, 3, 0),
+        (0, 0, 1, 2),
+        (0, 0, 0, 3),
+        (usize::MAX, 0, 0, 0),
+        (0, usize::MAX, 1, 0),
+        (0, 0, usize::MAX, 0),
+        (0, 0, 1, usize::MAX),
+    ] {
+        let (mut document, mut inspector) = staging_inspector();
+        inspector.preview = Preview::Stage(2);
+        inspector.hovered = Some(Preview::Target);
+        let before = inspector.draft.as_ref().unwrap().clone();
+        let before_document = document_snapshot(&document);
+        act(
+            &Action::MoveActivation {
+                from_stage,
+                index,
+                to_stage,
+                to_index,
+            },
+            &mut inspector,
+            &mut document,
+        );
+        assert!(!inspector.error.is_empty());
+        assert_same_draft(inspector.draft.as_ref().unwrap(), &before);
+        assert_eq!(inspector.preview, Preview::Stage(2));
+        assert_eq!(inspector.hovered, Some(Preview::Target));
+        assert_eq!(document_snapshot(&document), before_document);
+    }
+    let (mut document, mut inspector) = staging_inspector();
+    inspector.draft.as_mut().unwrap().staging = None;
+    act(
+        &Action::MoveActivation {
+            from_stage: 0,
+            index: 0,
+            to_stage: 0,
+            to_index: 0,
+        },
+        &mut inspector,
+        &mut document,
+    );
+    assert!(!inspector.error.is_empty());
+    assert!(inspector.draft.as_ref().unwrap().staging.is_none());
+}
+
+#[test]
+fn move_activation_rejects_destination_duplicate_without_cleaning_legacy_cross_step_ids() {
+    let (mut document, mut inspector) = staging_inspector();
+    inspector
+        .draft
+        .as_mut()
+        .unwrap()
+        .staging
+        .as_mut()
+        .unwrap()
+        .steps[1]
+        .activations
+        .push(Activation { id: 3, moved: true });
+    let before = inspector.draft.as_ref().unwrap().clone();
+    act(
+        &Action::MoveActivation {
+            from_stage: 0,
+            index: 0,
+            to_stage: 1,
+            to_index: 0,
+        },
+        &mut inspector,
+        &mut document,
+    );
+    assert!(inspector.error.contains("该级已有"));
+    assert_same_draft(inspector.draft.as_ref().unwrap(), &before);
+    act(
+        &Action::MoveActivation {
+            from_stage: 0,
+            index: 2,
+            to_stage: 2,
+            to_index: 2,
+        },
+        &mut inspector,
+        &mut document,
+    );
+    assert!(inspector.error.is_empty());
+    assert_eq!(draft_plan(&inspector).steps[0].activations[0].id, 3);
+    assert_eq!(
+        draft_plan(&inspector).steps[1].activations[1],
+        Activation { id: 3, moved: true }
+    );
+    assert_eq!(
+        draft_plan(&inspector)
+            .steps
+            .iter()
+            .flat_map(|step| &step.activations)
+            .filter(|activation| activation.id == 3)
+            .count(),
+        2
+    );
+    act(&Action::Apply, &mut inspector, &mut document);
+    assert!(!inspector.is_open(), "{}", inspector.error);
+    assert_eq!(document.history.undo_len(), 1);
+    let xml = dr_core::ship_to_xml(&document.ship).unwrap();
+    assert_eq!(dr_core::ship_from_xml(&xml).unwrap(), document.ship);
+}
+
+#[test]
+fn move_activation_rejects_existing_duplicate_within_same_card_atomically() {
+    let (mut document, mut inspector) = staging_inspector();
+    inspector
+        .draft
+        .as_mut()
+        .unwrap()
+        .staging
+        .as_mut()
+        .unwrap()
+        .steps[0]
+        .activations
+        .push(Activation { id: 3, moved: true });
+    let before = inspector.draft.as_ref().unwrap().clone();
+    act(
+        &Action::MoveActivation {
+            from_stage: 0,
+            index: 0,
+            to_stage: 0,
+            to_index: 2,
+        },
+        &mut inspector,
+        &mut document,
+    );
+    assert!(inspector.error.contains("该级已有"));
+    assert_same_draft(inspector.draft.as_ref().unwrap(), &before);
+}
+
+#[test]
+fn generated_and_manual_changes_cancel_without_touching_document_or_redo() {
+    let (mut document, mut inspector) = staging_inspector();
+    assert!(document.execute(EditorCommand::SetActive(2, true)));
+    assert!(document.undo());
+    let before = document_snapshot(&document);
+    act(&Action::GenerateStaging, &mut inspector, &mut document);
+    act(
+        &Action::MoveActivation {
+            from_stage: 0,
+            index: 0,
+            to_stage: 1,
+            to_index: 1,
+        },
+        &mut inspector,
+        &mut document,
+    );
+    act(
+        &Action::ReorderStep { from: 1, to: 0 },
+        &mut inspector,
+        &mut document,
+    );
+    act(&Action::ToggleAdvanced, &mut inspector, &mut document);
+    act(&Action::ToggleTargets, &mut inspector, &mut document);
+    inspector.draft.as_mut().unwrap().name = "仅草稿".into();
+    act(&Action::Cancel, &mut inspector, &mut document);
+    assert!(!inspector.is_open());
+    assert!(!inspector.advanced_open && !inspector.targets_open);
+    assert_eq!(document_snapshot(&document), before);
+    assert!(document.redo());
+    assert!(document.ship.part(2).unwrap().active);
+}
+
+#[test]
+fn generated_manual_and_property_edits_apply_as_one_xml_roundtrippable_undo() {
+    let (mut document, mut inspector) = staging_inspector();
+    let before = document.ship.clone();
+    act(&Action::GenerateStaging, &mut inspector, &mut document);
+    act(
+        &Action::MoveActivation {
+            from_stage: 0,
+            index: 0,
+            to_stage: 1,
+            to_index: 1,
+        },
+        &mut inspector,
+        &mut document,
+    );
+    act(
+        &Action::ReorderStep { from: 1, to: 0 },
+        &mut inspector,
+        &mut document,
+    );
+    let expected_plan = draft_plan(&inspector).clone();
+    let draft = inspector.draft.as_mut().unwrap();
+    draft.name = "自动 + 手动 & 三级".into();
+    draft.throttle = "0.6".into();
+    draft.active = !draft.active;
+    assert_eq!(document.ship, before);
+    assert_eq!(document.history.undo_len(), 0);
+    act(&Action::Apply, &mut inspector, &mut document);
+    assert!(!inspector.is_open(), "{}", inspector.error);
+    assert_eq!(document.history.undo_len(), 1);
+    assert!(document.dirty);
+    let pod = document.ship.part(1).unwrap().pod.as_ref().unwrap();
+    assert_eq!(pod.name, "自动 + 手动 & 三级");
+    assert_eq!(pod.throttle, 0.6);
+    assert_eq!(pod.staging.as_ref(), Some(&expected_plan));
+    assert_eq!(
+        expected_plan.steps[0].activations[1],
+        Activation { id: 9, moved: true }
+    );
+    assert!(expected_plan.steps[1].activations.is_empty());
+    let after = document.ship.clone();
+    assert_eq!(
+        dr_core::ship_from_xml(&dr_core::ship_to_xml(&after).unwrap()).unwrap(),
+        after
+    );
+    assert!(document.undo());
+    assert_eq!(document.ship, before);
+    assert!(!document.dirty);
+    assert_eq!(document.history.undo_len(), 0);
+    assert!(document.redo());
+    assert_eq!(document.ship, after);
+    assert_eq!(document.history.undo_len(), 1);
+}
+
+#[test]
+fn generating_unchanged_plan_and_applying_preserves_redo_without_new_history() {
+    let mut document = staging_document();
+    let plan =
+        dr_core::generate_basic_staging(&document.ship, &document.catalog, PartKey::new(0, 1, 0))
+            .unwrap();
+    document.ship.parts[0].pod.as_mut().unwrap().staging = Some(plan);
+    document.saved_ship = document.ship.clone();
+    assert!(document.execute(EditorCommand::SetActive(2, true)));
+    assert!(document.undo());
+    let before = document.ship.clone();
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    act(&Action::GenerateStaging, &mut inspector, &mut document);
+    act(&Action::GenerateStaging, &mut inspector, &mut document);
+    act(&Action::Apply, &mut inspector, &mut document);
+    assert!(!inspector.is_open(), "{}", inspector.error);
+    assert_eq!(document.ship, before);
+    assert!(!document.dirty);
+    assert_eq!(document.history.undo_len(), 0);
+    assert_eq!(document.history.redo_len(), 1);
+    assert!(document.redo());
+    assert!(document.ship.part(2).unwrap().active);
+}
+
+#[test]
+fn inspector_drawer_toggles_only_change_ui_state() {
+    let (mut document, mut inspector) = staging_inspector();
+    inspector.error = "需保留的提示".into();
+    inspector.focus = Some(Field::Name);
+    inspector.preview = Preview::Activation(0, 1);
+    inspector.hovered = Some(Preview::Stage(2));
+    let before_document = document_snapshot(&document);
+    let before_draft = inspector.draft.as_ref().unwrap().clone();
+    assert!(!inspector.advanced_open && !inspector.targets_open);
+    for expected in [true, false] {
+        act(&Action::ToggleAdvanced, &mut inspector, &mut document);
+        act(&Action::ToggleTargets, &mut inspector, &mut document);
+        assert_eq!(inspector.advanced_open, expected);
+        assert_eq!(inspector.targets_open, expected);
+        assert_eq!(inspector.error, "需保留的提示");
+        assert_eq!(inspector.focus, Some(Field::Name));
+        assert_eq!(inspector.preview, Preview::Activation(0, 1));
+        assert_eq!(inspector.hovered, Some(Preview::Stage(2)));
+        assert_same_draft(inspector.draft.as_ref().unwrap(), &before_draft);
+        assert_eq!(document_snapshot(&document), before_document);
+    }
+}

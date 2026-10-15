@@ -192,18 +192,14 @@ pub(crate) fn point_world(
         .ok()
 }
 
-/// 左右目录和顶部操作提示之外的画布，预留 16 像素边距。
+/// UI 尚未生成实际矩形时的全宽画布，底部预留工具栏与 16 像素边距。
 pub(crate) fn canvas(size: Vec2) -> Rect {
-    if panels::compact(size.x) {
-        let top = (panels::toolbar_height(size.x) + 112.0).min(size.y - 32.0);
-        return Rect::from_corners(
-            Vec2::new(16.0, top),
-            (size - Vec2::splat(16.0)).max(Vec2::new(17.0, top + 1.0)),
-        );
-    }
     Rect::from_corners(
-        Vec2::new(264.0, 220.0),
-        Vec2::new((size.x - 312.0).max(265.0), (size.y - 16.0).max(221.0)),
+        Vec2::splat(16.0),
+        Vec2::new(
+            (size.x - 16.0).max(17.0),
+            (size.y - panels::TOOLBAR_HEIGHT - 16.0).max(17.0),
+        ),
     )
 }
 
@@ -465,6 +461,20 @@ pub(crate) fn draw_debug(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fallback_canvas_has_no_legacy_sidebar_or_top_text_reservation() {
+        for size in [
+            Vec2::new(320.0, 640.0),
+            Vec2::new(640.0, 360.0),
+            Vec2::new(1440.0, 900.0),
+        ] {
+            let area = canvas(size);
+            assert_eq!(area.min, Vec2::splat(16.0));
+            assert_eq!(area.max.x, size.x - 16.0);
+            assert_eq!(area.max.y, size.y - panels::TOOLBAR_HEIGHT - 16.0);
+        }
+    }
 
     #[test]
     fn fit_includes_real_texture_outside_shape_for_rotation_and_mirrors() {

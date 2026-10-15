@@ -9,6 +9,7 @@ mod tests;
 
 #[derive(Clone, Debug)]
 pub(crate) enum NativeClick {
+    Menu,
     File(files::FileAction),
     Properties,
     Help,
@@ -119,6 +120,7 @@ pub(crate) fn input(
             &ComputedNode,
             &UiGlobalTransform,
             Option<&files::FileButton>,
+            Option<&files::MenuButton>,
             Option<&properties::Action>,
             Option<&help::HelpButton>,
         ),
@@ -206,11 +208,13 @@ pub(crate) fn input(
                         state.buttons.reset_all();
                         if !modal_open {
                             state.target = native_buttons.iter().find_map(
-                                |(entity, node, transform, file, property, help)| {
+                                |(entity, node, transform, file, menu, property, help)| {
                                     if !node.contains_point(*transform, physical) {
                                         return None;
                                     }
-                                    let action = if let Some(file) = file {
+                                    let action = if menu.is_some() {
+                                        NativeClick::Menu
+                                    } else if let Some(file) = file {
                                         NativeClick::File(file.0.clone())
                                     } else if matches!(property, Some(properties::Action::Open)) {
                                         NativeClick::Properties

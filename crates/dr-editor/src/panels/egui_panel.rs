@@ -1,5 +1,6 @@
-//! 两个目录边栏使用 egui 内置布局与滚动，不重建 Bevy UI 实体。
+//! 底部图标工具栏与互斥目录 / 设置抽屉，保留正式 egui 输入和语义消息。
 use super::*;
+use crate::icons::{self, Icon};
 use bevy_egui::{EguiContexts, egui};
 
 #[cfg(test)]
@@ -110,6 +111,7 @@ fn touch_scroll_area(ui: &egui::Ui, scroll_id: egui::Id) {
 enum Drawer {
     Ships,
     Parts,
+    Tools,
 }
 
 #[derive(Resource, Default)]
@@ -121,6 +123,11 @@ pub struct UiState {
     pub fit_requested: bool,
     pub ship_toggle: Option<egui::Rect>,
     pub part_toggle: Option<egui::Rect>,
+    pub more_toggle: Option<egui::Rect>,
+    pub settings_toggle: Option<egui::Rect>,
+    pub fit_button: Option<egui::Rect>,
+    pub browser_area: Option<egui::Rect>,
+    pub tools_area: Option<egui::Rect>,
     drawer: Option<Drawer>,
     default_interact_size: Option<egui::Vec2>,
     /// 已有配置控件的可交互矩形；供窗口回归注入真实点击，不另造配置路径。
@@ -145,6 +152,15 @@ pub struct UiState {
 }
 
 impl UiState {
+    /// 原生文件菜单 / 帮助入口可以与 egui 抽屉共用互斥关闭合同。
+    pub fn close_drawer(&mut self) {
+        self.drawer = None;
+    }
+
+    pub fn drawer_open(&self) -> bool {
+        self.drawer.is_some()
+    }
+
     fn deletion_text(&mut self, document: &EditorDocument, drag: &DragState) -> &str {
         let roots = drag.keys();
         if self
@@ -168,83 +184,164 @@ impl UiState {
     }
 }
 
-/// 导航、事务按钮始终在正文滚动之外；窄屏默认收起目录保留画布。
+/// 图标只绘制外观，入口的命中、焦点与点击仍来自正式 Button / Response。
+fn drawer_toggle(ui: &mut egui::Ui, state: &mut UiState, drawer: Drawer) {
+    let (icon, hint) = match drawer {
+        Drawer::Ships => (Icon::Ships, "船体目录"),
+        Drawer::Parts => (Icon::Parts, "部件目录"),
+        Drawer::Tools => (Icon::More, "更多编辑工具与设置"),
+    };
+    let response = icons::selected_button(ui, icon, hint, state.drawer == Some(drawer));
+    let rect = config_rect(ui, &response);
+    match drawer {
+        Drawer::Ships => state.ship_toggle = rect,
+        Drawer::Parts => state.part_toggle = rect,
+        Drawer::Tools => {
+            state.more_toggle = rect;
+            state.settings_toggle = rect;
+        }
+    }
+    if response.clicked() {
+        response.surrender_focus();
+        state.drawer = if state.drawer == Some(drawer) {
+            None
+        } else {
+            Some(drawer)
+        };
+    }
+}
+
+fn action_button(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    action: PanelButton,
+    icon: Icon,
+    available: bool,
+    selected: bool,
+) -> bool {
+    let response = ui
+        .add_enabled_ui(available, |ui| {
+            icons::selected_button(ui, icon, panel_hint(&action), selected)
+        })
+        .inner;
+    hit(ui, &response, action, state);
+    if response.clicked() {
+        response.surrender_focus();
+        true
+    } else {
+        false
+    }
+}
+
+fn fit_button(ui: &mut egui::Ui, state: &mut UiState) {
+    let response = icons::button(ui, Icon::Fit, "适配视野");
+    state.fit_button = config_rect(ui, &response);
+    if response.clicked() {
+        response.surrender_focus();
+        state.fit_requested = true;
+    }
+}
+
+/// 左侧 144 像素交给三个原生入口；其余空间只放一行 44 像素按钮。
 #[allow(clippy::too_many_arguments)]
 fn directory_header(
     ui: &mut egui::Ui,
     state: &mut UiState,
-    compact: bool,
     enabled: bool,
     can_undo: bool,
     can_redo: bool,
-    selected: bool,
-    clipboard: bool,
     pending_edit: bool,
 ) -> Vec<PanelButton> {
     let mut actions = Vec::new();
-    ui.spacing_mut().interact_size = egui::Vec2::splat(44.0);
-    ui.horizontal_wrapped(|ui| {
-        if !enabled {
-            ui.disable();
-        }
-        if compact {
-            for (drawer, label) in [(Drawer::Ships, "船体"), (Drawer::Parts, "部件")] {
-                let response = ui.add(
-                    egui::Button::new(label)
-                        .selected(state.drawer == Some(drawer))
-                        .min_size(egui::vec2(0.0, 44.0)),
-                );
-                if drawer == Drawer::Ships {
-                    state.ship_toggle = Some(response.rect);
-                } else {
-                    state.part_toggle = Some(response.rect);
-                }
-                if response.clicked() {
-                    response.surrender_focus();
-                    state.drawer = if state.drawer == Some(drawer) {
-                        None
-                    } else {
-                        Some(drawer)
-                    };
-                }
+    let rect = ui.max_rect();
+    let tools = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + panels::NATIVE_TOOLBAR_WIDTH, rect.top()),
+        rect.max,
+    );
+    if !tools.is_positive() {
+        return actions;
+    }
+    ui.painter().rect_filled(
+        tools,
+        0.0,
+        crate::egui_ui::ui_color(crate::native_buttons::PANEL),
+    );
+    ui.painter().hline(
+        tools.x_range(),
+        tools.top(),
+        egui::Stroke::new(1.0, crate::egui_ui::ui_color(crate::native_buttons::ACCENT)),
+    );
+    let row = tools.shrink2(egui::vec2(4.0, 6.0));
+    let slots = ((row.width() + 4.0) / 48.0).floor() as usize;
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(row)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.spacing_mut().interact_size = egui::Vec2::splat(44.0);
+            if !enabled {
+                ui.disable();
             }
-        }
-        for (action, label, available) in [
-            (PanelButton::Undo, "撤销", can_undo),
-            (PanelButton::Redo, "重做", can_redo),
-            (PanelButton::Delete, "删除", selected),
-            (PanelButton::SelectAll, "全选", true),
-            (PanelButton::Copy, "复制", selected),
-            (PanelButton::Cut, "剪切", selected),
-            (PanelButton::Paste, "粘贴", clipboard),
-        ] {
-            let response = ui.add_enabled(
-                available,
-                egui::Button::new(label).min_size(egui::vec2(0.0, 44.0)),
-            );
-            hit(ui, &response, action.clone(), state);
-            if response.clicked() {
-                response.surrender_focus();
-                actions.push(action);
+            if slots >= 2 {
+                drawer_toggle(ui, state, Drawer::Parts);
             }
-        }
-        if ui
-            .add(egui::Button::new("适配视野").min_size(egui::vec2(0.0, 44.0)))
-            .clicked()
-        {
-            state.fit_requested = true;
-        }
-        if pending_edit {
-            let action = PanelButton::CancelPlacement;
-            let response = ui.add(egui::Button::new("取消").min_size(egui::vec2(0.0, 44.0)));
-            hit(ui, &response, action.clone(), state);
-            if response.clicked() {
-                response.surrender_focus();
-                actions.push(action);
+            if slots >= 3
+                && action_button(ui, state, PanelButton::Undo, Icon::Undo, can_undo, false)
+            {
+                actions.push(PanelButton::Undo);
             }
-        }
-    });
+            if slots >= 4
+                && action_button(ui, state, PanelButton::Redo, Icon::Redo, can_redo, false)
+            {
+                actions.push(PanelButton::Redo);
+            }
+            if slots >= 5 {
+                fit_button(ui, state);
+            }
+            if slots >= 6 {
+                drawer_toggle(ui, state, Drawer::Ships);
+            }
+            if slots >= 7
+                && pending_edit
+                && action_button(
+                    ui,
+                    state,
+                    PanelButton::CancelPlacement,
+                    Icon::Cancel,
+                    true,
+                    false,
+                )
+            {
+                actions.push(PanelButton::CancelPlacement);
+            }
+            if slots >= 1 {
+                drawer_toggle(ui, state, Drawer::Tools);
+            }
+        },
+    );
     actions
+}
+
+fn drawer_header(ui: &mut egui::Ui, title: &str, state: &mut UiState) {
+    ui.horizontal(|ui| {
+        ui.heading(title);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let response = icons::button(ui, Icon::Cancel, "收起抽屉");
+            if response.clicked() {
+                response.surrender_focus();
+                state.drawer = None;
+            }
+        });
+    });
+}
+
+fn tools_navigation(ui: &mut egui::Ui, state: &mut UiState) {
+    ui.horizontal(|ui| {
+        drawer_toggle(ui, state, Drawer::Ships);
+        drawer_toggle(ui, state, Drawer::Parts);
+        fit_button(ui, state);
+    });
 }
 
 fn sidebar_width(width: f32, preferred: f32) -> f32 {
@@ -341,13 +438,24 @@ fn browser_row_height(ui: &egui::Ui) -> f32 {
         .ceil()
 }
 
-/// 只保留原生顶栏的布局和命中空隙，不绘制盖在 Bevy UI 上方的背景。
-fn reserve_native_toolbar(ui: &mut egui::Ui, width: f32) -> egui::Response {
-    egui::Panel::top("directory_toolbar_space")
-        .exact_size(panels::toolbar_height(width))
+/// 单条底部 Panel 占据布局和命中空间，背景只画在原生入口以右。
+#[allow(clippy::too_many_arguments)]
+fn bottom_toolbar(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    enabled: bool,
+    can_undo: bool,
+    can_redo: bool,
+    pending_edit: bool,
+) -> (egui::Rect, Vec<PanelButton>) {
+    let toolbar = egui::Panel::bottom("editor_bottom_toolbar")
+        .exact_size(panels::TOOLBAR_HEIGHT)
+        .resizable(false)
         .frame(egui::Frame::NONE)
-        .show(ui, |_| {})
-        .response
+        .show(ui, |ui| {
+            directory_header(ui, state, enabled, can_undo, can_redo, pending_edit)
+        });
+    (toolbar.response.rect, toolbar.inner)
 }
 
 // 将可选资源合并为一个参数，保持在 Bevy 系统参数数量限制内。
@@ -392,6 +500,14 @@ pub fn draw(
     state.canvas_area = None;
     state.ship_toggle = None;
     state.part_toggle = None;
+    state.more_toggle = None;
+    state.settings_toggle = None;
+    state.fit_button = None;
+    state.browser_area = None;
+    state.tools_area = None;
+    if inspector.docked() {
+        state.drawer = None;
+    }
     state.pixels_per_point = ctx.pixels_per_point();
     state.scrolling = ctx.input(|input| input.is_scrolling());
     let enabled = !inspector.is_open()
@@ -445,30 +561,22 @@ pub fn draw(
             .layer_id(egui::LayerId::background())
             .max_rect(ctx.viewport_rect()),
     );
-    // 整个原生顶栏（包括空隙）均归 UI，触摸滚动不落到画布。
-    let toolbar = reserve_native_toolbar(&mut viewport_ui, width);
-    state.areas.push(toolbar.rect);
-    let header = egui::Panel::top("directory_navigation").show(&mut viewport_ui, |ui| {
-        directory_header(
-            ui,
-            &mut state,
-            compact,
-            enabled,
-            document.history.can_undo(),
-            document.history.can_redo(),
-            !document.selected_keys().is_empty() && drag.id.is_none(),
-            cursor.clipboard.is_some(),
-            cursor.placing
-                || cursor.paste.is_some()
-                || cursor.manual_connection.is_some()
-                || drag.id.is_some(),
-        )
-    });
-    for action in header.inner {
-        actions.write(action);
-    }
-    state.areas.push(header.response.rect);
-    if !inspector.docked() && (!compact || state.drawer == Some(Drawer::Ships)) {
+    let pending_edit = cursor.placing
+        || cursor.paste.is_some()
+        || cursor.manual_connection.is_some()
+        || drag.id.is_some();
+    let (toolbar, requested) = bottom_toolbar(
+        &mut viewport_ui,
+        &mut state,
+        enabled,
+        document.history.can_undo(),
+        document.history.can_redo(),
+        pending_edit,
+    );
+    actions.write_batch(requested);
+    // 包含原生三入口和条内空白；滚动与点按不会穿透到底层画布。
+    state.areas.push(toolbar);
+    if !inspector.docked() && state.drawer == Some(Drawer::Ships) {
         let left = egui::Panel::left("ship_browser_sidebar")
             .exact_size(sidebar_width(width, 248.0))
             .resizable(false)
@@ -476,10 +584,8 @@ pub fn draw(
                 if !enabled {
                     ui.disable();
                 }
-                if compact {
-                    ui.spacing_mut().interact_size.y = 44.0;
-                }
-                ui.heading("船体列表");
+                ui.spacing_mut().interact_size.y = 44.0;
+                drawer_header(ui, "船体目录", &mut state);
                 let folder = browser
                     .folder
                     .file_name()
@@ -558,189 +664,255 @@ pub fn draw(
                     (output.content_size.y - output.inner_rect.height()).max(0.0);
             });
         state.areas.push(left.response.rect);
+        if enabled {
+            state.browser_area = Some(left.response.rect);
+        }
     }
-    if !inspector.docked() && (!compact || state.drawer == Some(Drawer::Parts)) {
+    if !inspector.docked() && state.drawer == Some(Drawer::Parts) {
         let right = egui::Panel::right("part_palette_sidebar")
-        .exact_size(sidebar_width(width, 296.0))
-        .resizable(false)
-        .show(&mut viewport_ui, |ui| {
-            if !enabled { ui.disable(); }
-            if compact { ui.spacing_mut().interact_size.y = 44.0; }
-            let palette_height = if compact { (ui.available_height() * 0.5).clamp(80.0, 240.0) }
-                else { (ui.available_height() - 125.0).max(50.0) };
-            let mut content = |ui: &mut egui::Ui| {
-            if drag.id.is_some() {
-                ui.colored_label(egui::Color32::LIGHT_RED, state.deletion_text(&document, &drag))
-                    .on_hover_text("拖到此列表松手删除拖拽部件及整个相连分量（包括父节点、子节点和对接连接器），Ctrl+Z 一次撤销；Esc / 右键取消。");
-                ui.disable();
-            } else {
-                state.deletion_hint = None;
-                ui.heading("部件目录").on_hover_text("将画布部件拖到此列表松手，可删除它及所有相连部件；Ctrl+Z 撤销。");
-            }
-            if ui.button("树 / 图 · F6")
-                .on_hover_text("打开连接树 / 有向连接图；选择子树、连通部件和编辑连接（F6）。")
-                .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再编辑连接。")
-                .clicked() {
-                topology.open = true;
-            }
-            ui.horizontal_wrapped(|ui| {
-                ui.label("框选").on_hover_text("框选多个部件；选择左键框选时，中键用于移动视角。默认中键框选、左键拖空白移动视角。");
-                let middle = ui.selectable_value(
-                    &mut options.box_select_button,
-                    view::BoxSelectButton::Middle,
-                    "中键",
-                )
-                .on_hover_text("中键拖动框选；左键拖空白移动视角。")
-                .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再切换框选按键。");
-                state.box_middle = config_rect(ui, &middle);
-                let left = ui.selectable_value(
-                    &mut options.box_select_button,
-                    view::BoxSelectButton::Left,
-                    "左键",
-                )
-                .on_hover_text("左键拖空白框选；中键拖动移动视角。")
-                .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再切换框选按键。");
-                state.box_left = config_rect(ui, &left);
-            });
-            let follow = follow_toggle(ui, &mut options.follow_children);
-            state.follow_children = config_rect(ui, &follow);
-            if let Some(settings) = line_settings.as_mut() {
-                let response = ui.button("连接线设置…").on_hover_text("显示开关、颜色/透明度、粗细、实线/虚线/点线、呼吸/流动及方向箭头；只改变显示。");
-                state.connection_lines = config_rect(ui, &response);
-                if response.clicked() { response.surrender_focus(); settings.open = true; }
-            }
-            let mut free = document.free_mode;
-            let response = ui.checkbox(&mut free, "自由模式")
-                .on_hover_text("关闭自动吸附、碰撞判定和自动断连。依次点击两个连接点/边建立连接，重复点击这两个端点可断开；移动、旋转保留已有连接。Esc / 右键取消选点，Ctrl+Z 撤销。");
-            state.free_mode = config_rect(ui, &response);
-            if response.changed() {
-                response.surrender_focus();
-                free_mode::set_enabled(&mut document, &mut cursor, &mut drag, free);
-            }
-            let selected = document.selected_keys();
-            if let Some(part) = document.selected.and_then(|key| document.ship.part_at(key)) {
-                let angle = part.angle.to_degrees();
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(format!("角度 {angle:.1}°"));
-                    for (degrees, label) in [(-15.0_f64, "−15°"), (15.0_f64, "+15°")] {
-                        let response = ui.button(label).on_hover_text("围绕选区中心精细旋转；连接点和连接边跟随角度。R 仍为 90°。");
-                        if degrees < 0.0 { state.rotate_left = config_rect(ui, &response); }
-                        else { state.rotate_right = config_rect(ui, &response); }
-                        if response.clicked() {
-                            response.surrender_focus();
-                            let center = selection::center(&document, &selected);
-                            document.execute(EditorCommand::TransformSelection {
-                                parts: selected.clone(),
-                                transform: SelectionTransform::RotateBy { center, radians: degrees.to_radians() },
-                            });
-                        }
-                    }
-                });
-            }
-            button(ui, PanelButton::ExpandCategories, palette.collapsed.is_empty(),
-                "全部展开", &mut state, &mut actions);
-            ui.separator();
-            let scroll_id = ui.make_persistent_id(egui::IdSalt::new("part_palette_rows"));
-            let mut scroll = egui::ScrollArea::vertical()
-                .id_salt("part_palette_rows")
-                .max_height(if compact { palette_height } else { (ui.available_height() - 125.0).max(50.0) })
-                .auto_shrink([false, false]);
-            if let Some(offset) = state.palette_scroll.take() {
-                scroll = scroll.vertical_scroll_offset(offset);
-            }
-            let groups = palette.groups(&document.catalog);
-            let kinds: Vec<_> = document.catalog.visible().collect();
-            let output = scroll.show(ui, |ui| {
-                touch_scroll_area(ui, scroll_id);
-                ui.spacing_mut().item_spacing.y = 0.0;
-                for (category, indices) in groups {
-                    let open = !palette.collapsed.contains(category);
-                    let group = category_group(ui, category, open, |ui| {
-                        for index in indices {
-                            let kind = kinds[index];
-                            let (texture, size) = images.get(&mut contexts, &assets, &image_assets, kind);
-                            let count = counts.get(&kind.id).copied().unwrap_or(0);
-                            let limit = kind
-                                .max_occurrences
-                                .map(|limit| format!(" {count}/{limit}"))
-                                .unwrap_or_default();
-                            let width = ui.available_width();
-                            let response = ui.push_id(("palette_part", &kind.id), |ui| {
-                                part_row(
-                                    ui,
-                                    texture,
-                                    size,
-                                    format!("{}{limit}", kind.name),
-                                    index == cursor.catalog_index,
-                                    width,
-                                )
-                            }).inner
-                            .on_hover_text(format!("{}\n点击选择，再点击画布放置；也可直接拖到画布。\n{}", kind.name, kind.description))
-                            .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再选择部件。");
-                            hit(ui, &response, PanelButton::Part(index), &mut state);
-                            if selection_changed && index == cursor.catalog_index {
-                                response.scroll_to_me(Some(egui::Align::Center));
-                            }
-                            if response.drag_started() {
-                                response.surrender_focus();
-                                actions.write(PanelButton::DragPart(index));
-                            } else if response.clicked() {
-                                response.surrender_focus();
-                                actions.write(PanelButton::Part(index));
-                                if compact { state.drawer = None; }
-                            }
-                        }
-                    });
-                    let action = PanelButton::ToggleCategory(category.to_owned());
-                    let response = group.header_response.on_hover_text(panel_hint(&action));
-                    hit(ui, &response, action.clone(), &mut state);
-                    if response.clicked() {
-                        response.surrender_focus();
-                        actions.write(action);
-                    }
+            .exact_size(sidebar_width(width, 296.0))
+            .resizable(false)
+            .show(&mut viewport_ui, |ui| {
+                if !enabled {
+                    ui.disable();
                 }
-            });
-            state.palette_offset = output.state.offset.y;
-            ui.separator();
-            if let Some(kind) = kinds.get(cursor.catalog_index) {
-                ui.strong(&kind.name);
-                ui.label(format!("质量 {:.2}", kind.mass));
-                ui.add(egui::Label::new(&kind.description).truncate())
-                    .on_hover_text(&kind.description);
-            }
-            ui.horizontal_wrapped(|ui| {
-                for (action, label) in [(PanelButton::Rotate, "旋转"), (PanelButton::FlipX, "镜像 X"), (PanelButton::FlipY, "镜像 Y")] {
-                    button(ui, action, false, label, &mut state, &mut actions);
+                ui.spacing_mut().interact_size.y = 44.0;
+                if drag.id.is_some() {
+                    ui.colored_label(
+                        egui::Color32::LIGHT_RED,
+                        state.deletion_text(&document, &drag),
+                    )
+                    .on_hover_text(
+                        "拖到此列表松手删除整个相连分量；Ctrl+Z 一次撤销；Esc / 右键取消。",
+                    );
+                    ui.disable();
+                } else {
+                    state.deletion_hint = None;
+                    drawer_header(ui, "部件目录", &mut state);
                 }
-            });
-            ui.small("R 旋转 · X/Y 镜像")
-                .on_hover_text("选部件后点击画布放置，或将目录部件拖到画布。R 旋转；X/Y 镜像；Tab 切换部件；Esc / 右键取消放置。");
-            if cursor.placing {
                 button(
                     ui,
-                    PanelButton::CancelPlacement,
-                    false,
-                    "取消放置",
+                    PanelButton::ExpandCategories,
+                    palette.collapsed.is_empty(),
+                    "全部展开",
                     &mut state,
                     &mut actions,
                 );
-            }
-            };
-            if compact {
-                egui::ScrollArea::vertical().id_salt("palette_controls_scroll")
-                    .auto_shrink([false, false]).show(ui, content);
-            } else { content(ui); }
-        });
+                ui.separator();
+                let scroll_id = ui.make_persistent_id(egui::IdSalt::new("part_palette_rows"));
+                let mut scroll = egui::ScrollArea::vertical()
+                    .id_salt("part_palette_rows")
+                    .max_height((ui.available_height() - 100.0).max(50.0))
+                    .auto_shrink([false, false]);
+                if let Some(offset) = state.palette_scroll.take() {
+                    scroll = scroll.vertical_scroll_offset(offset);
+                }
+                let groups = palette.groups(&document.catalog);
+                let kinds: Vec<_> = document.catalog.visible().collect();
+                let output = scroll.show(ui, |ui| {
+                    touch_scroll_area(ui, scroll_id);
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    for (category, indices) in groups {
+                        let open = !palette.collapsed.contains(category);
+                        let group = category_group(ui, category, open, |ui| {
+                            for index in indices {
+                                let kind = kinds[index];
+                                let (texture, size) =
+                                    images.get(&mut contexts, &assets, &image_assets, kind);
+                                let count = counts.get(&kind.id).copied().unwrap_or(0);
+                                let limit = kind
+                                    .max_occurrences
+                                    .map(|limit| format!(" {count}/{limit}"))
+                                    .unwrap_or_default();
+                                let width = ui.available_width();
+                                let response = ui
+                                    .push_id(("palette_part", &kind.id), |ui| {
+                                        part_row(
+                                            ui,
+                                            texture,
+                                            size,
+                                            format!("{}{limit}", kind.name),
+                                            index == cursor.catalog_index,
+                                            width,
+                                        )
+                                    })
+                                    .inner
+                                    .on_hover_text(format!(
+                                        "{}\n点击选择，再点击画布放置；也可直接拖到画布。\n{}",
+                                        kind.name, kind.description
+                                    ))
+                                    .on_disabled_hover_text(
+                                        "请先应用或取消属性草稿，或处理文件确认，再选择部件。",
+                                    );
+                                hit(ui, &response, PanelButton::Part(index), &mut state);
+                                if selection_changed && index == cursor.catalog_index {
+                                    response.scroll_to_me(Some(egui::Align::Center));
+                                }
+                                if response.drag_started() {
+                                    response.surrender_focus();
+                                    actions.write(PanelButton::DragPart(index));
+                                } else if response.clicked() {
+                                    response.surrender_focus();
+                                    actions.write(PanelButton::Part(index));
+                                    if compact {
+                                        state.drawer = None;
+                                    }
+                                }
+                            }
+                        });
+                        let action = PanelButton::ToggleCategory(category.to_owned());
+                        let response = group.header_response.on_hover_text(panel_hint(&action));
+                        hit(ui, &response, action.clone(), &mut state);
+                        if response.clicked() {
+                            response.surrender_focus();
+                            actions.write(action);
+                        }
+                    }
+                });
+                state.palette_offset = output.state.offset.y;
+                ui.separator();
+                if let Some(kind) = kinds.get(cursor.catalog_index) {
+                    ui.add(egui::Label::new(&kind.name).truncate())
+                        .on_hover_text(format!("质量 {:.2}\n{}", kind.mass, kind.description));
+                }
+                ui.horizontal(|ui| {
+                    for (action, icon) in [
+                        (PanelButton::Rotate, Icon::Rotate),
+                        (PanelButton::FlipX, Icon::FlipX),
+                        (PanelButton::FlipY, Icon::FlipY),
+                    ] {
+                        if action_button(ui, &mut state, action.clone(), icon, true, false) {
+                            actions.write(action);
+                        }
+                    }
+                    if cursor.placing
+                        && action_button(
+                            ui,
+                            &mut state,
+                            PanelButton::CancelPlacement,
+                            Icon::Cancel,
+                            true,
+                            false,
+                        )
+                    {
+                        actions.write(PanelButton::CancelPlacement);
+                    }
+                });
+            });
         state.areas.push(right.response.rect);
         if enabled {
             state.palette_area = Some(right.response.rect);
         }
     }
-    let mut canvas = viewport_ui.available_rect_before_wrap();
-    if !compact {
-        canvas.min.y = canvas.min.y.max(220.0);
+    if !inspector.docked() && state.drawer == Some(Drawer::Tools) {
+        let tools = egui::Panel::right("editor_tools_drawer")
+            .exact_size(sidebar_width(width, 296.0))
+            .resizable(false)
+            .show(&mut viewport_ui, |ui| {
+                if !enabled { ui.disable(); }
+                ui.spacing_mut().interact_size = egui::Vec2::splat(44.0);
+                drawer_header(ui, "编辑工具", &mut state);
+                let scroll_id = ui.make_persistent_id(egui::IdSalt::new("editor_tools_scroll"));
+                let scroll = egui::ScrollArea::vertical()
+                    .id_salt("editor_tools_scroll")
+                    .auto_shrink([false, false]);
+                scroll.show(ui, |ui| {
+                    touch_scroll_area(ui, scroll_id);
+                    tools_navigation(ui, &mut state);
+                    ui.separator();
+                    let selected = !document.selected_keys().is_empty() && drag.id.is_none();
+                    ui.horizontal_wrapped(|ui| {
+                        for (action, icon, available) in [
+                            (PanelButton::Undo, Icon::Undo, document.history.can_undo()),
+                            (PanelButton::Redo, Icon::Redo, document.history.can_redo()),
+                            (PanelButton::Delete, Icon::Delete, selected),
+                            (PanelButton::SelectAll, Icon::SelectAll, true),
+                            (PanelButton::Copy, Icon::Copy, selected),
+                            (PanelButton::Cut, Icon::Cut, selected),
+                            (PanelButton::Paste, Icon::Paste, cursor.clipboard.is_some()),
+                            (PanelButton::Rotate, Icon::Rotate, true),
+                            (PanelButton::FlipX, Icon::FlipX, true),
+                            (PanelButton::FlipY, Icon::FlipY, true),
+                        ] {
+                            if action_button(ui, &mut state, action.clone(), icon, available, false) {
+                                actions.write(action);
+                            }
+                        }
+                        if pending_edit && action_button(ui, &mut state,
+                            PanelButton::CancelPlacement, Icon::Cancel, true, false) {
+                            actions.write(PanelButton::CancelPlacement);
+                        }
+                    });
+                    ui.separator();
+                    ui.strong("编辑设置");
+                    if ui.button("树 / 图 · F6")
+                        .on_hover_text("打开连接树 / 有向连接图；选择子树、连通部件和编辑连接（F6）。")
+                        .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再编辑连接。")
+                        .clicked() {
+                        topology.open = true;
+                    }
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("框选").on_hover_text("框选多个部件；选择左键框选时，中键用于移动视角。默认中键框选、左键拖空白移动视角。");
+                        let middle = ui.selectable_value(
+                            &mut options.box_select_button,
+                            view::BoxSelectButton::Middle,
+                            "中键",
+                        )
+                        .on_hover_text("中键拖动框选；左键拖空白移动视角。")
+                        .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再切换框选按键。");
+                        state.box_middle = config_rect(ui, &middle);
+                        let left = ui.selectable_value(
+                            &mut options.box_select_button,
+                            view::BoxSelectButton::Left,
+                            "左键",
+                        )
+                        .on_hover_text("左键拖空白框选；中键拖动移动视角。")
+                        .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再切换框选按键。");
+                        state.box_left = config_rect(ui, &left);
+                    });
+                    let follow = follow_toggle(ui, &mut options.follow_children);
+                    state.follow_children = config_rect(ui, &follow);
+                    if let Some(settings) = line_settings.as_mut() {
+                        let response = ui.button("连接线设置…").on_hover_text("显示开关、颜色/透明度、粗细、实线/虚线/点线、呼吸/流动及方向箭头；只改变显示。");
+                        state.connection_lines = config_rect(ui, &response);
+                        if response.clicked() { response.surrender_focus(); settings.open = true; }
+                    }
+                    let mut free = document.free_mode;
+                    let response = ui.checkbox(&mut free, "自由模式")
+                        .on_hover_text("关闭自动吸附、碰撞判定和自动断连。依次点击两个连接点/边建立连接，重复点击这两个端点可断开；移动、旋转保留已有连接。Esc / 右键取消选点，Ctrl+Z 撤销。");
+                    state.free_mode = config_rect(ui, &response);
+                    if response.changed() {
+                        response.surrender_focus();
+                        free_mode::set_enabled(&mut document, &mut cursor, &mut drag, free);
+                    }
+                    let selected = document.selected_keys();
+                    if let Some(part) = document.selected.and_then(|key| document.ship.part_at(key)) {
+                        let angle = part.angle.to_degrees();
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(format!("角度 {angle:.1}°"));
+                            for (degrees, label) in [(-15.0_f64, "−15°"), (15.0_f64, "+15°")] {
+                                let response = ui.button(label).on_hover_text("围绕选区中心精细旋转；连接点和连接边跟随角度。R 仍为 90°。");
+                                if degrees < 0.0 { state.rotate_left = config_rect(ui, &response); }
+                                else { state.rotate_right = config_rect(ui, &response); }
+                                if response.clicked() {
+                                    response.surrender_focus();
+                                    let center = selection::center(&document, &selected);
+                                    document.execute(EditorCommand::TransformSelection {
+                                        parts: selected.clone(),
+                                        transform: SelectionTransform::RotateBy { center, radians: degrees.to_radians() },
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+            });
+        state.areas.push(tools.response.rect);
+        if enabled {
+            state.tools_area = Some(tools.response.rect);
+        }
     }
-    state.canvas_area = Some(canvas);
+    state.canvas_area = Some(viewport_ui.available_rect_before_wrap());
 }
 
 impl crate::egui_ui::UiTestInput {
@@ -761,7 +933,31 @@ impl crate::egui_ui::UiTestInput {
             self.click_rect(*rect, input);
             return true;
         }
-        let Some(rect) = state.areas.last() else {
+        let wanted = match &action {
+            PanelButton::Part(_)
+            | PanelButton::DragPart(_)
+            | PanelButton::ToggleCategory(_)
+            | PanelButton::ExpandCategories => Drawer::Parts,
+            PanelButton::Open(_) | PanelButton::Folder | PanelButton::Refresh => Drawer::Ships,
+            _ => Drawer::Tools,
+        };
+        if state.drawer != Some(wanted) {
+            let toggle = match wanted {
+                Drawer::Parts => state.part_toggle,
+                Drawer::Ships => state.ship_toggle.or(state.more_toggle),
+                Drawer::Tools => state.more_toggle,
+            };
+            if let Some(rect) = toggle {
+                self.click_rect(rect, input);
+            }
+            return false;
+        }
+        let area = match wanted {
+            Drawer::Parts => state.palette_area,
+            Drawer::Ships => state.browser_area,
+            Drawer::Tools => state.tools_area,
+        };
+        let Some(rect) = area else {
             return false;
         };
         input.0.events.extend([

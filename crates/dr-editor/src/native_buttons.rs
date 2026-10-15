@@ -33,20 +33,6 @@ pub(crate) fn native_corners() -> BorderRadius {
     BorderRadius::all(px(f32::from(RADIUS)))
 }
 
-/// 所有顶栏入口复用同一份字体、字号、文字颜色与单行布局。
-pub(crate) fn label(value: impl Into<String>, font: Handle<Font>) -> impl Bundle {
-    (
-        Text::new(value),
-        TextFont {
-            font: bevy::text::FontSource::Handle(font),
-            font_size: FontSize::Px(BUTTON_FONT_SIZE),
-            ..default()
-        },
-        TextColor(TEXT),
-        TextLayout::default().with_no_wrap(),
-    )
-}
-
 /// 顶栏所有原生按钮共用状态色，包括属性入口；反馈本身不产生 Activate。
 type ButtonVisuals = (
     Entity,

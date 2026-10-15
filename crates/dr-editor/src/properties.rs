@@ -133,6 +133,9 @@ pub struct Inspector {
     pub focus: Option<Field>,
     pub error: String,
     pub preview: Preview,
+    /// 仅控制高级属性与目标抽屉的展开，不写入草稿或文档。
+    pub advanced_open: bool,
+    pub targets_open: bool,
     /// 本帧悬停优先显示，离开控件后恢复 preview；不创建编辑动作。
     pub hovered: Option<Preview>,
 }
@@ -218,6 +221,21 @@ pub enum Action {
     Focus(Field),
     Active,
     CycleTarget(bool),
+    ToggleAdvanced,
+    ToggleTargets,
+    GenerateStaging,
+    /// 插入重排整卡，to 是最终下标。
+    ReorderStep {
+        from: usize,
+        to: usize,
+    },
+    /// to_index 是删除源动作后在目标卡内的最终插入下标。
+    MoveActivation {
+        from_stage: usize,
+        index: usize,
+        to_stage: usize,
+        to_index: usize,
+    },
     AddStep,
     RemoveStep(usize),
     MoveStep(usize, bool),
@@ -236,29 +254,23 @@ fn button(action: Action) -> impl Bundle {
     )
 }
 
-pub fn setup(mut commands: Commands, assets: Res<AssetServer>) {
-    let font = assets.load("fonts/HarmonyOS_Sans/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ttf");
-    commands
-        .spawn(button(Action::Open))
-        .insert((
-            Node {
-                position_type: PositionType::Absolute,
-                top: px(12),
-                left: px(500),
-                border: UiRect::all(px(1)),
-                border_radius: native_buttons::native_corners(),
-                padding: UiRect::axes(px(12), px(7)),
-                min_height: px(44),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            panels::EditorPanel,
-            panels::ToolbarItem::Properties,
-        ))
-        .with_children(|root| {
-            root.spawn(native_buttons::label("≡ 属性 / 分级", font));
-        });
+pub fn setup(mut commands: Commands) {
+    commands.spawn(button(Action::Open)).insert((
+        Node {
+            position_type: PositionType::Absolute,
+            bottom: px(4),
+            left: px(48),
+            width: px(48),
+            height: px(48),
+            border: UiRect::all(px(1)),
+            border_radius: native_buttons::native_corners(),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        panels::EditorPanel,
+        panels::ToolbarItem::Properties,
+    ));
 }
 
 pub fn open(inspector: &mut Inspector, document: &EditorDocument) {
@@ -286,6 +298,54 @@ fn unique_target_parts(parts: &[Part]) -> impl Iterator<Item = &Part> {
     parts.iter().filter(move |part| counts[&part.id] == 1)
 }
 
+fn reorder_step(staging: &mut StagingState, from: usize, to: usize) -> Result<(), &'static str> {
+    if from >= staging.steps.len() || to >= staging.steps.len() {
+        return Err("分级位置已失效");
+    }
+    let step = staging.steps.remove(from);
+    staging.steps.insert(to, step);
+    Ok(())
+}
+
+fn move_activation(
+    staging: &mut StagingState,
+    from_stage: usize,
+    index: usize,
+    to_stage: usize,
+    to_index: usize,
+) -> Result<(), &'static str> {
+    let id = staging
+        .steps
+        .get(from_stage)
+        .and_then(|step| step.activations.get(index))
+        .ok_or("激活动作位置已失效")?
+        .id;
+    let destination = staging.steps.get(to_stage).ok_or("分级位置已失效")?;
+    let same_stage = from_stage == to_stage;
+    let destination_len = destination.activations.len() - usize::from(same_stage);
+    if to_index > destination_len {
+        return Err("激活动作插入位置已失效");
+    }
+    if destination
+        .activations
+        .iter()
+        .enumerate()
+        .any(|(candidate, activation)| activation.id == id && (!same_stage || candidate != index))
+    {
+        return Err("该级已有这个部件的激活动作");
+    }
+
+    // 所有索引和目标重复检查完成后再删除源，失败时完整保留草稿。
+    let mut activation = staging.steps[from_stage].activations.remove(index);
+    if !same_stage {
+        activation.moved = true;
+    }
+    staging.steps[to_stage]
+        .activations
+        .insert(to_index, activation);
+    Ok(())
+}
+
 pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument) {
     match action {
         Action::Open => {
@@ -294,6 +354,14 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
         }
         Action::Cancel => {
             *inspector = Inspector::default();
+            return;
+        }
+        Action::ToggleAdvanced => {
+            inspector.advanced_open = !inspector.advanced_open;
+            return;
+        }
+        Action::ToggleTargets => {
+            inspector.targets_open = !inspector.targets_open;
             return;
         }
         Action::Apply => {
@@ -403,6 +471,60 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
                     (None, false) => parts.len() - 1,
                 };
                 draft.target = parts[index].to_string();
+            }
+        }
+        Action::GenerateStaging => {
+            let result = if document.ship.part_at(draft.key) != Some(&draft.original) {
+                Err("部件已变更，请取消后重新打开属性".into())
+            } else {
+                dr_core::generate_basic_staging(&document.ship, &document.catalog, draft.key)
+                    .map_err(|error| error.to_string())
+            };
+            match result {
+                Ok(staging) => {
+                    inspector.preview = if staging.steps.is_empty() {
+                        Preview::Owner
+                    } else {
+                        Preview::Stage(0)
+                    };
+                    inspector.hovered = None;
+                    draft.staging = Some(staging);
+                    draft.current_stage = "0".into();
+                }
+                Err(error) => inspector.error = error,
+            }
+        }
+        Action::ReorderStep { from, to } => {
+            match draft
+                .staging
+                .as_mut()
+                .ok_or("尚无分级计划")
+                .and_then(|staging| reorder_step(staging, from, to))
+            {
+                Ok(()) => {
+                    inspector.preview = Preview::Stage(to);
+                    inspector.hovered = None;
+                }
+                Err(error) => inspector.error = error.into(),
+            }
+        }
+        Action::MoveActivation {
+            from_stage,
+            index,
+            to_stage,
+            to_index,
+        } => {
+            match draft
+                .staging
+                .as_mut()
+                .ok_or("尚无分级计划")
+                .and_then(|staging| move_activation(staging, from_stage, index, to_stage, to_index))
+            {
+                Ok(()) => {
+                    inspector.preview = Preview::Activation(to_stage, to_index);
+                    inspector.hovered = None;
+                }
+                Err(error) => inspector.error = error.into(),
             }
         }
         Action::AddStep => {

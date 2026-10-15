@@ -19,7 +19,66 @@ pub struct Shown {
     pub body: egui::Rect,
 }
 
-/// hits 使用 egui 逻辑坐标，追加而不清空；available 是既有工具栏之后的区域。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DragSource {
+    Stage(usize),
+    Activation(usize, usize),
+}
+
+#[derive(Clone)]
+struct StagingDrag {
+    owner: PartKey,
+    plan: StagingState,
+    source: DragSource,
+}
+
+#[derive(Clone, Copy)]
+enum DropZone {
+    Header {
+        stage: usize,
+        len: usize,
+        rect: egui::Rect,
+    },
+    Tile {
+        stage: usize,
+        index: usize,
+        rect: egui::Rect,
+    },
+}
+
+fn drag_id() -> egui::Id {
+    egui::Id::new("staging_card_drag")
+}
+
+fn press_id() -> egui::Id {
+    egui::Id::new("staging_card_press")
+}
+
+fn record_drag_press(
+    response: &egui::Response,
+    owner: PartKey,
+    plan: &StagingState,
+    source: DragSource,
+) {
+    if response.is_pointer_button_down_on()
+        && response
+            .ctx
+            .input(|input| input.pointer.button_pressed(egui::PointerButton::Primary))
+    {
+        response.ctx.data_mut(|data| {
+            data.insert_temp(
+                press_id(),
+                StagingDrag {
+                    owner,
+                    plan: plan.clone(),
+                    source,
+                },
+            );
+        });
+    }
+}
+
+/// hits 使用正式控件裁剪后的逻辑坐标；拖放状态只存在 egui 会话中。
 pub fn show(
     ctx: &egui::Context,
     inspector: &mut Inspector,
@@ -29,7 +88,13 @@ pub fn show(
     images: &mut impl FnMut(&dr_core::PartType) -> (egui::TextureId, Vec2),
 ) -> Option<Shown> {
     inspector.hovered = None;
-    let draft = inspector.draft.as_ref()?;
+    let Some(draft) = inspector.draft.as_ref() else {
+        ctx.data_mut(|data| {
+            data.remove::<StagingDrag>(drag_id());
+            data.remove::<StagingDrag>(press_id());
+        });
+        return None;
+    };
     let title = format!(
         "{} · {}",
         draft.key,
@@ -40,6 +105,20 @@ pub fn show(
             .unwrap_or(&draft.original.part_type)
     );
     let docked = inspector.docked();
+    let mut drag = ctx.data_mut(|data| data.get_temp::<StagingDrag>(drag_id()));
+    let mut press = ctx.data_mut(|data| data.get_temp::<StagingDrag>(press_id()));
+    for state in [&mut drag, &mut press] {
+        if state.as_ref().is_some_and(|state| {
+            !docked
+                || state.owner != draft.key
+                || Some(&state.plan) != draft.staging.as_ref()
+                || document.ship.part_at(draft.key) != Some(&draft.original)
+        }) {
+            *state = None;
+        }
+    }
+    let was_dragging = drag.is_some();
+    let was_pressing = press.is_some();
     let popup_open = egui::Popup::is_any_open(ctx);
     let composition_frame = ctx.input(|input| {
         input
@@ -47,6 +126,33 @@ pub fn show(
             .iter()
             .any(|event| matches!(event, egui::Event::Ime(_)))
     });
+    let interrupted = ctx.input(|input| {
+        !input.focused
+            || input.events.iter().any(|event| {
+                matches!(
+                    event,
+                    egui::Event::PointerGone
+                        | egui::Event::Touch {
+                            phase: egui::TouchPhase::Cancel,
+                            ..
+                        }
+                )
+            })
+    });
+    let escape = if !popup_open && !composition_frame {
+        ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+    } else {
+        false
+    };
+    let cancel_drag = interrupted || ((was_dragging || was_pressing) && escape);
+    if cancel_drag {
+        drag = None;
+        press = None;
+    }
+    if press.is_none() {
+        ctx.data_mut(|data| data.remove::<StagingDrag>(press_id()));
+    }
+    let mut zones = vec![];
     let mut close = false;
     let ((mut action, body), dock) = if docked {
         let mut root = egui::Ui::new(
@@ -54,20 +160,28 @@ pub fn show(
             egui::Id::new("staging_dock_root"),
             egui::UiBuilder::new().max_rect(available),
         );
-        // 短横屏仍用侧栏；窄竖屏放底部，两种布局都保留船体区。
-        let panel = if available.width() >= available.height() {
+        let panel = if available.width() >= 600.0 {
             egui::Panel::left("staging_sidebar")
-                .exact_size((available.width() * 0.5).clamp(280.0, 480.0))
+                .exact_size(320.0_f32.min(available.width() - 160.0))
         } else {
             egui::Panel::bottom("staging_bottom").exact_size(
                 (available.height() * 0.55)
-                    .clamp(150.0, 420.0)
-                    .min(available.height() - 96.0)
-                    .max(60.0),
+                    .min(420.0)
+                    .min((available.height() - 96.0).max(60.0)),
             )
         };
         let response = panel.resizable(false).show(&mut root, |ui| {
-            contents(ui, inspector, document, hits, (&title, true), images)
+            contents(
+                ui,
+                inspector,
+                document,
+                hits,
+                (&title, true),
+                images,
+                &mut drag,
+                &mut zones,
+                !cancel_drag,
+            )
         });
         (
             response.inner,
@@ -79,21 +193,167 @@ pub fn show(
     } else {
         let response = egui::Modal::new(egui::Id::new("part_properties_modal")).show(ctx, |ui| {
             ui.set_width((available.width() - 40.0).clamp(160.0, 700.0));
-            contents(ui, inspector, document, hits, (&title, false), images)
+            contents(
+                ui,
+                inspector,
+                document,
+                hits,
+                (&title, false),
+                images,
+                &mut drag,
+                &mut zones,
+                false,
+            )
         });
         close = !response.backdrop_response.clicked() && response.should_close();
         (response.inner, None)
     };
-    if docked && !popup_open && !composition_frame {
-        close = ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+    // egui 可先被 Esc 清除交互；保留真实控件的按下来源，覆盖跨起拖阈值的同帧取消。
+    let handling_drag = was_dragging || drag.is_some() || (was_pressing && escape);
+    if handling_drag && escape {
+        drag = None;
     }
-    if close && !composition_frame {
+    if handling_drag || cancel_drag {
+        // 拖动释放只能产生结构 Action，不能顺带触发 Apply 或取消整个草稿。
+        action = None;
+    }
+    if let Some(active) = &drag {
+        let pointer = ctx.input(|input| input.pointer.interact_pos());
+        let drop = pointer
+            .filter(|pos| body.contains(*pos))
+            .and_then(|pos| drop_action(active, &zones, pos));
+        if let Some((_, marker)) = &drop {
+            let painter = ctx
+                .layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new("staging_drop_marker"),
+                ))
+                .with_clip_rect(body);
+            painter.line_segment(
+                *marker,
+                egui::Stroke::new(3.0, egui::Color32::from_rgb(190, 225, 70)),
+            );
+        }
+        if let Some(pos) = pointer {
+            crate::icons::paint(
+                &ctx.layer_painter(egui::LayerId::new(
+                    egui::Order::Tooltip,
+                    egui::Id::new("staging_drag_ghost"),
+                )),
+                egui::Rect::from_min_size(pos + egui::vec2(12.0, 12.0), egui::vec2(28.0, 28.0)),
+                crate::icons::Icon::Drag,
+                egui::Color32::from_rgb(190, 225, 70),
+            );
+        }
+        if ctx.input(|input| input.pointer.button_released(egui::PointerButton::Primary)) {
+            action = drop.map(|(action, _)| action);
+            drag = None;
+        } else if !ctx.input(|input| input.pointer.primary_down()) {
+            drag = None;
+        }
+        ctx.request_repaint();
+    }
+    if docked && escape && !handling_drag {
+        close = true;
+    }
+    if close && !composition_frame && !handling_drag && !cancel_drag {
         action = Some(Action::Cancel);
     }
+    let released = !ctx.input(|input| input.pointer.primary_down());
+    ctx.data_mut(|data| {
+        if released || cancel_drag {
+            data.remove::<StagingDrag>(press_id());
+        }
+        if let Some(drag) = drag {
+            data.insert_temp(drag_id(), drag);
+        } else {
+            data.remove::<StagingDrag>(drag_id());
+        }
+    });
     Some(Shown { action, dock, body })
 }
 
-/// 停靠分级和普通属性/引用修复复用同一份草稿控件、错误与操作栏。
+fn drop_action(
+    drag: &StagingDrag,
+    zones: &[DropZone],
+    pos: egui::Pos2,
+) -> Option<(Action, [egui::Pos2; 2])> {
+    for zone in zones {
+        match (*zone, drag.source) {
+            (DropZone::Header { stage, rect, .. }, DragSource::Stage(from))
+                if rect.contains(pos) =>
+            {
+                let after = pos.y >= rect.center().y;
+                let insertion = stage + usize::from(after);
+                let to = insertion - usize::from(from < insertion);
+                let y = if after { rect.bottom() } else { rect.top() };
+                return Some((
+                    Action::ReorderStep { from, to },
+                    [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+                ));
+            }
+            (DropZone::Header { stage, len, rect }, DragSource::Activation(from_stage, index))
+                if rect.contains(pos) =>
+            {
+                let to_index = len - usize::from(from_stage == stage);
+                return Some((
+                    Action::MoveActivation {
+                        from_stage,
+                        index,
+                        to_stage: stage,
+                        to_index,
+                    },
+                    [rect.left_bottom(), rect.right_bottom()],
+                ));
+            }
+            (
+                DropZone::Tile {
+                    stage,
+                    index: target,
+                    rect,
+                },
+                DragSource::Activation(from_stage, index),
+            ) if rect.contains(pos) => {
+                let after = pos.x >= rect.center().x;
+                let insertion = target + usize::from(after);
+                let to_index = insertion - usize::from(from_stage == stage && index < insertion);
+                let x = if after { rect.right() } else { rect.left() };
+                return Some((
+                    Action::MoveActivation {
+                        from_stage,
+                        index,
+                        to_stage: stage,
+                        to_index,
+                    },
+                    [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                ));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn icon_action(
+    ui: &mut egui::Ui,
+    icon: crate::icons::Icon,
+    action: Action,
+    selected: bool,
+    hits: &mut Vec<(Action, egui::Rect)>,
+    pending: &mut Option<Action>,
+) {
+    let response = ui
+        .push_id(("property_action", format!("{action:?}")), |ui| {
+            crate::icons::selected_button(ui, icon, action_hint(&action), selected)
+        })
+        .inner;
+    record_hit(ui, &response, action.clone(), hits);
+    if response.clicked() {
+        *pending = Some(action);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn contents(
     ui: &mut egui::Ui,
     inspector: &mut Inspector,
@@ -101,39 +361,67 @@ fn contents(
     hits: &mut Vec<(Action, egui::Rect)>,
     (title, docked): (&str, bool),
     images: &mut impl FnMut(&dr_core::PartType) -> (egui::TextureId, Vec2),
+    drag: &mut Option<StagingDrag>,
+    zones: &mut Vec<DropZone>,
+    drag_allowed: bool,
 ) -> (Option<Action>, egui::Rect) {
-    let short = docked && ui.available_height() < 240.0;
-    if short {
-        ui.spacing_mut().item_spacing.y = 4.0;
-    }
-    ui.heading(if docked {
-        "分级 / 船体属性"
-    } else {
-        title
-    })
-    .on_hover_text(title);
-    if docked && !short {
-        ui.add(egui::Label::new(title).truncate());
-    }
-    if !docked || ui.available_height() >= 240.0 {
-        ui.small(if inspector.repair.is_some() {
-            "引用归属 · 草稿"
-        } else if docked {
-            "悬停或点选动作，查看船上同色部件"
-        } else {
-            "属性 · 草稿"
+    use crate::icons::Icon;
+    ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+    ui.spacing_mut().interact_size.y = ui.spacing().interact_size.y.max(44.0);
+    let mut action = None;
+    if docked {
+        ui.horizontal(|ui| {
+            icon_action(
+                ui,
+                Icon::Staging,
+                Action::GenerateStaging,
+                false,
+                hits,
+                &mut action,
+            );
+            icon_action(ui, Icon::Add, Action::AddStep, false, hits, &mut action);
+            icon_action(
+                ui,
+                Icon::Target,
+                Action::ToggleTargets,
+                inspector.targets_open,
+                hits,
+                &mut action,
+            );
+            icon_action(
+                ui,
+                Icon::Settings,
+                Action::ToggleAdvanced,
+                inspector.advanced_open,
+                hits,
+                &mut action,
+            );
+            icon_action(ui, Icon::Check, Action::Apply, false, hits, &mut action);
+            icon_action(ui, Icon::Cancel, Action::Cancel, false, hits, &mut action);
         })
-        .on_hover_text("仅修改草稿；应用后一次撤销，取消不改文档。");
+        .response
+        .on_hover_text(title);
+    } else {
+        ui.heading(title);
+    }
+    if !inspector.error.is_empty() {
+        ui.add(
+            egui::Label::new(egui::RichText::new(&inspector.error).color(egui::Color32::LIGHT_RED))
+                .truncate(),
+        )
+        .on_hover_text(&inspector.error);
     }
     ui.separator();
-    let mut action = None;
     let mut edited = false;
     let mut focused = None;
     let body_height = if docked {
-        (ui.available_height() - ui.spacing().interact_size.y - 18.0).max(0.0)
+        ui.available_height().max(0.0)
     } else {
         (ui.ctx().content_rect().height() - 220.0).max(60.0)
     };
+    let advanced = !docked || inspector.advanced_open;
+    let targets = !docked || inspector.targets_open;
+    let body_hits_start = hits.len();
     let scroll = egui::ScrollArea::vertical()
         .id_salt(if inspector.repair.is_some() {
             "part_reference_repair_scroll"
@@ -144,9 +432,6 @@ fn contents(
         .min_scrolled_height(0.0)
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            if docked && !inspector.error.is_empty() {
-                ui.colored_label(egui::Color32::LIGHT_RED, &inspector.error);
-            }
             if let Some(repair) = &inspector.repair {
                 repair_body(ui, repair, hits, &mut action);
             } else if let Some(draft) = &mut inspector.draft {
@@ -161,22 +446,57 @@ fn contents(
                     &mut inspector.preview,
                     &mut inspector.hovered,
                     images,
+                    advanced,
+                    targets,
+                    drag,
+                    zones,
+                    drag_allowed,
                 );
             }
+            if drag.is_some() && ui.input(|input| input.pointer.primary_down()) {
+                let clip = ui.clip_rect();
+                if let Some(pos) = ui
+                    .input(|input| input.pointer.interact_pos())
+                    .filter(|pos| clip.contains(*pos))
+                {
+                    let edge = 28.0_f32.min(clip.height() / 3.0);
+                    let speed = if pos.y < clip.top() + edge {
+                        (clip.top() + edge - pos.y) / edge
+                    } else if pos.y > clip.bottom() - edge {
+                        -(pos.y - clip.bottom() + edge) / edge
+                    } else {
+                        0.0
+                    };
+                    let delta = speed * 480.0 * ui.input(|input| input.stable_dt.min(0.05));
+                    ui.scroll_with_delta(egui::vec2(0.0, delta));
+                    ui.ctx().request_repaint();
+                }
+            }
         });
+    let body = scroll.inner_rect.intersect(ui.clip_rect());
+    for (_, rect) in &mut hits[body_hits_start..] {
+        *rect = rect.intersect(body);
+    }
+    hits.retain(|(_, rect)| rect.is_positive());
+    for zone in zones {
+        match zone {
+            DropZone::Header { rect, .. } | DropZone::Tile { rect, .. } => {
+                *rect = rect.intersect(body)
+            }
+        }
+    }
     inspector.focus = focused;
     if edited {
         inspector.error.clear();
     }
-    ui.separator();
-    if !docked && !inspector.error.is_empty() {
-        ui.colored_label(egui::Color32::LIGHT_RED, &inspector.error);
+    if !docked {
+        ui.separator();
+        ui.horizontal(|ui| {
+            action_button(ui, "应用", Action::Apply, hits, &mut action);
+            action_button(ui, "取消", Action::Cancel, hits, &mut action);
+        });
     }
-    ui.horizontal(|ui| {
-        action_button(ui, "应用", Action::Apply, hits, &mut action);
-        action_button(ui, "取消", Action::Cancel, hits, &mut action);
-    });
-    (action, scroll.inner_rect)
+    (action, body)
 }
 
 /// 非交互画布标注：复用贴图角点与实际相机/缩放，只标明可唯一解析的目标。
@@ -286,6 +606,9 @@ fn action_button(
 
 fn action_hint(action: &Action) -> &'static str {
     match action {
+        Action::GenerateStaging => "按驾驶舱连接树重置基础分级；仅改草稿，应用后一次撤销。",
+        Action::ToggleTargets => "展开或收起目标部件选择。",
+        Action::ToggleAdvanced => "展开或收起名称、油门及高级属性。",
         Action::Apply => "应用草稿到文档；整个修改可一次撤销。",
         Action::Cancel => "取消并丢弃草稿，不修改文档（Esc）。",
         Action::CycleTarget(false) => "选择本组上一个具有唯一编号的目标部件。",
@@ -347,7 +670,13 @@ fn properties_body(
     preview: &mut Preview,
     hovered: &mut Option<Preview>,
     images: &mut impl FnMut(&dr_core::PartType) -> (egui::TextureId, Vec2),
+    advanced: bool,
+    targets: bool,
+    drag: &mut Option<StagingDrag>,
+    zones: &mut Vec<DropZone>,
+    drag_allowed: bool,
 ) {
+    use crate::icons::Icon;
     let group_parts = document
         .ship
         .group(draft.key.group)
@@ -359,131 +688,173 @@ fn properties_body(
         .count()
         > 1
     {
-        action_button(
-            ui,
-            "本组编号重复 · 修复引用归属",
-            Action::OpenRepair,
-            hits,
-            pending,
-        );
+        action_button(ui, "修复重复编号引用", Action::OpenRepair, hits, pending);
     }
-    let mut active = draft.active;
-    let response = ui.checkbox(&mut active, "已激活");
-    record_hit(ui, &response, Action::Active, hits);
-    if response.changed() {
-        *pending = Some(Action::Active);
-    }
-    if draft.original.fuel_kind.is_some() {
-        text_field(ui, draft, Field::Fuel, "燃料", hits, edited, focused);
+    if advanced {
+        let mut active = draft.active;
+        let response = ui.checkbox(&mut active, "已激活");
+        record_hit(ui, &response, Action::Active, hits);
+        if response.changed() {
+            *pending = Some(Action::Active);
+        }
+        if draft.original.fuel_kind.is_some() {
+            text_field(ui, draft, Field::Fuel, "燃料", hits, edited, focused);
+        }
+        if draft.original.pod.is_some() {
+            text_field(ui, draft, Field::Name, "船体名称", hits, edited, focused);
+            text_field(
+                ui,
+                draft,
+                Field::Throttle,
+                "油门（0～1）",
+                hits,
+                edited,
+                focused,
+            );
+            if draft.staging.is_some() {
+                text_field(
+                    ui,
+                    draft,
+                    Field::CurrentStage,
+                    "执行索引（XML 从 0 起）",
+                    hits,
+                    edited,
+                    focused,
+                );
+            }
+        }
+        ui.separator();
     }
     if draft.original.pod.is_none() {
         return;
     }
-    text_field(ui, draft, Field::Name, "船体名称", hits, edited, focused);
-    text_field(
-        ui,
-        draft,
-        Field::Throttle,
-        "油门（0～1）",
-        hits,
-        edited,
-        focused,
-    );
-    if draft.staging.is_some() {
-        text_field(
-            ui,
-            draft,
-            Field::CurrentStage,
-            "执行索引（XML 从 0 起）",
-            hits,
-            edited,
-            focused,
-        );
-    }
-    text_field(ui, draft, Field::Target, "目标 ID", hits, edited, focused);
-    if *focused == Some(Field::Target) {
-        *preview = Preview::Target;
-    }
-    let target = draft.target.trim().parse::<i64>().ok();
-    let target_name = target
-        .and_then(|id| document.ship.group_part(draft.key.group, id))
-        .map(|part| part_description(document, part))
-        .unwrap_or_else(|| "未选目标（本组唯一编号）".into());
-    ui.horizontal_wrapped(|ui| {
-        action_button(ui, "↑ 目标", Action::CycleTarget(false), hits, pending);
-        action_button(ui, "↓ 目标", Action::CycleTarget(true), hits, pending);
-    });
-    egui::ComboBox::from_id_salt("part_activation_target")
-        .selected_text(target_name)
-        .width(ui.available_width().min(200.0))
-        .wrap_mode(egui::TextWrapMode::Truncate)
-        .height(240.0)
-        .show_ui(ui, |ui| {
-            for part in unique_target_parts(group_parts) {
-                if ui
-                    .selectable_label(target == Some(part.id), part_description(document, part))
-                    .clicked()
-                {
-                    draft.target = part.id.to_string();
-                    *preview = Preview::Target;
-                    *edited = true;
-                }
-            }
+    if targets {
+        text_field(ui, draft, Field::Target, "目标 ID", hits, edited, focused);
+        if *focused == Some(Field::Target) {
+            *preview = Preview::Target;
+        }
+        let target = draft.target.trim().parse::<i64>().ok();
+        let target_name = target
+            .and_then(|id| document.ship.group_part(draft.key.group, id))
+            .map(|part| part_description(document, part))
+            .unwrap_or_else(|| "选择本组目标".into());
+        ui.horizontal(|ui| {
+            icon_action(
+                ui,
+                Icon::ChevronUp,
+                Action::CycleTarget(false),
+                false,
+                hits,
+                pending,
+            );
+            icon_action(
+                ui,
+                Icon::ChevronDown,
+                Action::CycleTarget(true),
+                false,
+                hits,
+                pending,
+            );
+            egui::ComboBox::from_id_salt("part_activation_target")
+                .selected_text(target_name)
+                .width(ui.available_width().min(200.0))
+                .wrap_mode(egui::TextWrapMode::Truncate)
+                .height(240.0)
+                .show_ui(ui, |ui| {
+                    for part in unique_target_parts(group_parts) {
+                        if ui
+                            .selectable_label(
+                                target == Some(part.id),
+                                part_description(document, part),
+                            )
+                            .clicked()
+                        {
+                            draft.target = part.id.to_string();
+                            *preview = Preview::Target;
+                            *edited = true;
+                        }
+                    }
+                });
         });
-    ui.separator();
-    action_button(ui, "+ 分级", Action::AddStep, hits, pending);
+        ui.separator();
+    }
     let Some(staging) = &draft.staging else {
-        ui.label("暂无分级 · 点击 + 分级");
         return;
     };
     for (stage, step) in staging.steps.iter().enumerate() {
         ui.push_id(("staging_step", stage), |ui| {
             let selected = matches!(*preview, Preview::Stage(value) | Preview::Activation(value, _) if value == stage);
-            let title = egui::RichText::new(format!(
-                "第 {} 级 · {} 个动作", stage + 1, step.activations.len(),
-            ));
-            let title = if selected {
-                title.color(crate::egui_ui::ui_color(native_buttons::ACCENT))
-            } else {
-                title
-            };
-            let response = egui::CollapsingHeader::new(title)
-                .id_salt("stage_card")
-                .default_open(true)
-                .show(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.add_enabled_ui(stage > 0, |ui| {
-                            action_button(ui, "↑ 上移", Action::MoveStep(stage, false), hits, pending);
-                        });
-                        ui.add_enabled_ui(stage + 1 < staging.steps.len(), |ui| {
-                            action_button(ui, "↓ 下移", Action::MoveStep(stage, true), hits, pending);
-                        });
-                        action_button(ui, "× 删级", Action::RemoveStep(stage), hits, pending);
-                        action_button(ui, "+ 目标", Action::AddActivation(stage), hits, pending);
+            let accent = crate::egui_ui::ui_color(native_buttons::ACCENT);
+            egui::Frame::new().fill(egui::Color32::from_gray(if selected { 42 } else { 31 }))
+                .stroke(egui::Stroke::new(1.0, if selected { accent.gamma_multiply(0.65) } else { egui::Color32::from_gray(58) }))
+                .corner_radius(4.0).inner_margin(5.0).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let width = (ui.available_width() - 96.0).max(44.0);
+                        let response = ui.add_sized([width, 44.0], egui::Button::new(
+                            egui::RichText::new(format!("{:02}     · {}", stage + 1, step.activations.len()))
+                                .color(if selected { accent } else { ui.visuals().text_color() }))
+                            .selected(selected).sense(egui::Sense::click_and_drag()))
+                            .on_hover_text("拖动整级；放到级标题上半插前、下半插后。点击在船体上预览。");
+                        record_hit(ui, &response, Action::SelectStage(stage), hits);
+                        let rect = response.rect.intersect(ui.clip_rect());
+                        if rect.is_positive() { zones.push(DropZone::Header { stage, len: step.activations.len(), rect }); }
+                        if response.hovered() { *hovered = Some(Preview::Stage(stage)); }
+                        if response.clicked() { *pending = Some(Action::SelectStage(stage)); }
+                        if drag_allowed {
+                            record_drag_press(&response, draft.key, staging, DragSource::Stage(stage));
+                            if response.drag_started() {
+                                *drag = Some(StagingDrag { owner: draft.key, plan: staging.clone(), source: DragSource::Stage(stage) });
+                            }
+                        }
+                        icon_action(ui, Icon::Add, Action::AddActivation(stage), false, hits, pending);
+                        icon_action(ui, Icon::Delete, Action::RemoveStep(stage), false, hits, pending);
                     });
-                    for (index, activation) in step.activations.iter().enumerate() {
-                        ui.push_id(index, |ui| {
-                            let part = document.ship.group_part(draft.key.group, activation.id);
-                            let kind = part.and_then(|part| document.catalog.get(&part.part_type));
-                            let name = kind.map(|kind| kind.name.as_str())
-                                .or_else(|| part.map(|part| part.part_type.as_str()))
-                                .unwrap_or("未知或不唯一的部件");
-                            activation_row(
-                                ui, (stage, index, activation),
-                                (name, part.map(|part| part_description(document, part)), kind.map(&mut *images)),
-                                *preview, hits, pending,
-                                hovered,
-                            );
+                    if selected && matches!(*preview, Preview::Stage(_)) {
+                        ui.horizontal(|ui| {
+                            ui.add_enabled_ui(stage > 0, |ui| icon_action(ui, Icon::ChevronUp,
+                                Action::MoveStep(stage, false), false, hits, pending));
+                            ui.add_enabled_ui(stage + 1 < staging.steps.len(), |ui| icon_action(ui, Icon::ChevronDown,
+                                Action::MoveStep(stage, true), false, hits, pending));
+                        });
+                    }
+                    ui.horizontal_wrapped(|ui| {
+                        for (index, activation) in step.activations.iter().enumerate() {
+                            // 由父级预分配尺寸，让 wrapped 布局在建立稳定 ID 子作用域前换行。
+                            ui.allocate_ui(egui::vec2(56.0, 56.0), |ui| {
+                                ui.push_id(index, |ui| {
+                                    let part = document.ship.group_part(draft.key.group, activation.id);
+                                    let kind = part.and_then(|part| document.catalog.get(&part.part_type));
+                                    let name = kind.map(|kind| kind.name.as_str()).or_else(|| part.map(|part| part.part_type.as_str()))
+                                        .unwrap_or("未知或不唯一的部件");
+                                    let response = activation_row(ui, (stage, index, activation),
+                                        (name, part.map(|part| part_description(document, part)), kind.map(&mut *images)),
+                                        *preview, hits, pending, hovered);
+                                    let rect = response.rect.intersect(ui.clip_rect());
+                                    if rect.is_positive() { zones.push(DropZone::Tile { stage, index, rect }); }
+                                    if drag_allowed {
+                                        record_drag_press(&response, draft.key, staging, DragSource::Activation(stage, index));
+                                        if response.drag_started() {
+                                            *drag = Some(StagingDrag { owner: draft.key, plan: staging.clone(),
+                                                source: DragSource::Activation(stage, index) });
+                                        }
+                                    }
+                                });
+                            });
+                        }
+                    });
+                    if let Preview::Activation(selected_stage, index) = *preview
+                        && selected_stage == stage && let Some(activation) = step.activations.get(index) {
+                        ui.horizontal(|ui| {
+                            let mut moved = activation.moved;
+                            let response = ui.add_sized([ui.available_width() - 48.0, 44.0],
+                                egui::Checkbox::new(&mut moved, "moved"))
+                                .on_hover_text("XML 移动标记；跨级拖动自动开启，不改变船上位置。");
+                            record_hit(ui, &response, Action::Moved(stage, index), hits);
+                            if response.changed() { *pending = Some(Action::Moved(stage, index)); }
+                            icon_action(ui, Icon::Delete, Action::RemoveActivation(stage, index), false, hits, pending);
                         });
                     }
                 });
-            record_hit(ui, &response.header_response, Action::SelectStage(stage), hits);
-            if response.header_response.hovered() {
-                *hovered = Some(Preview::Stage(stage));
-            }
-            if response.header_response.clicked() {
-                *pending = Some(Action::SelectStage(stage));
-            }
         });
     }
 }
@@ -497,7 +868,7 @@ fn part_description(document: &EditorDocument, part: &Part) -> String {
     format!("#{} · {name} ({:.2}, {:.2})", part.id, part.x, part.y)
 }
 
-/// 固定图片/名称、移动、移除三列；长名称截断，控制列不会被挤成竖排。
+/// 正式 click_and_drag 缩略图；移动标记和删除在选中后的卡片上下文中显示。
 fn activation_row(
     ui: &mut egui::Ui,
     (stage, index, activation): (usize, usize, &Activation),
@@ -506,82 +877,57 @@ fn activation_row(
     hits: &mut Vec<(Action, egui::Rect)>,
     pending: &mut Option<Action>,
     hovered: &mut Option<Preview>,
-) {
-    let height = ui.spacing().interact_size.y.max(44.0);
-    let width = ui.available_width();
-    let name_width = width - 64.0 - 56.0 - 2.0 * ui.spacing().item_spacing.x;
-    ui.horizontal(|ui| {
-        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-        let selected = preview == Preview::Activation(stage, index);
-        let title = format!("#{} · {name}", activation.id);
-        let response = ui.add_sized(
-            [name_width, height],
-            egui::Button::new("").selected(selected),
+) -> egui::Response {
+    let selected = preview == Preview::Activation(stage, index);
+    let response = ui.add_sized(
+        [56.0, 56.0],
+        egui::Button::new("")
+            .selected(selected)
+            .sense(egui::Sense::click_and_drag()),
+    );
+    let rect = response.rect;
+    let image_bounds =
+        egui::Rect::from_center_size(rect.center() - egui::vec2(0.0, 7.0), egui::vec2(32.0, 32.0));
+    if let Some(image) = image {
+        crate::egui_ui::paint_part_image(ui, image, image_bounds);
+    } else {
+        crate::icons::paint(
+            ui.painter(),
+            image_bounds,
+            crate::icons::Icon::Parts,
+            ui.visuals().weak_text_color(),
         );
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &title)
-        });
-        let rect = response.rect;
-        if response.hovered() {
-            *hovered = Some(Preview::Activation(stage, index));
-        }
-        let image_bounds = egui::Rect::from_center_size(
-            egui::pos2(rect.left() + 22.0, rect.center().y),
-            egui::Vec2::splat(32.0),
-        );
-        if let Some(image) = image {
-            crate::egui_ui::paint_part_image(ui, image, image_bounds);
+    }
+    ui.painter().text(
+        egui::pos2(rect.center().x, rect.bottom() - 4.0),
+        egui::Align2::CENTER_BOTTOM,
+        format!("#{}", activation.id),
+        egui::FontId::proportional(11.0),
+        if selected {
+            crate::egui_ui::ui_color(native_buttons::ACCENT)
         } else {
-            ui.painter().text(
-                image_bounds.center(),
-                egui::Align2::CENTER_CENTER,
-                "?",
-                egui::FontId::proportional(18.0),
-                ui.visuals().weak_text_color(),
-            );
-        }
-        let color = ui
-            .style()
-            .interact_selectable(&response, selected || response.hovered())
-            .text_color();
-        let text: egui::WidgetText = title.into();
-        let galley = text.into_galley(
-            ui,
-            Some(egui::TextWrapMode::Truncate),
-            (name_width - 50.0).max(0.0),
-            egui::TextStyle::Body,
-        );
-        ui.painter().galley(
-            egui::pos2(rect.left() + 44.0, rect.center().y - galley.size().y * 0.5),
-            galley,
-            color,
-        );
-        let response = response.on_hover_text(format!(
-            "{}\n{}",
-            description.unwrap_or_else(|| format!("#{} · {name}", activation.id)),
-            action_hint(&Action::SelectActivation(stage, index)),
-        ));
-        record_hit(ui, &response, Action::SelectActivation(stage, index), hits);
-        if response.clicked() {
-            *pending = Some(Action::SelectActivation(stage, index));
-        }
-        let mut moved = activation.moved;
-        let response = ui
-            .add_sized([64.0, height], egui::Checkbox::new(&mut moved, "移动"))
-            .on_hover_text("XML 的 moved 移动标记；仅修改草稿，不移动船上部件。");
-        record_hit(ui, &response, Action::Moved(stage, index), hits);
-        if response.changed() {
-            *pending = Some(Action::Moved(stage, index));
-        }
-        let action = Action::RemoveActivation(stage, index);
-        let response = ui
-            .add_sized([56.0, height], egui::Button::new("移除").truncate())
-            .on_hover_text(action_hint(&action));
-        record_hit(ui, &response, action.clone(), hits);
-        if response.clicked() {
-            *pending = Some(action);
-        }
+            ui.visuals().text_color()
+        },
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            format!("#{} · {name}", activation.id),
+        )
     });
+    if response.hovered() {
+        *hovered = Some(Preview::Activation(stage, index));
+    }
+    let response = response.on_hover_text(format!(
+        "{}\n拖到级标题追加，拖到缩略图两侧插入。",
+        description.unwrap_or_else(|| format!("#{} · {name}", activation.id))
+    ));
+    record_hit(ui, &response, Action::SelectActivation(stage, index), hits);
+    if response.clicked() {
+        *pending = Some(Action::SelectActivation(stage, index));
+    }
+    response
 }
 
 fn repair_body(

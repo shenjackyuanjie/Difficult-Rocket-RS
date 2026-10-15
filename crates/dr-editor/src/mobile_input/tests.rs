@@ -727,3 +727,117 @@ fn opening_a_modal_in_the_same_frame_discards_the_pending_two_finger_navigation(
         assert!(opened, "{key:?} 应已打开模态");
     }
 }
+
+fn menu_touch_app() -> (App, Entity) {
+    let mut app = app();
+    app.add_message::<files::FileAction>()
+        .init_resource::<files::FileMenu>()
+        .init_resource::<NativeActions>()
+        .add_systems(
+            Update,
+            (files::toolbar_actions, collect_actions)
+                .chain()
+                .after(input),
+        );
+    let button = app
+        .world_mut()
+        .spawn((
+            native_buttons::press_triggered(),
+            Node::default(),
+            panels::EditorPanel,
+            files::MenuButton,
+            BackgroundColor(Color::BLACK),
+            ComputedNode {
+                size: Vec2::splat(48.0),
+                ..default()
+            },
+            UiGlobalTransform::from_translation(Vec2::new(24.0, 872.0)),
+        ))
+        .id();
+    (app, button)
+}
+
+#[test]
+fn native_menu_touch_locks_its_real_48px_origin_and_toggles_once_on_release() {
+    let (mut app, button) = menu_touch_app();
+    app.world_mut()
+        .trigger(bevy::ui_widgets::Activate { entity: button });
+    touch(&mut app, 1, TouchPhase::Started, 24.0, 872.0);
+    assert!(!app.world().resource::<files::FileMenu>().open);
+    assert_eq!(
+        app.world().resource::<GestureInput>().native_pressed,
+        Some(button)
+    );
+    assert_eq!(
+        app.world().get::<BackgroundColor>(button).unwrap().0,
+        native_buttons::PRESSED
+    );
+    touch(&mut app, 1, TouchPhase::Moved, 80.0, 872.0);
+    assert_eq!(app.world().resource::<GestureInput>().native_pressed, None);
+    touch(&mut app, 1, TouchPhase::Moved, 24.0, 872.0);
+    assert_eq!(
+        app.world().resource::<GestureInput>().native_pressed,
+        Some(button)
+    );
+    touch(&mut app, 1, TouchPhase::Ended, 24.0, 872.0);
+    assert!(app.world().resource::<files::FileMenu>().open);
+    assert!(matches!(
+        app.world().resource::<GestureInput>().native_click,
+        Some(NativeClick::Menu)
+    ));
+    assert!(app.world().resource::<NativeActions>().0.is_empty());
+    app.update();
+    assert!(
+        app.world().resource::<files::FileMenu>().open,
+        "释放后一帧不能再次切换"
+    );
+    app.world_mut()
+        .trigger(bevy::ui_widgets::Activate { entity: button });
+    app.update();
+    assert!(
+        !app.world().resource::<files::FileMenu>().open,
+        "新鼠标激活仍可正常关闭"
+    );
+    assert!(app.world().resource::<NativeActions>().0.is_empty());
+}
+
+#[test]
+fn outside_canceled_multitouch_and_modal_menu_releases_never_toggle() {
+    for cancel in 0..4 {
+        let (mut app, _) = menu_touch_app();
+        touch(&mut app, 1, TouchPhase::Started, 24.0, 872.0);
+        match cancel {
+            0 => touch(&mut app, 1, TouchPhase::Ended, 80.0, 872.0),
+            1 => {
+                touch(&mut app, 1, TouchPhase::Canceled, 24.0, 872.0);
+                touch(&mut app, 1, TouchPhase::Ended, 24.0, 872.0);
+            }
+            2 => {
+                touch(&mut app, 2, TouchPhase::Started, 80.0, 872.0);
+                touch(&mut app, 2, TouchPhase::Ended, 80.0, 872.0);
+                touch(&mut app, 1, TouchPhase::Ended, 24.0, 872.0);
+            }
+            3 => {
+                app.insert_resource(help::HelpState {
+                    open: true,
+                    ..default()
+                });
+                touch(&mut app, 1, TouchPhase::Ended, 24.0, 872.0);
+                app.insert_resource(help::HelpState::default());
+            }
+            _ => unreachable!(),
+        }
+        app.update();
+        assert!(
+            !app.world().resource::<files::FileMenu>().open,
+            "取消路径 {cancel} 不得切换"
+        );
+        assert!(
+            app.world()
+                .resource::<GestureInput>()
+                .native_click
+                .is_none()
+        );
+        assert!(app.world().resource::<NativeActions>().0.is_empty());
+    }
+}

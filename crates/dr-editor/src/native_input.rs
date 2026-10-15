@@ -7,12 +7,28 @@ use std::path::Path;
 pub struct State {
     step: usize,
     issued: bool,
+    parts_opening: bool,
+    parts_opened: bool,
     original: Option<Ship>,
     moved: Option<Ship>,
     snapped: Option<Ship>,
     foreground_checks: usize,
     status: String,
     capturing: Option<usize>,
+}
+
+impl State {
+    /// 部件入口占用额外的系统输入步骤，原有文档断言仍使用原步骤号。
+    fn input_step(&self) -> usize {
+        self.step + usize::from(self.parts_opened)
+    }
+}
+
+fn palette_row(ui: &panels::egui_panel::UiState) -> Option<Vec2> {
+    ui.hits
+        .iter()
+        .find(|(action, _)| *action == panels::PanelButton::Part(0))
+        .map(|(_, rect)| Vec2::new(rect.left() + 100.0, rect.center().y) * ui.pixels_per_point)
 }
 
 #[derive(Resource)]
@@ -83,8 +99,9 @@ pub fn run(
     };
     let focused = foreground(raw);
     let status = format!(
-        "step={}\nforeground={}\nbevy_focused={}\nparts={}\nconnections={}\nplacing={}\npalette_drag={}\nvalid={}\nworld={:?}\n",
+        "step={}\ninput_step={}\nforeground={}\nbevy_focused={}\nparts={}\nconnections={}\nplacing={}\npalette_drag={}\nvalid={}\nworld={:?}\n",
         state.step,
+        state.input_step(),
         focused,
         window.focused,
         document.ship.parts.len(),
@@ -131,7 +148,20 @@ pub fn run(
         document.refresh();
         state.original = Some(document.ship.clone());
     }
-    let ready = if state.issued && folder.join(format!("ack-{}", state.step)).exists() {
+    if state.parts_opening {
+        if !folder.join(format!("ack-{}", state.input_step())).exists()
+            || ui.scrolling
+            || ui.palette_area.is_none()
+            || palette_row(&ui).is_none()
+        {
+            return;
+        }
+        // 只有系统 click 已回执且真实目录行已出现，才继续原来的拖出断言。
+        state.parts_opening = false;
+        state.parts_opened = true;
+        state.issued = false;
+    }
+    let ready = if state.issued && folder.join(format!("ack-{}", state.input_step())).exists() {
         match state.step {
             0 => document.selected == Some(PartKey::new(0, 1, 0)) && drag.id.is_none(),
             1 => {
@@ -277,7 +307,7 @@ pub fn run(
     } else {
         false
     };
-    if state.issued && ready && folder.join(format!("ack-{}", state.step)).exists() {
+    if state.issued && ready && folder.join(format!("ack-{}", state.input_step())).exists() {
         if matches!(state.step, 5 | 8) {
             use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
             let step = state.step;
@@ -308,12 +338,17 @@ pub fn run(
     if state.issued {
         return;
     }
-    let row = || {
-        ui.hits
-            .iter()
-            .find(|(action, _)| *action == panels::PanelButton::Part(0))
-            .map(|(_, rect)| Vec2::new(rect.left() + 100.0, rect.center().y) * ui.pixels_per_point)
-    };
+    if state.step == 5 && !state.parts_opened {
+        let Some(rect) = ui.part_toggle else {
+            return;
+        };
+        let point = Vec2::new(rect.center().x, rect.center().y) * ui.pixels_per_point;
+        request(folder, state.input_step(), "click", &[point]);
+        state.parts_opening = true;
+        state.issued = true;
+        return;
+    }
+    let row = || palette_row(&ui);
     let (action, points) = match state.step {
         0 => ("click", vec![world(0.0, 0.0)]),
         1 => ("shift_click", vec![world(0.0, 2.0)]),
@@ -368,6 +403,48 @@ pub fn run(
         }
         _ => unreachable!(),
     };
-    request(folder, state.step, action, &points);
+    request(folder, state.input_step(), action, &points);
     state.issued = true;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parts_entry_has_a_separate_system_step_without_renumbering_assertions() {
+        let mut state = State::default();
+        for step in 0..=5 {
+            state.step = step;
+            assert_eq!(state.input_step(), step);
+        }
+        state.parts_opening = true;
+        assert_eq!(state.input_step(), 5, "系统步骤 5 先点击 Parts");
+        state.parts_opening = false;
+        state.parts_opened = true;
+        for step in 5..=21 {
+            state.step = step;
+            assert_eq!(state.input_step(), step + 1);
+        }
+        state.step = 18;
+        assert_eq!(
+            state.input_step(),
+            19,
+            "驱动的真实失焦恢复阶段随系统步骤顺延"
+        );
+    }
+
+    #[test]
+    fn palette_drag_uses_the_visible_part_widget_and_egui_scale() {
+        let mut ui = panels::egui_panel::UiState::default();
+        ui.pixels_per_point = 1.5;
+        assert_eq!(palette_row(&ui), None);
+        let rect = bevy_egui::egui::Rect::from_min_size(
+            bevy_egui::egui::pos2(1060.0, 120.0),
+            bevy_egui::egui::vec2(260.0, 64.0),
+        );
+        ui.hits.push((panels::PanelButton::Part(0), rect));
+        assert_eq!(palette_row(&ui), Some(Vec2::new(1160.0, 152.0) * 1.5));
+        assert!(!ui.drawer_open(), "坐标查询不能直接改动抽屉状态");
+    }
 }

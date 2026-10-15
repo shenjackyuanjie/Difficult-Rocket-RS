@@ -7,7 +7,7 @@ pub(crate) mod smoke;
 
 #[derive(Component)]
 pub(crate) struct EditorPanel;
-/// 原生顶栏只调整布局，不引入另一套移动界面。
+/// 原生三个入口与 egui 编辑工具共用底部单条工具栏。
 #[derive(Component, Clone, Copy)]
 pub(crate) enum ToolbarItem {
     Files,
@@ -16,82 +16,44 @@ pub(crate) enum ToolbarItem {
     Status,
 }
 
+pub(crate) const TOOLBAR_HEIGHT: f32 = 56.0;
+pub(crate) const NATIVE_TOOLBAR_WIDTH: f32 = 144.0;
+
 pub(crate) fn compact(width: f32) -> bool {
     width < 960.0
-}
-
-pub(crate) fn file_toolbar_width(width: f32) -> f32 {
-    (width - 32.0).clamp(160.0, 476.0)
-}
-
-pub(crate) fn file_toolbar_height(width: f32) -> f32 {
-    let available = file_toolbar_width(width);
-    let mut rows = 1;
-    let mut used = 0.0;
-    for item in [84.0, 84.0, 84.0, 116.0, 84.0] {
-        let next = if used == 0.0 { item } else { used + 6.0 + item };
-        if next > available {
-            rows += 1;
-            used = item;
-        } else {
-            used = next;
-        }
-    }
-    rows as f32 * 44.0 + (rows - 1) as f32 * 6.0
-}
-
-pub(crate) fn toolbar_height(width: f32) -> f32 {
-    if compact(width) {
-        12.0 + file_toolbar_height(width) + 6.0 + 44.0 + 12.0
-    } else {
-        64.0
-    }
 }
 
 pub(crate) fn layout_toolbars(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut items: Query<(&ToolbarItem, &mut Node)>,
 ) {
-    let Ok(window) = windows.single() else {
+    if windows.single().is_err() {
         return;
-    };
-    let width = window.width();
+    }
     for (item, mut node) in &mut items {
         let mut next = node.clone();
-        let top = if compact(width) {
-            12.0 + file_toolbar_height(width) + 6.0
-        } else {
-            12.0
-        };
         match item {
-            ToolbarItem::Files => {
-                // 复用文件栏容器承载整条原生背景，按钮仍由左右 16 像素内边距排布。
-                next.width = px(width);
-                next.height = px(toolbar_height(width));
-                next.top = px(0);
-                next.left = px(0);
-                next.flex_wrap = FlexWrap::Wrap;
-                next.row_gap = px(6);
-            }
-            ToolbarItem::Properties => {
-                next.top = px(top);
-                next.left = px(if compact(width) { 16.0 } else { 500.0 });
-                next.width = px(172);
-                next.min_height = px(44);
-            }
-            ToolbarItem::Help => {
-                next.top = px(top);
-                next.right = px(16);
-                next.width = px(100);
-                next.min_height = px(44);
+            ToolbarItem::Files | ToolbarItem::Properties | ToolbarItem::Help => {
+                next.position_type = PositionType::Absolute;
+                next.top = Val::Auto;
+                next.bottom = px(4);
+                next.right = Val::Auto;
+                next.left = px(match item {
+                    ToolbarItem::Files => 0.0,
+                    ToolbarItem::Properties => 48.0,
+                    _ => 96.0,
+                });
+                next.width = px(48);
+                next.min_width = px(48);
+                next.height = px(48);
+                next.min_height = px(48);
+                next.padding = UiRect::ZERO;
+                next.flex_wrap = FlexWrap::NoWrap;
+                next.row_gap = px(0);
             }
             ToolbarItem::Status => {
-                next.display = if compact(width) {
-                    Display::None
-                } else {
-                    Display::Flex
-                };
-                next.top = px(126);
+                // 状态由非阻塞的简短 HUD 展示，不再占据顶部或阻挡画布。
+                next.display = Display::None;
             }
         }
         node.set_if_neq(next);

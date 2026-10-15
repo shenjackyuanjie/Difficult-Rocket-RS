@@ -1,5 +1,6 @@
 use super::*;
 use bevy::window::{FileDragAndDrop, WindowCloseRequested};
+use bevy_egui::egui;
 use std::path::{Path, PathBuf};
 
 #[derive(Message, Clone, Debug)]
@@ -525,90 +526,207 @@ pub(crate) fn file_actions(
 #[derive(Component)]
 pub(crate) struct FileButton(pub(crate) FileAction);
 
-pub(crate) fn setup_file_toolbar(mut commands: Commands, assets: Res<AssetServer>) {
-    let font = assets.load("fonts/HarmonyOS_Sans/HarmonyOS_Sans_SC/HarmonyOS_Sans_SC_Regular.ttf");
-    commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                top: px(0),
-                left: px(0),
-                width: percent(100),
-                padding: UiRect::axes(px(16), px(12)),
-                align_items: AlignItems::Start,
-                align_content: AlignContent::Start,
-                column_gap: px(6),
-                ..default()
-            },
-            Name::new("文件工具栏"),
-            BackgroundColor(native_buttons::PANEL),
-            GlobalZIndex(-1),
-            panels::EditorPanel,
-            panels::ToolbarItem::Files,
-        ))
-        .with_children(|root| {
-            for (label, action) in [
-                ("+ 新建", FileAction::New),
-                ("↗ 打开", FileAction::OpenDialog),
-                ("↓ 保存", FileAction::Save),
-                ("↓+ 另存为", FileAction::SaveAs),
-                ("× 退出", FileAction::Exit),
-            ] {
-                root.spawn((
-                    native_buttons::press_triggered(),
-                    Node {
-                        width: px(if matches!(action, FileAction::SaveAs) {
-                            116.0
-                        } else {
-                            84.0
-                        }),
-                        min_height: px(44),
-                        border: UiRect::all(px(1)),
-                        border_radius: native_buttons::native_corners(),
-                        flex_shrink: 0.0,
-                        padding: UiRect::axes(px(8), px(7)),
-                        align_items: AlignItems::Center,
-                        justify_content: JustifyContent::Center,
-                        ..default()
-                    },
-                    BackgroundColor(native_buttons::BUTTON),
-                    FileButton(action),
+#[derive(Component)]
+pub(crate) struct MenuButton;
+
+/// 文件弹层只记录正式控件的命中；文件操作继续交给 FileAction 状态机。
+#[derive(Resource, Default)]
+pub(crate) struct FileMenu {
+    pub(crate) open: bool,
+    pub(crate) area: Option<egui::Rect>,
+    pub(crate) hits: Vec<(FileAction, egui::Rect)>,
+}
+
+impl FileMenu {
+    pub(crate) fn close(&mut self) {
+        self.open = false;
+        self.area = None;
+        self.hits.clear();
+    }
+}
+
+pub(crate) fn setup_file_toolbar(mut commands: Commands) {
+    commands.spawn((
+        native_buttons::press_triggered(),
+        MenuButton,
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(0),
+            bottom: px(4),
+            width: px(48),
+            height: px(48),
+            min_width: px(48),
+            min_height: px(48),
+            border: UiRect::all(px(1)),
+            border_radius: native_buttons::native_corners(),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        Name::new("文件菜单"),
+        BackgroundColor(native_buttons::BUTTON),
+        panels::EditorPanel,
+        panels::ToolbarItem::Files,
+    ));
+}
+
+/// 调用方合并其它抽屉和模态门禁，并将 area 纳入既有画布输入隔离。
+pub(crate) fn show_menu(
+    ctx: &egui::Context,
+    menu: &mut FileMenu,
+    blocked: bool,
+) -> Option<FileAction> {
+    menu.area = None;
+    menu.hits.clear();
+    if blocked || ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+        menu.close();
+    }
+    if !menu.open {
+        return None;
+    }
+    let screen = ctx.content_rect();
+    let width = (screen.width() - 20.0).clamp(1.0, 248.0);
+    let mut selected = None;
+    let shown = egui::Area::new(egui::Id::new("editor_file_menu"))
+        .order(egui::Order::Foreground)
+        .pivot(egui::Align2::LEFT_BOTTOM)
+        .fixed_pos(egui::pos2(screen.left() + 4.0, screen.bottom() - 60.0))
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style())
+                .fill(egui::Color32::from_rgb(34, 35, 31))
+                .stroke(egui::Stroke::new(
+                    1.0,
+                    egui::Color32::from_rgb(135, 155, 39),
                 ))
-                .with_children(|button| {
-                    button.spawn(native_buttons::label(label, font.clone()));
+                .show(ui, |ui| {
+                    ui.set_width(width);
+                    ui.spacing_mut().item_spacing.y = 4.0;
+                    egui::ScrollArea::vertical()
+                        .id_salt("editor_file_menu_scroll")
+                        .max_height((screen.height() - 80.0).max(44.0))
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            for (label, shortcut, icon, action) in [
+                                ("新建", "Ctrl+N", icons::Icon::New, FileAction::New),
+                                ("打开", "Ctrl+O", icons::Icon::Open, FileAction::OpenDialog),
+                                ("保存", "Ctrl+S", icons::Icon::Save, FileAction::Save),
+                                (
+                                    "另存为",
+                                    "Ctrl+Shift+S",
+                                    icons::Icon::SaveAs,
+                                    FileAction::SaveAs,
+                                ),
+                                ("退出", "", icons::Icon::Exit, FileAction::Exit),
+                            ] {
+                                let response = ui.add(
+                                    // 给自绘图标预留一列，按钮本身继续承载文本与键盘语义。
+                                    egui::Button::new(format!("        {label}"))
+                                        .shortcut_text(shortcut)
+                                        .min_size(egui::vec2(width, 44.0)),
+                                );
+                                let icon_rect = egui::Rect::from_center_size(
+                                    egui::pos2(
+                                        response.rect.left() + 20.0,
+                                        response.rect.center().y,
+                                    ),
+                                    egui::vec2(22.0, 22.0),
+                                );
+                                icons::paint(
+                                    ui.painter(),
+                                    icon_rect,
+                                    icon,
+                                    egui::Color32::from_rgb(198, 230, 46),
+                                );
+                                let hit = response.rect.intersect(ui.clip_rect());
+                                if hit.is_positive() {
+                                    menu.hits.push((action.clone(), hit));
+                                }
+                                if response.clicked() {
+                                    response.surrender_focus();
+                                    selected = Some(action);
+                                }
+                            }
+                        });
                 });
-            }
         });
+    let area = shown.response.rect;
+    let anchor = egui::Rect::from_min_size(
+        egui::pos2(screen.left(), screen.bottom() - 52.0),
+        egui::vec2(48.0, 48.0),
+    );
+    let outside = ctx.input(|input| {
+        input.pointer.any_pressed()
+            && input
+                .pointer
+                .interact_pos()
+                .is_some_and(|point| !area.contains(point) && !anchor.contains(point))
+    });
+    if selected.is_some() || outside {
+        menu.close();
+    } else {
+        menu.area = Some(area);
+    }
+    selected
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn toolbar_actions(
     mut activated: MessageReader<native_buttons::Activated>,
     buttons: Query<&FileButton>,
+    menu_buttons: Query<Entity, With<MenuButton>>,
     mut actions: MessageWriter<FileAction>,
+    mut menu: Option<ResMut<FileMenu>>,
+    mut ui: Option<ResMut<panels::egui_panel::UiState>>,
     pending: Option<Res<PendingFileAction>>,
     help: Option<Res<crate::help::HelpState>>,
     inspector: Option<Res<properties::Inspector>>,
+    topology: Option<Res<topology_ui::ConnectionEditor>>,
+    lines: Option<Res<connection_lines::Settings>>,
     touch: Option<Res<mobile_input::GestureInput>>,
 ) {
     let touch = touch.as_deref();
     if help.is_some_and(|state| state.open || state.suppress_frame)
         || pending.is_some_and(|state| state.is_blocked())
         || inspector.is_some_and(|state| state.is_open())
+        || topology.is_some_and(|state| state.open)
+        || lines.is_some_and(|state| state.open)
     {
         activated.clear();
-        return;
-    }
-    if let Some(touch) = touch.filter(|input| input.override_mouse) {
-        activated.clear();
-        if let Some(mobile_input::NativeClick::File(action)) = &touch.native_click {
-            actions.write(action.clone());
+        if let Some(menu) = menu.as_deref_mut() {
+            menu.close();
         }
         return;
     }
-    for event in activated.read() {
-        if let Ok(button) = buttons.get(event.entity) {
-            actions.write(button.0.clone());
+    let mut toggle = false;
+    if let Some(touch) = touch.filter(|input| input.override_mouse) {
+        activated.clear();
+        match &touch.native_click {
+            Some(mobile_input::NativeClick::Menu) => toggle = true,
+            Some(mobile_input::NativeClick::File(action)) => {
+                actions.write(action.clone());
+            }
+            _ => {}
+        }
+    } else {
+        for event in activated.read() {
+            if menu_buttons.contains(event.entity) {
+                toggle = true;
+            } else if let Ok(button) = buttons.get(event.entity) {
+                actions.write(button.0.clone());
+            }
+        }
+    }
+    if let Some(menu) = menu.as_deref_mut() {
+        if toggle {
+            menu.open = !menu.open;
+            if menu.open {
+                if let Some(ui) = ui.as_deref_mut() {
+                    ui.close_drawer();
+                }
+            } else {
+                menu.close();
+            }
+        } else if ui.as_deref().is_some_and(|state| state.drawer_open()) {
+            menu.close();
         }
     }
 }

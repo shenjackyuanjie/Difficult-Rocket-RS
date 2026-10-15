@@ -74,6 +74,31 @@ class DriverTests(unittest.TestCase):
                 self.assertIn(flag, supported, f"{case} 的标志未启用测试，编辑器会一直停在普通窗口")
 
 
+class NativePaletteProtocolTests(unittest.TestCase):
+    def test_native_budget_includes_the_real_parts_entry_click(self):
+        loop = next(node for node in ast.walk(TREE)
+                    if isinstance(node, ast.For) and isinstance(node.target, ast.Name)
+                    and node.target.id == "step" and isinstance(node.iter, ast.Call)
+                    and isinstance(node.iter.func, ast.Name) and node.iter.func.id == "range")
+        expression = compile(ast.Expression(loop.iter), str(SOURCE), "eval")
+        for case, count in [("native", 22), ("keys", 100)]:
+            steps = eval(expression, {"options": SimpleNamespace(window_case=case)})
+            self.assertEqual(list(steps), list(range(count)))
+
+    def test_focus_helper_tracks_the_shifted_native_refocus_step_only(self):
+        target = next(node.args[0] for node in ast.walk(TREE)
+                      if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                      and node.func.id == "check_front" and node.args
+                      and isinstance(node.args[0], ast.IfExp))
+        expression = compile(ast.Expression(target), str(SOURCE), "eval")
+        helper, window = object(), object()
+        for case in ["native", "keys"]:
+            for step in range(22):
+                actual = eval(expression, {"options": SimpleNamespace(window_case=case),
+                                          "step": step, "helper": helper, "hwnd": window})
+                self.assertIs(actual, helper if case == "native" and step == 19 else window)
+
+
 class CompletionTests(unittest.TestCase):
     def checker(self):
         nodes = [node for node in TREE.body if
