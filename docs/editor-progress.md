@@ -17,6 +17,27 @@
 
 原生按钮使用 Bevy 0.20 的 ui_widgets / picking / Activate，无旧 Interaction 兼容层。依赖版本以 Cargo.lock 为准。DRRS 的具体 API 合同与差异见[核心覆盖核对](drrs-core-coverage.md)。
 
+## 2026-10-16 局部重构与回归
+
+本节记录 UI 与自动分级改造前的独立重构验收，后续功能以各自构建记录为准。
+
+- 同组唯一目标筛选由循环切换和下拉列表共用，保留源顺序、重号排除与跨组隔离；不合并两处已有的 `parse()` / `trim().parse()` 差异。
+- 帮助、文件/属性与触摸入口共用未提交画布预览清理。触摸仍额外使旧光标位置失效，其他入口保留有效光标；剪贴板、预览设置、船体与历史合同不变。
+- 新增四项回归；未增加依赖、缓存框架或数据格式。进度及连续焦点失败提醒统一到默认群 `inner`。
+
+| 检查 | 本轮实际结果 / 本地证据 |
+| --- | --- |
+| Rust | `cargo test --workspace --release --locked`：387 项（core 104 / editor 283）通过；[日志](../target/validation-refactor-cleanup/rust-tests.log) |
+| Python | 最终通知脚本状态下全量 151 项通过；[日志](../target/validation-refactor-cleanup/python-tests-inner.log) |
+| 格式 / Release | fmt check、全目标 Release Clippy `-D warnings`、workspace Release build 均通过；[Clippy](../target/validation-refactor-cleanup/clippy.log)、[build](../target/validation-refactor-cleanup/build.log) |
+| 完整窗口演示 | DX12 40ms，19 章全部通过，95 个唯一非空证据，退出 0；Test.xml / Heronb.xml 源哈希未变；[报告](../target/demo-refactor-cleanup-20261016/demo-report.json)、[日志](../target/validation-refactor-cleanup/demo.log) |
+| 三窄窗分级 | 390×844、640×360、320×640 串行全部通过；各自真实滚动 64 级 / 1,024 动作，修改末项、应用、撤销重做与 XML 核对通过。Win32、Bevy/DPI、原始 PNG 尺寸一致，面板不遮挡船体，悬停/修改目标可见且移开恢复；[报告](../target/narrow-staging-refactor-cleanup-20261016/report.json) |
+| 原图 / 身份 | 桌面与三窄窗修改状态原图均已查看，各 GUI 副本与源 EXE 的 SHA 一致；[桌面](../target/demo-refactor-cleanup-20261016/editor-staging-draft.png)、[390×844](../target/narrow-staging-refactor-cleanup-20261016/390x844/target/editor-staging-draft.png)、[640×360](../target/narrow-staging-refactor-cleanup-20261016/640x360/target/editor-staging-draft.png)、[320×640](../target/narrow-staging-refactor-cleanup-20261016/320x640/target/editor-staging-draft.png)、[构建身份](../target/validation-refactor-cleanup/build-identity.json) |
+
+本节 EXE SHA-256：`d78a47f37f6c40e92676467e0df2ff73fac7388f3a1ea08320b0dd73c1d4236e`。构建身份记录了构建时的基线及待提交文件，两块代码随后独立提交，未在验收后修改。
+
+本轮未重跑全库 XML 探针、450ms 观看档或仅启动窄窗，未执行物理触屏、系统键鼠/输入法专项，未录制视频或打包。以下旧构建记录保持原日期和计数。
+
 ## 2026-10-13 分级停靠、图标与悬停联动
 
 按实际打开的 SR sandbox / Builder 分级侧栏与部件图标组织方式调整；复用现有属性草稿、Action/历史事务、目录贴图注册与等比绘制，不增加素材体系或平台工程。普通属性/重号修复仍用 Modal。README 保持 51 行；上一阶段结构/文档清理已移入[历史记录](validation-history.md#2026-10-13-结构与文档清理)，不混用旧构建验收。
