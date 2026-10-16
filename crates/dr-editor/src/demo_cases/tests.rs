@@ -344,6 +344,7 @@ fn replay_gesture(index: usize) -> App {
     let mut state = Run::new("interaction-cases");
     state.case_index = index;
     app.insert_resource(state)
+        .init_resource::<crate::properties::Inspector>()
         .add_systems(
             Update,
             (

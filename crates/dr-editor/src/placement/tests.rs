@@ -151,6 +151,7 @@ fn keyboard_place_during_palette_drag_clears_the_ghost_before_mouse_release() {
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<panels::Palette>()
         .init_resource::<panels::UiPointer>()
+        .init_resource::<crate::properties::Inspector>()
         .add_systems(Update, keyboard_commands);
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()

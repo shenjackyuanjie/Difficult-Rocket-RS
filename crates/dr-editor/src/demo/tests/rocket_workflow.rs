@@ -98,6 +98,7 @@ fn canvas_point(app: &mut App, position: (f64, f64)) {
 fn assembled() -> EditorDocument {
     let mut app = crate::test_support::mouse_app();
     app.insert_resource(document())
+        .init_resource::<crate::properties::Inspector>()
         .init_resource::<panels::Palette>()
         .init_resource::<panels::ShipBrowser>()
         .add_message::<panels::PanelButton>()

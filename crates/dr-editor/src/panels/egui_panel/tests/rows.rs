@@ -300,7 +300,7 @@ fn disabled_directory_button_keeps_prerequisite_tooltip_and_no_hitmap() {
 }
 
 #[test]
-fn follow_toggle_real_pointer_clicks_toggle_and_disabled_input_is_ignored_with_direction_hint() {
+fn follow_icon_real_pointer_clicks_toggle_and_disabled_input_is_ignored_with_direction_hint() {
     fn frame(
         ctx: &egui::Context,
         follow: &mut bool,
@@ -323,7 +323,7 @@ fn follow_toggle_real_pointer_clicks_toggle_and_disabled_input_is_ignored_with_d
             },
             |ui| {
                 ui.add_enabled_ui(enabled, |ui| {
-                    let response = follow_toggle(ui, follow);
+                    let response = icon_toggle(ui, Icon::Follow, FOLLOW_HINT, follow);
                     rect = response.rect;
                     changed |= response.changed();
                     assert_eq!(response.enabled(), enabled);

@@ -135,6 +135,7 @@ pub struct UiState {
     pub box_left: Option<egui::Rect>,
     pub follow_children: Option<egui::Rect>,
     pub free_mode: Option<egui::Rect>,
+    pub snap_enabled: Option<egui::Rect>,
     pub rotate_left: Option<egui::Rect>,
     pub rotate_right: Option<egui::Rect>,
     pub connection_lines: Option<egui::Rect>,
@@ -267,11 +268,11 @@ fn directory_header(
         crate::egui_ui::ui_color(crate::native_buttons::PANEL),
     );
     ui.painter().hline(
-        tools.x_range(),
+        rect.x_range(),
         tools.top(),
         egui::Stroke::new(1.0, crate::egui_ui::ui_color(crate::native_buttons::ACCENT)),
     );
-    let row = tools.shrink2(egui::vec2(4.0, 6.0));
+    let row = tools.shrink2(egui::vec2(2.0, 6.0));
     let slots = ((row.width() + 4.0) / 48.0).floor() as usize;
     ui.scope_builder(
         egui::UiBuilder::new()
@@ -408,9 +409,37 @@ fn panel_hint(action: &PanelButton) -> &'static str {
     }
 }
 
-fn follow_toggle(ui: &mut egui::Ui, follow: &mut bool) -> egui::Response {
-    ui.checkbox(follow, "↳ 子节点跟随")
-        .on_hover_text("开启后拖动父节点时，所有后代一起移动和旋转，保留内部连接。关闭则只拖当前选中部件。按连接方向计算，不包含父节点；本次拖拽开始时确定范围。")
+const FOLLOW_HINT: &str = "子节点跟随：开启后拖动父节点时，所有后代一起移动和旋转，保留内部连接。关闭则只拖当前选中部件。按连接方向计算，不包含父节点；本次拖拽开始时确定范围。";
+
+fn icon_toggle(ui: &mut egui::Ui, icon: Icon, hint: &str, value: &mut bool) -> egui::Response {
+    let mut response = icons::selected_button(ui, icon, hint, *value);
+    if response.clicked() {
+        *value = !*value;
+        response.mark_changed();
+        response.surrender_focus();
+    }
+    response
+}
+
+/// 显式按可用宽度分行，固定尺寸按钮不会把抽屉撑宽。
+fn tool_action_rows(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    entries: &[(PanelButton, Icon, bool)],
+) -> Vec<PanelButton> {
+    let mut actions = Vec::new();
+    let columns = (((ui.available_width() + 4.0) / 48.0).floor() as usize).max(1);
+    for row in entries.chunks(columns) {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            for (action, icon, available) in row {
+                if action_button(ui, state, action.clone(), *icon, *available, false) {
+                    actions.push(action.clone());
+                }
+            }
+        });
+    }
+    actions
 }
 
 fn config_rect(ui: &egui::Ui, response: &egui::Response) -> Option<egui::Rect> {
@@ -492,6 +521,7 @@ pub fn draw(
     state.box_left = None;
     state.follow_children = None;
     state.free_mode = None;
+    state.snap_enabled = None;
     state.rotate_left = None;
     state.rotate_right = None;
     state.connection_lines = None;
@@ -505,12 +535,9 @@ pub fn draw(
     state.fit_button = None;
     state.browser_area = None;
     state.tools_area = None;
-    if inspector.docked() {
-        state.drawer = None;
-    }
     state.pixels_per_point = ctx.pixels_per_point();
     state.scrolling = ctx.input(|input| input.is_scrolling());
-    let enabled = !inspector.is_open()
+    let enabled = !crate::egui_ui::modal_properties(Some(&inspector))
         && !pending.is_some_and(|state| state.is_blocked())
         && !help.is_some_and(|state| state.open || state.suppress_frame)
         && !topology.open
@@ -569,14 +596,14 @@ pub fn draw(
         &mut viewport_ui,
         &mut state,
         enabled,
-        document.history.can_undo(),
-        document.history.can_redo(),
+        document.history.can_undo() || inspector.can_undo(),
+        document.history.can_redo() || inspector.can_redo(),
         pending_edit,
     );
     actions.write_batch(requested);
     // 包含原生三入口和条内空白；滚动与点按不会穿透到底层画布。
     state.areas.push(toolbar);
-    if !inspector.docked() && state.drawer == Some(Drawer::Ships) {
+    if !crate::egui_ui::modal_properties(Some(&inspector)) && state.drawer == Some(Drawer::Ships) {
         let left = egui::Panel::left("ship_browser_sidebar")
             .exact_size(sidebar_width(width, 248.0))
             .resizable(false)
@@ -668,7 +695,7 @@ pub fn draw(
             state.browser_area = Some(left.response.rect);
         }
     }
-    if !inspector.docked() && state.drawer == Some(Drawer::Parts) {
+    if !crate::egui_ui::modal_properties(Some(&inspector)) && state.drawer == Some(Drawer::Parts) {
         let right = egui::Panel::right("part_palette_sidebar")
             .exact_size(sidebar_width(width, 296.0))
             .resizable(false)
@@ -804,7 +831,7 @@ pub fn draw(
             state.palette_area = Some(right.response.rect);
         }
     }
-    if !inspector.docked() && state.drawer == Some(Drawer::Tools) {
+    if !crate::egui_ui::modal_properties(Some(&inspector)) && state.drawer == Some(Drawer::Tools) {
         let tools = egui::Panel::right("editor_tools_drawer")
             .exact_size(sidebar_width(width, 296.0))
             .resizable(false)
@@ -817,32 +844,29 @@ pub fn draw(
                     .id_salt("editor_tools_scroll")
                     .auto_shrink([false, false]);
                 scroll.show(ui, |ui| {
+                    ui.set_max_width(ui.available_width());
                     touch_scroll_area(ui, scroll_id);
                     tools_navigation(ui, &mut state);
                     ui.separator();
                     let selected = !document.selected_keys().is_empty() && drag.id.is_none();
-                    ui.horizontal_wrapped(|ui| {
-                        for (action, icon, available) in [
-                            (PanelButton::Undo, Icon::Undo, document.history.can_undo()),
-                            (PanelButton::Redo, Icon::Redo, document.history.can_redo()),
-                            (PanelButton::Delete, Icon::Delete, selected),
-                            (PanelButton::SelectAll, Icon::SelectAll, true),
-                            (PanelButton::Copy, Icon::Copy, selected),
-                            (PanelButton::Cut, Icon::Cut, selected),
-                            (PanelButton::Paste, Icon::Paste, cursor.clipboard.is_some()),
-                            (PanelButton::Rotate, Icon::Rotate, true),
-                            (PanelButton::FlipX, Icon::FlipX, true),
-                            (PanelButton::FlipY, Icon::FlipY, true),
-                        ] {
-                            if action_button(ui, &mut state, action.clone(), icon, available, false) {
-                                actions.write(action);
-                            }
-                        }
-                        if pending_edit && action_button(ui, &mut state,
-                            PanelButton::CancelPlacement, Icon::Cancel, true, false) {
-                            actions.write(PanelButton::CancelPlacement);
-                        }
-                    });
+                    let mut entries = vec![
+                        (PanelButton::Undo, Icon::Undo, document.history.can_undo() || inspector.can_undo()),
+                        (PanelButton::Redo, Icon::Redo, document.history.can_redo() || inspector.can_redo()),
+                        (PanelButton::Delete, Icon::Delete, selected),
+                        (PanelButton::SelectAll, Icon::SelectAll, true),
+                        (PanelButton::Copy, Icon::Copy, selected),
+                        (PanelButton::Cut, Icon::Cut, selected),
+                        (PanelButton::Paste, Icon::Paste, cursor.clipboard.is_some()),
+                        (PanelButton::Rotate, Icon::Rotate, true),
+                        (PanelButton::FlipX, Icon::FlipX, true),
+                        (PanelButton::FlipY, Icon::FlipY, true),
+                    ];
+                    if pending_edit {
+                        entries.push((PanelButton::CancelPlacement, Icon::Cancel, true));
+                    }
+                    for action in tool_action_rows(ui, &mut state, &entries) {
+                        actions.write(action);
+                    }
                     ui.separator();
                     ui.strong("编辑设置");
                     if ui.button("树 / 图 · F6")
@@ -870,20 +894,23 @@ pub fn draw(
                         .on_disabled_hover_text("请先应用或取消属性草稿，或处理文件确认，再切换框选按键。");
                         state.box_left = config_rect(ui, &left);
                     });
-                    let follow = follow_toggle(ui, &mut options.follow_children);
-                    state.follow_children = config_rect(ui, &follow);
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        let follow = icon_toggle(ui, Icon::Follow, FOLLOW_HINT, &mut options.follow_children);
+                        state.follow_children = config_rect(ui, &follow);
+                        let snap = icon_toggle(ui, Icon::Snap, "吸附：开启后放置/拖动会对齐连接点并自动建立连接，关闭后完全按指针位置放置、已有连接保持不变", &mut document.snap_enabled);
+                        state.snap_enabled = config_rect(ui, &snap);
+                        let mut free = document.free_mode;
+                        let response = icon_toggle(ui, Icon::Free, "自由模式：关闭自动吸附、碰撞判定和自动断连。依次点击两个连接点/边建立连接，重复点击这两个端点可断开；移动、旋转保留已有连接。Esc / 右键取消选点，Ctrl+Z 撤销。", &mut free);
+                        state.free_mode = config_rect(ui, &response);
+                        if response.changed() {
+                            free_mode::set_enabled(&mut document, &mut cursor, &mut drag, free);
+                        }
+                    });
                     if let Some(settings) = line_settings.as_mut() {
                         let response = ui.button("连接线设置…").on_hover_text("显示开关、颜色/透明度、粗细、实线/虚线/点线、呼吸/流动及方向箭头；只改变显示。");
                         state.connection_lines = config_rect(ui, &response);
                         if response.clicked() { response.surrender_focus(); settings.open = true; }
-                    }
-                    let mut free = document.free_mode;
-                    let response = ui.checkbox(&mut free, "自由模式")
-                        .on_hover_text("关闭自动吸附、碰撞判定和自动断连。依次点击两个连接点/边建立连接，重复点击这两个端点可断开；移动、旋转保留已有连接。Esc / 右键取消选点，Ctrl+Z 撤销。");
-                    state.free_mode = config_rect(ui, &response);
-                    if response.changed() {
-                        response.surrender_focus();
-                        free_mode::set_enabled(&mut document, &mut cursor, &mut drag, free);
                     }
                     let selected = document.selected_keys();
                     if let Some(part) = document.selected.and_then(|key| document.ship.part_at(key)) {

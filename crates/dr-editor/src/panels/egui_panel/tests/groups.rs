@@ -42,6 +42,7 @@ fn actual_group_clicks_share_palette_state_with_keyboard_and_expand_all() {
         .init_resource::<DragState>()
         .add_message::<files::FileAction>()
         .add_message::<PanelButton>()
+        .init_resource::<crate::properties::Inspector>()
         .add_systems(Update, panel_actions);
     let ctx = crate::egui_ui::test_context();
     let mut hits = Vec::<(PanelButton, egui::Rect)>::new();

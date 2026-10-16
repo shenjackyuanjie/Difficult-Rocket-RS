@@ -15,6 +15,7 @@ pub(crate) struct State {
     pointer: Option<Vec2>,
     camera_before: Option<Vec2>,
     camera_reset_started: bool,
+    follow_default_checked: bool,
     small_motion: bool,
     cancel_history: Option<(usize, usize, bool)>,
     input: egui_ui::UiTestInput,
@@ -34,7 +35,7 @@ fn selection_description(phase: u8) -> &'static str {
         35 => "工具抽屉已有配置：将框选按键从中键切为左键。",
         36..=38 => "左键框选模式：左键拖空白画矩形，不再平移视角。",
         39..=41 => "左键框选模式下，中键拖动负责平移视角。",
-        42 => "恢复默认中键框选；后代跟随默认关闭。",
+        42 => "后代跟随默认开启：真实点击关闭，并恢复默认中键框选。",
         43..=54 => "左键拖部件时按 R 旋转：预览不改文档，松手提交且仅产生一步历史。",
         55 => "开启工具抽屉「子节点跟随」：下次拖父节点将带上全部后代。",
         56..=60 => "后代跟随已开启：父、子、孙一起移动，保留内部连接但不带外部父节点。",
@@ -524,7 +525,19 @@ pub(crate) fn run(
             keys.reset_all();
             mouse.reset_all();
             assert_eq!(options.box_select_button, view::BoxSelectButton::Left);
-            assert!(!options.follow_children);
+            if !state.follow_default_checked {
+                assert!(options.follow_children, "子节点跟随默认应开启");
+                let Some(rect) = ui.0.follow_children else {
+                    return;
+                };
+                state.input.click_rect(rect, &mut input);
+                state.follow_default_checked = true;
+                return;
+            }
+            assert!(
+                !options.follow_children,
+                "真实图标点击应关闭默认开启的后代跟随"
+            );
             let Some(rect) = ui.0.box_middle else {
                 return;
             };
@@ -667,7 +680,7 @@ pub(crate) fn run(
             state.input.click_rect(rect, &mut input);
         }
         56 => {
-            assert!(options.follow_children, "真实复选框点击应开启后代跟随");
+            assert!(options.follow_children, "真实图标点击应开启后代跟随");
             point(0.0, 0.0);
             mouse.press(MouseButton::Left);
         }
@@ -721,7 +734,7 @@ pub(crate) fn run(
             state.input.click_rect(rect, &mut input);
         }
         62 => {
-            assert!(!options.follow_children, "真实复选框点击应关闭后代跟随");
+            assert!(!options.follow_children, "真实图标点击应关闭后代跟随");
             point(0.0, 0.0);
             mouse.press(MouseButton::Left);
         }

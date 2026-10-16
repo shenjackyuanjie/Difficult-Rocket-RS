@@ -36,17 +36,17 @@ pub(crate) fn layout_toolbars(
             ToolbarItem::Files | ToolbarItem::Properties | ToolbarItem::Help => {
                 next.position_type = PositionType::Absolute;
                 next.top = Val::Auto;
-                next.bottom = px(4);
+                next.bottom = px(6);
                 next.right = Val::Auto;
                 next.left = px(match item {
-                    ToolbarItem::Files => 0.0,
-                    ToolbarItem::Properties => 48.0,
-                    _ => 96.0,
+                    ToolbarItem::Files => 2.0,
+                    ToolbarItem::Properties => 50.0,
+                    _ => 98.0,
                 });
-                next.width = px(48);
-                next.min_width = px(48);
-                next.height = px(48);
-                next.min_height = px(48);
+                next.width = px(44);
+                next.min_width = px(44);
+                next.height = px(44);
+                next.min_height = px(44);
                 next.padding = UiRect::ZERO;
                 next.flex_wrap = FlexWrap::NoWrap;
                 next.row_gap = px(0);
@@ -263,6 +263,7 @@ pub(crate) fn panel_actions(
     mut cursor: ResMut<EditorCursor>,
     mut drag: ResMut<DragState>,
     mut document: ResMut<EditorDocument>,
+    mut inspector: ResMut<properties::Inspector>,
     mut files: MessageWriter<files::FileAction>,
     pending: Option<Res<files::PendingFileAction>>,
     help: Option<Res<help::HelpState>>,
@@ -336,9 +337,13 @@ pub(crate) fn panel_actions(
                 cursor.paste = None;
                 cursor.manual_connection = None;
                 if matches!(action, PanelButton::Undo) {
-                    document.undo();
+                    if !inspector.undo_draft() {
+                        document.undo();
+                    }
                 } else {
-                    document.redo();
+                    if !inspector.redo_draft() {
+                        document.redo();
+                    }
                 }
             }
             PanelButton::Delete => {

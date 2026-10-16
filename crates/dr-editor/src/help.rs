@@ -315,6 +315,7 @@ mod tests {
             .add_message::<files::FileAction>()
             .add_message::<FileDragAndDrop>()
             .add_message::<WindowCloseRequested>()
+            .init_resource::<crate::properties::Inspector>()
             .add_systems(Update, (panels::panel_actions, files::file_inputs).chain());
         for open in [true, false] {
             *app.world_mut().resource_mut::<HelpState>() = HelpState {

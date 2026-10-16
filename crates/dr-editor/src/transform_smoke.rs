@@ -482,6 +482,10 @@ pub(crate) fn run(
         }
         16 => {
             assert!(document.free_mode);
+            assert!(
+                document.snap_enabled,
+                "开启自由模式应保留独立的吸附开关状态"
+            );
             assert_eq!(
                 document.history.undo_len(),
                 state.undo,
@@ -1131,12 +1135,13 @@ pub(crate) fn run(
         100 => {
             assert_eq!(state.group_fixture.as_ref(), Some(&document.ship));
             document.select_only(Some(PartKey::new(0, 1, 0)));
-            if !config_control(&mut state, &ui, &mut input, ui.follow_children) {
-                return;
-            }
+            assert!(
+                options.follow_children,
+                "子节点跟随默认应开启，无需点击反转"
+            );
             describe(
                 &mut showcase,
-                "开启子节点跟随：只抓父节点，也会带上全部后代同步做非直角旋转与组合镜像，松手只提交一次",
+                "默认开启子节点跟随：只抓父节点，也会带上全部后代同步做非直角旋转与组合镜像，松手只提交一次",
             );
         }
         101 => {
@@ -1223,12 +1228,53 @@ pub(crate) fn run(
         }
         111 => {
             assert_eq!(state.group_after.as_ref(), Some(&document.ship));
+            assert!(document.free_mode && document.snap_enabled);
+            state.undo = document.history.undo_len();
+            if !config_control(&mut state, &ui, &mut input, ui.snap_enabled) {
+                return;
+            }
+            describe(
+                &mut showcase,
+                "真实点击吸附与自由模式图标：遍历四种组合，分别切换且互不联动，船体与历史保持不变",
+            );
+        }
+        112 => {
+            assert!(!document.snap_enabled, "真实吸附图标点击应关闭吸附");
+            assert!(document.free_mode, "关闭吸附应保留自由模式");
+            if !config_control(&mut state, &ui, &mut input, ui.free_mode) {
+                return;
+            }
+        }
+        113 => {
+            assert!(!document.free_mode, "真实自由模式图标点击应关闭自由模式");
+            assert!(!document.snap_enabled, "关闭自由模式应保留关闭的吸附状态");
+            if !config_control(&mut state, &ui, &mut input, ui.snap_enabled) {
+                return;
+            }
+        }
+        114 => {
+            assert!(document.snap_enabled, "真实吸附图标点击应开启吸附");
+            assert!(!document.free_mode, "开启吸附应保留关闭的自由模式");
+            if !config_control(&mut state, &ui, &mut input, ui.free_mode) {
+                return;
+            }
+        }
+        115 => {
+            assert!(document.free_mode, "真实自由模式图标点击应开启自由模式");
+            assert!(document.snap_enabled, "开启自由模式应保留开启的吸附状态");
+            assert_eq!(state.group_after.as_ref(), Some(&document.ship));
+            assert_eq!(
+                document.history.undo_len(),
+                state.undo,
+                "独立开关切换应保留撤销历史"
+            );
+            assert_eq!(document.history.redo_len(), 0, "独立开关切换应保留重做历史");
             save_ship("target/transforms-smoke.xml", &document.ship).unwrap();
             assert_eq!(
                 load_ship("target/transforms-smoke.xml").unwrap(),
                 document.ship
             );
-            let report = serde_json::json!({"completed": true, "assisted_overlap_ratio": state.overlap, "manual_connection_distance": state.manual_distance, "rotation_steps_degrees": [90,15,1], "drag_preview_degrees": 122, "drag_mirrors": ["x","y"], "free_mode_real_checkbox": true, "precision_real_buttons": true, "free_drag_preserved_connection": true, "free_overlapping_placement_without_auto_connection": true, "manual_connect_and_disconnect": true, "multiselect_mirrors_and_rotation": true, "tree_subtree_transforms":true,"connected_component_transforms":true,"rectangle_group_transforms":true,"follow_all_descendants_transforms":true,"connection_line_real_controls":true,"connection_line_width_px":lines.width,"connection_line_patterns":["solid","dashed","dotted"],"connection_line_effects":["still","flow","pulse"],"connection_line_settings_preserve_history":true,"undo_redo": true, "xml_roundtrip": true, "input_mode": "内部真实 UI/画布输入注入，不是系统键鼠或输入法验收"});
+            let report = serde_json::json!({"completed": true, "assisted_overlap_ratio": state.overlap, "manual_connection_distance": state.manual_distance, "rotation_steps_degrees": [90,15,1], "drag_preview_degrees": 122, "drag_mirrors": ["x","y"], "free_mode_real_icon": true, "snap_free_mode_independent_real_icons": true, "follow_children_default_enabled": true, "precision_real_buttons": true, "free_drag_preserved_connection": true, "free_overlapping_placement_without_auto_connection": true, "manual_connect_and_disconnect": true, "multiselect_mirrors_and_rotation": true, "tree_subtree_transforms":true,"connected_component_transforms":true,"rectangle_group_transforms":true,"follow_all_descendants_transforms":true,"connection_line_real_controls":true,"connection_line_width_px":lines.width,"connection_line_patterns":["solid","dashed","dotted"],"connection_line_effects":["still","flow","pulse"],"connection_line_settings_preserve_history":true,"undo_redo": true, "xml_roundtrip": true, "input_mode": "内部真实 UI/画布输入注入，不是系统键鼠或输入法验收"});
             std::fs::write(
                 "target/transforms-smoke.json",
                 serde_json::to_vec_pretty(&report).unwrap(),

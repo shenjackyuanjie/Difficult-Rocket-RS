@@ -391,6 +391,10 @@ fn free_mouse_connection_consumes_click_and_cancels_on_escape_focus_loss_or_ui()
 #[test]
 fn release_and_rotation_same_frame_commit_overlap_in_one_undo() {
     let mut app = mouse_app();
+    // 本用例验证同帧松手+旋转的原子撤销，关闭跟随以只拖当前部件。
+    app.world_mut()
+        .resource_mut::<view::ViewOptions>()
+        .follow_children = false;
     {
         let mut document = app.world_mut().resource_mut::<EditorDocument>();
         let kind = document.catalog.get("pod").unwrap();

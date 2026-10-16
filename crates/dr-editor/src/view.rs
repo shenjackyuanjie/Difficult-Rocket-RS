@@ -158,7 +158,7 @@ impl Default for ViewOptions {
             debug: false,
             ship_visible: true,
             box_select_button: BoxSelectButton::Middle,
-            follow_children: false,
+            follow_children: true,
         }
     }
 }

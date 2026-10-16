@@ -661,6 +661,7 @@ fn touch_paste_uses_the_existing_preview_and_commits_one_transaction_on_release(
         .init_resource::<panels::ShipBrowser>()
         .add_message::<panels::PanelButton>()
         .add_message::<files::FileAction>()
+        .init_resource::<crate::properties::Inspector>()
         .add_systems(Update, panels::panel_actions.before(input));
     app.world_mut()
         .write_message(panels::PanelButton::SelectAll);

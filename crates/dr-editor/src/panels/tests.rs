@@ -159,6 +159,7 @@ fn category_commands_collapse_independently_expand_all_and_preserve_document_his
         .init_resource::<DragState>()
         .add_message::<files::FileAction>()
         .add_message::<PanelButton>()
+        .init_resource::<crate::properties::Inspector>()
         .add_systems(Update, panel_actions);
     app.world_mut()
         .write_message(PanelButton::ToggleCategory("Gizmos".into()));
@@ -232,6 +233,7 @@ fn palette_click_selects_template_without_mutating_ship_or_history() {
         .init_resource::<DragState>()
         .add_message::<files::FileAction>()
         .add_message::<PanelButton>()
+        .init_resource::<crate::properties::Inspector>()
         .add_systems(Update, panel_actions);
     app.world_mut().write_message(PanelButton::Part(2));
     app.update();
@@ -481,6 +483,7 @@ fn dragging_a_catalog_row_starts_only_a_ghost_and_regular_click_resets_drag_mode
         .init_resource::<DragState>()
         .add_message::<files::FileAction>()
         .add_message::<PanelButton>()
+        .init_resource::<crate::properties::Inspector>()
         .add_systems(Update, panel_actions);
     app.world_mut().write_message(PanelButton::DragPart(0));
     app.update();
@@ -510,6 +513,7 @@ fn touch_accessible_clipboard_buttons_reuse_keyboard_transactions_and_undo() {
         .init_resource::<DragState>()
         .add_message::<files::FileAction>()
         .add_message::<PanelButton>()
+        .init_resource::<crate::properties::Inspector>()
         .add_systems(Update, panel_actions);
     app.world_mut().write_message(PanelButton::SelectAll);
     app.world_mut().write_message(PanelButton::Copy);
@@ -575,6 +579,7 @@ fn touch_rotate_button_respects_the_same_disabled_rotation_flag_as_keyboard() {
         .init_resource::<DragState>()
         .add_message::<files::FileAction>()
         .add_message::<PanelButton>()
+        .init_resource::<crate::properties::Inspector>()
         .add_systems(Update, panel_actions);
     app.world_mut().write_message(PanelButton::Rotate);
     app.update();
