@@ -309,10 +309,14 @@ fn bad_fuel_and_stale_drafts_preserve_document() {
         assert!(!document.history.can_undo());
     }
     inspector.draft.as_mut().unwrap().fuel = "5".into();
-    document.execute(EditorCommand::SetActive(2, true));
+    assert!(document.execute(EditorCommand::SetFuel(2, 7.0)));
+    let external = document_snapshot(&document);
     act(&Action::Apply, &mut inspector, &mut document);
     assert!(inspector.error.contains("已变更"));
-    assert_eq!(document.ship.part(2).unwrap().fuel, Some(10.0));
+    assert!(inspector.error.contains("冲突"));
+    assert_eq!(document.ship.part(2).unwrap().fuel, Some(7.0));
+    assert_eq!(document_snapshot(&document), external);
+    assert_eq!(inspector.draft.as_ref().unwrap().fuel, "5");
 }
 
 #[test]
@@ -492,7 +496,7 @@ fn property_actions_drop_help_blocked_activations_before_resuming() {
 #[test]
 fn native_property_click_opens_once_and_drops_compatible_mouse_activation() {
     let mut app = action_app();
-    let before = app.world().resource::<EditorDocument>().ship.clone();
+    let before = document_snapshot(app.world().resource::<EditorDocument>());
     let entity = app.world_mut().spawn(button(Action::Open)).id();
     app.world_mut().resource_mut::<DragState>().id = Some(PartKey::new(0, 1, 0));
     app.world_mut().resource_mut::<EditorCursor>().placing = true;
@@ -545,16 +549,29 @@ fn native_property_click_opens_once_and_drops_compatible_mouse_activation() {
     app.world_mut()
         .trigger(bevy::ui_widgets::Activate { entity });
     app.update();
+    let inspector = app.world().resource::<Inspector>();
+    assert!(inspector.is_open(), "有修改的草稿保持打开");
     assert_eq!(
-        app.world()
-            .resource::<Inspector>()
-            .draft
-            .as_ref()
-            .unwrap()
-            .name,
-        "初始"
+        inspector.draft.as_ref().unwrap().name,
+        "保持未提交草稿",
+        "再次真实激活不能静默丢弃草稿"
     );
-    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(!inspector.error.is_empty());
+    assert!(
+        inspector.error.contains("草稿有修改"),
+        "{}",
+        inspector.error
+    );
+    assert!(
+        inspector.error.contains("请先应用或取消"),
+        "{}",
+        inspector.error
+    );
+    assert_eq!(
+        document_snapshot(app.world().resource::<EditorDocument>()),
+        before,
+        "原生属性入口及兼容鼠标激活都不修改文档、选择、脏标记或文档历史"
+    );
     assert!(!app.world().resource::<EditorDocument>().history.can_undo());
 }
 
@@ -607,9 +624,15 @@ fn staging_preview_resolves_only_current_unique_group_targets_without_a_transact
     );
     document.ship.parts.pop();
     document.ship.parts[0].active = !document.ship.parts[0].active;
+    assert_eq!(
+        inspector.preview_keys(&document),
+        vec![PartKey::new(0, 2, 0)],
+        "其他属性的外部变化不改变预览身份"
+    );
+    document.ship.parts[0].part_type = "changed-type".into();
     assert!(
         inspector.preview_keys(&document).is_empty(),
-        "过期草稿不标注新快照"
+        "类型变化后停止预览"
     );
 }
 
@@ -830,7 +853,7 @@ fn generation_failures_keep_all_draft_fields_preview_and_history() {
             0 => document.catalog = PartCatalog::default(),
             1 => document.ship.parts.push(document.ship.parts[2].clone()),
             2 => document.ship.connections.push(staging_connection(9, 1)),
-            _ => document.ship.parts[0].active = !document.ship.parts[0].active,
+            _ => document.ship.parts[0].part_type = "changed-type".into(),
         }
         inspector.draft.as_mut().unwrap().name = "保留手工草稿".into();
         inspector.draft.as_mut().unwrap().current_stage = "旧分级输入".into();
@@ -1315,4 +1338,498 @@ fn inspector_drawer_toggles_only_change_ui_state() {
         assert_same_draft(inspector.draft.as_ref().unwrap(), &before_draft);
         assert_eq!(document_snapshot(&document), before_document);
     }
+}
+
+#[test]
+fn open_toggles_clean_drafts_and_keeps_modified_drafts_until_apply_or_cancel() {
+    let mut document = document();
+    let before = document_snapshot(&document);
+    let mut inspector = Inspector::default();
+    act(&Action::Open, &mut inspector, &mut document);
+    inspector.draft.as_mut().unwrap().target = "2".into();
+    act(&Action::ToggleAdvanced, &mut inspector, &mut document);
+    act(&Action::Open, &mut inspector, &mut document);
+    assert!(!inspector.is_open(), "导航状态不构成未应用修改");
+    act(&Action::Open, &mut inspector, &mut document);
+    inspector.draft.as_mut().unwrap().name = "保留名称".into();
+    let draft = inspector.draft.as_ref().unwrap().clone();
+    act(&Action::Open, &mut inspector, &mut document);
+    assert_same_draft(inspector.draft.as_ref().unwrap(), &draft);
+    assert!(inspector.error.contains("草稿"));
+    assert!(inspector.undo_draft());
+    act(&Action::Open, &mut inspector, &mut document);
+    assert!(!inspector.is_open(), "撤销至原值后可以收起");
+    assert_eq!(document_snapshot(&document), before);
+    assert!(!inspector.can_undo() && !inspector.can_redo());
+}
+
+#[test]
+fn local_history_tracks_direct_text_and_staging_actions_without_document_transactions() {
+    let mut document = document();
+    let before = document_snapshot(&document);
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    assert!(!inspector.can_undo() && !inspector.can_redo());
+    inspector.draft.as_mut().unwrap().target = "2".into();
+    inspector.draft.as_mut().unwrap().name = "草稿名称".into();
+    assert!(inspector.can_undo(), "直接文本编辑在 refresh 前也可撤销");
+    act(&Action::Active, &mut inspector, &mut document);
+    act(&Action::AddStep, &mut inspector, &mut document);
+    act(&Action::AddActivation(0), &mut inspector, &mut document);
+    act(&Action::Moved(0, 0), &mut inspector, &mut document);
+    let edited = inspector.draft.as_ref().unwrap().clone();
+    assert!(inspector.undo_draft());
+    assert!(!draft_plan(&inspector).steps[0].activations[0].moved);
+    assert!(inspector.undo_draft());
+    assert!(draft_plan(&inspector).steps[0].activations.is_empty());
+    assert!(inspector.undo_draft());
+    assert!(draft_plan(&inspector).steps.is_empty());
+    assert!(inspector.undo_draft());
+    assert!(!inspector.draft.as_ref().unwrap().active);
+    assert!(inspector.undo_draft());
+    assert_eq!(inspector.draft.as_ref().unwrap().name, "初始");
+    assert_eq!(inspector.draft.as_ref().unwrap().target, "2");
+    assert!(!inspector.undo_draft() && !inspector.can_undo());
+    for _ in 0..5 {
+        assert!(inspector.redo_draft());
+    }
+    assert_same_draft(inspector.draft.as_ref().unwrap(), &edited);
+    assert!(!inspector.redo_draft() && !inspector.can_redo());
+    assert_eq!(document_snapshot(&document), before);
+    act(&Action::Apply, &mut inspector, &mut document);
+    assert!(!inspector.is_open(), "{}", inspector.error);
+    assert_eq!(document.history.undo_len(), 1);
+    assert!(document.undo());
+    assert_eq!(document.ship, before.0);
+}
+
+#[test]
+fn local_history_ignores_noops_navigation_and_failures_and_clears_redo_on_real_edits() {
+    let mut document = document();
+    let before = document_snapshot(&document);
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    act(&Action::AddStep, &mut inspector, &mut document);
+    assert!(inspector.undo_draft() && inspector.can_redo());
+    for action in [
+        Action::Focus(Field::Name),
+        Action::CycleTarget(true),
+        Action::ToggleAdvanced,
+        Action::ToggleTargets,
+        Action::SelectStage(0),
+        Action::SelectActivation(0, 0),
+        Action::RemoveStep(99),
+        Action::MoveStep(99, true),
+        Action::ReorderStep { from: 99, to: 0 },
+        Action::AddActivation(99),
+    ] {
+        act(&action, &mut inspector, &mut document);
+        assert!(!inspector.can_undo(), "非编辑动作不新增历史：{action:?}");
+        assert!(inspector.can_redo(), "非编辑动作保留 redo：{action:?}");
+    }
+    inspector.draft.as_mut().unwrap().throttle = "未完成数字".into();
+    assert!(inspector.can_undo());
+    assert!(!inspector.can_redo());
+    assert!(!inspector.redo_draft(), "新文本分支清空旧 redo");
+    assert!(inspector.undo_draft());
+    assert_eq!(inspector.draft.as_ref().unwrap().throttle, "0");
+    assert!(inspector.redo_draft());
+    assert_eq!(inspector.draft.as_ref().unwrap().throttle, "未完成数字");
+    assert_eq!(document_snapshot(&document), before);
+    act(&Action::Cancel, &mut inspector, &mut document);
+    assert!(!inspector.can_undo() && !inspector.can_redo());
+    assert_eq!(document_snapshot(&document), before);
+}
+
+#[test]
+fn local_history_exhaustion_leaves_document_undo_and_redo_available() {
+    let mut document = document();
+    assert!(document.execute(EditorCommand::SetActive(2, true)));
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    act(&Action::Active, &mut inspector, &mut document);
+    let external = document_snapshot(&document);
+    assert!(inspector.undo_draft());
+    assert!(!inspector.undo_draft());
+    assert_eq!(document_snapshot(&document), external);
+    assert!(document.undo());
+    inspector.refresh(&document);
+    assert!(inspector.can_redo());
+    let undone_document = document_snapshot(&document);
+    assert!(inspector.redo_draft());
+    assert!(!inspector.redo_draft());
+    assert_eq!(document_snapshot(&document), undone_document);
+    assert!(document.redo());
+    inspector.refresh(&document);
+    assert!(inspector.error.is_empty());
+    assert!(document.ship.parts[1].active);
+    assert!(inspector.draft.as_ref().unwrap().active);
+}
+
+fn assert_one_staging_command(draft: &Draft, document: &EditorDocument) {
+    let EditorCommand::Scoped { command, part } = draft.command(document).unwrap() else {
+        panic!("属性事务必须限定明确实例");
+    };
+    assert_eq!(part, draft.key);
+    let EditorCommand::Batch(commands) = *command else {
+        panic!("属性事务必须保持单个 Batch");
+    };
+    assert_eq!(
+        commands
+            .iter()
+            .filter(|command| matches!(command, EditorCommand::SetStaging(..)))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn apply_merges_draft_fields_with_parallel_geometry_and_unrelated_properties_as_one_transaction() {
+    let mut document = document();
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    inspector.draft.as_mut().unwrap().name = "本地名称".into();
+    inspector.draft.as_mut().unwrap().target = "2".into();
+    act(&Action::AddStep, &mut inspector, &mut document);
+    act(&Action::AddActivation(0), &mut inspector, &mut document);
+    assert!(document.execute(EditorCommand::Batch(vec![
+        EditorCommand::Move {
+            id: 1,
+            from: (0.0, 0.0),
+            to: (12.0, 7.0)
+        },
+        EditorCommand::Rotate(1),
+        EditorCommand::SetActive(1, true),
+        EditorCommand::SetThrottle(1, 0.6),
+        EditorCommand::SetFuel(2, 7.0),
+    ])));
+    let external = document.ship.clone();
+    let history_len = document.history.undo_len();
+    inspector.refresh(&document);
+    assert!(inspector.error.is_empty());
+    inspector.preview = Preview::Activation(0, 0);
+    assert_eq!(
+        inspector.preview_keys(&document),
+        vec![PartKey::new(0, 2, 0)]
+    );
+    assert_one_staging_command(inspector.draft.as_ref().unwrap(), &document);
+    let mut expected = external.clone();
+    let pod = expected.parts[0].pod.as_mut().unwrap();
+    pod.name = "本地名称".into();
+    pod.staging = inspector.draft.as_ref().unwrap().staging.clone();
+    act(&Action::Apply, &mut inspector, &mut document);
+    assert!(!inspector.is_open(), "{}", inspector.error);
+    assert_eq!(
+        document.ship, expected,
+        "位置、姿态、外部字段及无关部件全部保留"
+    );
+    assert_eq!(document.history.undo_len(), history_len + 1);
+    assert!(document.undo());
+    assert_eq!(document.ship, external);
+    assert_eq!(document.history.undo_len(), history_len);
+    assert!(document.redo());
+    assert_eq!(document.ship, expected);
+}
+
+#[test]
+fn semantic_numeric_noops_preserve_external_fields_and_convergent_edits_add_no_transaction() {
+    let mut document = document();
+    document.select_only(Some(PartKey::new(0, 2, 0)));
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    inspector.draft.as_mut().unwrap().fuel = "10.000".into();
+    assert!(document.execute(EditorCommand::Batch(vec![
+        EditorCommand::SetFuel(2, 7.0),
+        EditorCommand::SetActive(2, true),
+    ])));
+    let external = document.ship.clone();
+    let history_len = document.history.undo_len();
+    act(&Action::Apply, &mut inspector, &mut document);
+    assert!(!inspector.is_open(), "{}", inspector.error);
+    assert_eq!(document.ship, external);
+    assert_eq!(document.history.undo_len(), history_len);
+    document.select_only(Some(PartKey::new(0, 1, 0)));
+    open(&mut inspector, &document);
+    inspector.draft.as_mut().unwrap().name = "相同名称".into();
+    assert!(document.execute(EditorCommand::RenamePod(1, "相同名称".into())));
+    let external = document.ship.clone();
+    let history_len = document.history.undo_len();
+    act(&Action::Apply, &mut inspector, &mut document);
+    assert!(!inspector.is_open());
+    assert_eq!(document.ship, external);
+    assert_eq!(document.history.undo_len(), history_len);
+}
+
+#[test]
+fn staging_steps_and_current_stage_merge_independently_with_exactly_one_set_staging() {
+    for edit_steps in [true, false] {
+        let mut document = document();
+        let mut inspector = Inspector::default();
+        open(&mut inspector, &document);
+        let mut external_plan = StagingState::default();
+        if edit_steps {
+            act(&Action::AddStep, &mut inspector, &mut document);
+            external_plan.current_stage = 4;
+        } else {
+            inspector.draft.as_mut().unwrap().current_stage = "3".into();
+            external_plan.steps.push(StageStep {
+                activations: vec![Activation { id: 2, moved: true }],
+            });
+        }
+        assert!(document.execute(EditorCommand::SetStaging(1, Some(external_plan.clone()))));
+        let external = document.ship.clone();
+        assert_one_staging_command(inspector.draft.as_ref().unwrap(), &document);
+        act(&Action::Apply, &mut inspector, &mut document);
+        assert!(!inspector.is_open(), "{}", inspector.error);
+        let plan = document.ship.parts[0]
+            .pod
+            .as_ref()
+            .unwrap()
+            .staging
+            .as_ref()
+            .unwrap();
+        assert_eq!(plan.current_stage, if edit_steps { 4 } else { 3 });
+        assert_eq!(
+            plan.steps,
+            if edit_steps {
+                vec![StageStep::default()]
+            } else {
+                external_plan.steps
+            }
+        );
+        assert_eq!(document.history.undo_len(), 2);
+        assert!(document.undo());
+        assert_eq!(document.ship, external);
+    }
+}
+
+#[test]
+fn same_field_conflicts_preserve_the_complete_draft_document_and_history() {
+    for conflict in 0..5 {
+        let mut document = document();
+        let mut inspector = Inspector::default();
+        open(&mut inspector, &document);
+        let command = match conflict {
+            0 => {
+                inspector.draft.as_mut().unwrap().name = "本地名称".into();
+                EditorCommand::RenamePod(1, "外部名称".into())
+            }
+            1 => {
+                inspector.draft.as_mut().unwrap().throttle = "0.2".into();
+                EditorCommand::SetThrottle(1, 0.7)
+            }
+            2 => {
+                inspector.draft.as_mut().unwrap().current_stage = "2".into();
+                EditorCommand::SetStaging(
+                    1,
+                    Some(StagingState {
+                        current_stage: 3,
+                        ..default()
+                    }),
+                )
+            }
+            3 => {
+                act(&Action::AddStep, &mut inspector, &mut document);
+                EditorCommand::SetStaging(
+                    1,
+                    Some(StagingState {
+                        steps: vec![StageStep::default(); 2],
+                        ..default()
+                    }),
+                )
+            }
+            _ => {
+                inspector.draft.as_mut().unwrap().staging = None;
+                EditorCommand::SetStaging(
+                    1,
+                    Some(StagingState {
+                        steps: vec![StageStep::default()],
+                        ..default()
+                    }),
+                )
+            }
+        };
+        assert!(document.execute(command));
+        let draft = inspector.draft.as_ref().unwrap().clone();
+        let external = document_snapshot(&document);
+        act(&Action::Apply, &mut inspector, &mut document);
+        assert!(
+            inspector.error.contains("冲突"),
+            "场景 {conflict}: {}",
+            inspector.error
+        );
+        assert_same_draft(inspector.draft.as_ref().unwrap(), &draft);
+        assert_eq!(document_snapshot(&document), external);
+        assert!(inspector.can_undo());
+        assert!(document.undo());
+        inspector.refresh(&document);
+        act(&Action::Apply, &mut inspector, &mut document);
+        assert!(
+            !inspector.is_open(),
+            "冲突撤销后应能应用：{}",
+            inspector.error
+        );
+        assert_eq!(document.history.undo_len(), 1);
+    }
+}
+
+#[test]
+fn deleted_or_retyped_owner_keeps_draft_and_blocks_apply_generation_and_preview() {
+    for invalid in 0..3 {
+        let mut document = staging_document();
+        let mut inspector = Inspector::default();
+        open(&mut inspector, &document);
+        inspector.draft.as_mut().unwrap().name = "保留草稿".into();
+        match invalid {
+            0 => assert!(document.execute(EditorCommand::Delete(1))),
+            1 => document.ship.parts[0].part_type = "tank".into(),
+            _ => document.ship.parts[0].pod = None,
+        }
+        let draft = inspector.draft.as_ref().unwrap().clone();
+        let external = document_snapshot(&document);
+        inspector.refresh(&document);
+        assert!(!inspector.error.is_empty());
+        assert!(inspector.preview_keys(&document).is_empty());
+        for action in [Action::Apply, Action::GenerateStaging] {
+            act(&action, &mut inspector, &mut document);
+            assert!(!inspector.error.is_empty());
+            assert_same_draft(inspector.draft.as_ref().unwrap(), &draft);
+            assert_eq!(document_snapshot(&document), external);
+        }
+    }
+}
+
+#[test]
+fn removed_or_ambiguous_targets_are_retained_in_draft_and_block_apply_until_resolved() {
+    for duplicate in [false, true] {
+        let mut document = document();
+        document.ship.parts[0]
+            .pod
+            .as_mut()
+            .unwrap()
+            .staging
+            .as_mut()
+            .unwrap()
+            .steps = vec![StageStep {
+            activations: vec![Activation { id: 2, moved: true }],
+        }];
+        let original = document.ship.clone();
+        let mut inspector = Inspector::default();
+        open(&mut inspector, &document);
+        inspector.draft.as_mut().unwrap().name = "保留未提交名称".into();
+        if duplicate {
+            document.ship.parts.push(document.ship.parts[1].clone());
+            document.refresh();
+        } else {
+            assert!(document.execute(EditorCommand::Delete(2)));
+        }
+        let external = document_snapshot(&document);
+        let draft = inspector.draft.as_ref().unwrap().clone();
+        inspector.preview = Preview::Activation(0, 0);
+        inspector.refresh(&document);
+        assert!(inspector.error.contains("目标 2"));
+        assert!(inspector.preview_keys(&document).is_empty());
+        act(&Action::Apply, &mut inspector, &mut document);
+        assert_same_draft(inspector.draft.as_ref().unwrap(), &draft);
+        assert_eq!(document_snapshot(&document), external);
+        if duplicate {
+            document.ship = original;
+            document.refresh();
+        } else {
+            assert!(document.undo());
+        }
+        inspector.refresh(&document);
+        assert!(inspector.error.is_empty(), "目标恢复后清除本轮诊断");
+        assert_same_draft(inspector.draft.as_ref().unwrap(), &draft);
+        act(&Action::Apply, &mut inspector, &mut document);
+        assert!(!inspector.is_open(), "{}", inspector.error);
+    }
+}
+
+#[test]
+fn original_missing_targets_remain_compatible_for_unrelated_property_changes() {
+    let mut document = document();
+    document.ship.parts[0]
+        .pod
+        .as_mut()
+        .unwrap()
+        .staging
+        .as_mut()
+        .unwrap()
+        .steps = vec![StageStep {
+        activations: vec![Activation {
+            id: 999,
+            moved: false,
+        }],
+    }];
+    let original = document.ship.clone();
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    assert!(inspector.error.is_empty());
+    inspector.draft.as_mut().unwrap().name = "仅改名称".into();
+    act(&Action::Apply, &mut inspector, &mut document);
+    assert!(!inspector.is_open(), "{}", inspector.error);
+    assert_eq!(
+        document.ship.parts[0].pod.as_ref().unwrap().staging,
+        original.parts[0].pod.as_ref().unwrap().staging
+    );
+    assert_eq!(document.history.undo_len(), 1);
+    assert!(document.undo());
+    assert_eq!(document.ship, original);
+}
+
+#[test]
+fn newly_invalid_target_references_cannot_be_applied_and_can_be_undone_locally() {
+    let mut document = document();
+    let before = document_snapshot(&document);
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    inspector
+        .draft
+        .as_mut()
+        .unwrap()
+        .staging
+        .as_mut()
+        .unwrap()
+        .steps
+        .push(StageStep {
+            activations: vec![Activation {
+                id: 999,
+                moved: false,
+            }],
+        });
+    inspector.refresh(&document);
+    assert!(inspector.error.contains("目标 999"));
+    act(&Action::Apply, &mut inspector, &mut document);
+    assert!(inspector.is_open());
+    assert_eq!(document_snapshot(&document), before);
+    assert!(inspector.undo_draft());
+    inspector.refresh(&document);
+    assert!(inspector.error.is_empty());
+    assert!(draft_plan(&inspector).steps.is_empty());
+    assert_eq!(document_snapshot(&document), before);
+}
+
+#[test]
+fn generate_staging_accepts_parallel_owner_geometry_and_property_changes() {
+    let mut document = staging_document();
+    let mut inspector = Inspector::default();
+    open(&mut inspector, &document);
+    inspector.draft.as_mut().unwrap().name = "保留本地名称".into();
+    let owner = &mut document.ship.parts[0];
+    owner.x = 12.0;
+    owner.y = -4.0;
+    owner.angle = 1.5;
+    owner.editor_angle = 90;
+    owner.active = !owner.active;
+    let expected =
+        dr_core::generate_basic_staging(&document.ship, &document.catalog, PartKey::new(0, 1, 0))
+            .unwrap();
+    let external = document_snapshot(&document);
+    act(&Action::GenerateStaging, &mut inspector, &mut document);
+    assert!(inspector.error.is_empty(), "{}", inspector.error);
+    assert_eq!(draft_plan(&inspector), &expected);
+    assert_eq!(inspector.draft.as_ref().unwrap().name, "保留本地名称");
+    assert!(!inspector.preview_keys(&document).is_empty());
+    assert_eq!(document_snapshot(&document), external);
 }

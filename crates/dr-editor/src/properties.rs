@@ -5,6 +5,7 @@ use dr_core::{
 
 pub mod egui_panel;
 pub mod egui_smoke;
+mod history;
 pub mod native_ime;
 pub mod repair_smoke;
 pub mod staging_smoke;
@@ -62,19 +63,48 @@ impl Draft {
         }
     }
 
-    pub fn command(&self, document: &EditorDocument) -> Result<EditorCommand, String> {
-        if document.ship.part_at(self.key) != Some(&self.original) {
-            return Err("部件已变更，请取消后重新打开属性".into());
+    /// PartKey 与属性类型仍指向原对象即可；位置、旋转及其他字段可以并行变化。
+    fn current_part<'a>(&self, document: &'a EditorDocument) -> Result<&'a Part, String> {
+        let current = document
+            .ship
+            .part_at(self.key)
+            .ok_or("属性所属部件已删除，请取消草稿")?;
+        if current.part_type != self.original.part_type
+            || current.pod.is_some() != self.original.pod.is_some()
+            || current.fuel_kind != self.original.fuel_kind
+        {
+            return Err("部件类型已变更，请取消后重新打开属性".into());
         }
+        Ok(current)
+    }
+
+    pub fn command(&self, document: &EditorDocument) -> Result<EditorCommand, String> {
+        let current = self.current_part(document)?;
         let id = self.original.id;
         let mut commands = vec![];
-        if self.active != self.original.active {
-            commands.push(EditorCommand::SetActive(id, self.active));
+        let active = merge_field(
+            "启用状态",
+            &self.original.active,
+            &self.active,
+            &current.active,
+        )?;
+        if active != current.active {
+            commands.push(EditorCommand::SetActive(id, active));
         }
         if self.original.fuel_kind.is_some() {
-            let fuel = number(&self.fuel, "燃料")?;
-            if Some(fuel) != self.original.fuel {
-                if fuel < 0.0 {
+            let original_text = self
+                .original
+                .fuel
+                .map(|fuel| fuel.to_string())
+                .unwrap_or_default();
+            let fuel = if self.fuel == original_text {
+                self.original.fuel
+            } else {
+                Some(number(&self.fuel, "燃料")?)
+            };
+            if fuel != self.original.fuel {
+                let value = fuel.unwrap();
+                if value < 0.0 {
                     return Err("燃料不能小于零".into());
                 }
                 if let Some(max) = document
@@ -82,38 +112,91 @@ impl Draft {
                     .get(&self.original.part_type)
                     .and_then(|kind| kind.tank.as_ref())
                     .map(|tank| tank.fuel)
-                    && fuel > max
+                    && value > max
                 {
                     return Err(format!("燃料不能超过容量 {max}"));
                 }
-                commands.push(EditorCommand::SetFuel(id, fuel));
+            }
+            let fuel = merge_field("燃料", &self.original.fuel, &fuel, &current.fuel)?;
+            if fuel != current.fuel {
+                commands.push(EditorCommand::SetFuel(id, fuel.unwrap()));
             }
         }
         if let Some(pod) = &self.original.pod {
-            if self.name != pod.name {
-                commands.push(EditorCommand::RenamePod(id, self.name.clone()));
+            let current_pod = current.pod.as_ref().unwrap();
+            let name = merge_field("名称", &pod.name, &self.name, &current_pod.name)?;
+            if name != current_pod.name {
+                commands.push(EditorCommand::RenamePod(id, name));
             }
-            let throttle = number(&self.throttle, "油门")?;
-            if throttle != pod.throttle {
-                if !(0.0..=1.0).contains(&throttle) {
-                    return Err("油门必须在 0 到 1 之间".into());
-                }
+            let throttle = if self.throttle == pod.throttle.to_string() {
+                pod.throttle
+            } else {
+                number(&self.throttle, "油门")?
+            };
+            if throttle != pod.throttle && !(0.0..=1.0).contains(&throttle) {
+                return Err("油门必须在 0 到 1 之间".into());
+            }
+            let throttle = merge_field("油门", &pod.throttle, &throttle, &current_pod.throttle)?;
+            if throttle != current_pod.throttle {
                 commands.push(EditorCommand::SetThrottle(id, throttle));
             }
             let mut staging = self.staging.clone();
             if let Some(staging) = &mut staging {
-                staging.current_stage = self
-                    .current_stage
-                    .parse::<i32>()
-                    .ok()
-                    .filter(|value| *value >= 0)
-                    .ok_or("当前级必须是非负整数")?;
+                let original_stage = pod.staging.as_ref().map_or(0, |state| state.current_stage);
+                staging.current_stage = if self.current_stage == original_stage.to_string() {
+                    original_stage
+                } else {
+                    self.current_stage
+                        .parse::<i32>()
+                        .ok()
+                        .filter(|value| *value >= 0)
+                        .ok_or("当前级必须是非负整数")?
+                };
             }
-            if staging != pod.staging {
+            let staging = merge_staging(&pod.staging, &staging, &current_pod.staging)?;
+            if staging != current_pod.staging {
+                // 当前级和分级步骤合并后仍然只提交一个 SetStaging。
                 commands.push(EditorCommand::SetStaging(id, staging));
             }
         }
         Ok(EditorCommand::Batch(commands).at(self.key))
+    }
+}
+
+/// 未改字段保留当前文档；同字段已有相同结果也无需重复提交。
+fn merge_field<T: PartialEq + Clone>(
+    label: &str,
+    original: &T,
+    draft: &T,
+    current: &T,
+) -> Result<T, String> {
+    if draft == original {
+        Ok(current.clone())
+    } else if current == original || current == draft {
+        Ok(draft.clone())
+    } else {
+        Err(format!(
+            "{label}已变更，与属性草稿冲突；请保留草稿并撤销外部修改，或取消后重开"
+        ))
+    }
+}
+
+fn merge_staging(
+    original: &Option<StagingState>,
+    draft: &Option<StagingState>,
+    current: &Option<StagingState>,
+) -> Result<Option<StagingState>, String> {
+    match (original, draft, current) {
+        (Some(original), Some(draft), Some(current)) => Ok(Some(StagingState {
+            current_stage: merge_field(
+                "当前级",
+                &original.current_stage,
+                &draft.current_stage,
+                &current.current_stage,
+            )?,
+            steps: merge_field("分级步骤", &original.steps, &draft.steps, &current.steps)?,
+        })),
+        _ => merge_field("分级计划", original, draft, current),
     }
 }
 
@@ -138,6 +221,9 @@ pub struct Inspector {
     pub targets_open: bool,
     /// 本帧悬停优先显示，离开控件后恢复 preview；不创建编辑动作。
     pub hovered: Option<Preview>,
+    history: history::DraftHistory,
+    observed_targets: BTreeSet<i64>,
+    refresh_error: Option<String>,
 }
 
 /// 仅界面焦点，不写分级数据、文档选择或历史。
@@ -151,6 +237,126 @@ pub enum Preview {
 }
 
 impl Inspector {
+    pub fn can_undo(&self) -> bool {
+        self.repair.is_none()
+            && self
+                .draft
+                .as_ref()
+                .is_some_and(|draft| self.history.can_undo(draft))
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.repair.is_none()
+            && self
+                .draft
+                .as_ref()
+                .is_some_and(|draft| self.history.can_redo(draft))
+    }
+
+    /// 返回是否消费了草稿历史；耗尽时调用方可以继续文档撤销。
+    pub fn undo_draft(&mut self) -> bool {
+        if self.repair.is_some() {
+            return false;
+        }
+        let changed = self
+            .draft
+            .as_mut()
+            .is_some_and(|draft| self.history.undo(draft));
+        if changed {
+            self.after_history_change();
+        }
+        changed
+    }
+
+    pub fn redo_draft(&mut self) -> bool {
+        if self.repair.is_some() {
+            return false;
+        }
+        let changed = self
+            .draft
+            .as_mut()
+            .is_some_and(|draft| self.history.redo(draft));
+        if changed {
+            self.after_history_change();
+        }
+        changed
+    }
+
+    fn after_history_change(&mut self) {
+        self.preview = Preview::Owner;
+        self.hovered = None;
+        self.error.clear();
+        self.refresh_error = None;
+    }
+
+    /// 观察直接文本编辑与文档变化；保留草稿，不写入文档或文档历史。
+    pub fn refresh(&mut self, document: &EditorDocument) {
+        self.history.observe(self.draft.as_ref());
+        if let Some(previous) = self.refresh_error.take()
+            && self.error == previous
+        {
+            self.error.clear();
+        }
+        if let Some(draft) = &self.draft {
+            if let Some((parts, _)) = document.ship.group(draft.key.group) {
+                self.observed_targets
+                    .extend(unique_target_parts(parts).map(|part| part.id));
+            }
+            if self.repair.is_none()
+                && let Err(error) = self.validate_references(document)
+            {
+                self.error.clone_from(&error);
+                self.refresh_error = Some(error);
+            }
+        }
+    }
+
+    fn has_changes(&self) -> bool {
+        self.repair.is_some()
+            || self
+                .draft
+                .as_ref()
+                .is_some_and(history::DraftHistory::changed)
+    }
+
+    fn validate_references(&self, document: &EditorDocument) -> Result<(), String> {
+        let Some(draft) = &self.draft else {
+            return Ok(());
+        };
+        draft.current_part(document)?;
+        let original_ids: BTreeSet<_> = draft
+            .original
+            .pod
+            .as_ref()
+            .and_then(|pod| pod.staging.as_ref())
+            .into_iter()
+            .flat_map(|state| &state.steps)
+            .flat_map(|step| &step.activations)
+            .map(|activation| activation.id)
+            .collect();
+        for activation in draft
+            .staging
+            .as_ref()
+            .into_iter()
+            .flat_map(|state| &state.steps)
+            .flat_map(|step| &step.activations)
+        {
+            if document
+                .ship
+                .group_part(draft.key.group, activation.id)
+                .is_none()
+                && (self.observed_targets.contains(&activation.id)
+                    || !original_ids.contains(&activation.id))
+            {
+                return Err(format!(
+                    "分级目标 {} 已删除或不再唯一；草稿已保留，请撤销外部修改或移除该动作",
+                    activation.id
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub fn is_open(&self) -> bool {
         self.draft.is_some()
     }
@@ -171,7 +377,7 @@ impl Inspector {
         let Some(draft) = self.draft.as_ref().filter(|_| self.docked()) else {
             return vec![];
         };
-        if document.ship.part_at(draft.key) != Some(&draft.original) {
+        if draft.current_part(document).is_err() {
             return vec![];
         }
         let ids: Vec<_> = match self.hovered.unwrap_or(self.preview) {
@@ -204,10 +410,6 @@ impl Inspector {
             .into_iter()
             .collect()
     }
-}
-
-pub fn closed(inspector: Option<Res<Inspector>>) -> bool {
-    inspector.is_none_or(|inspector| inspector.draft.is_none())
 }
 
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
@@ -286,6 +488,7 @@ pub fn open(inspector: &mut Inspector, document: &EditorDocument) {
     *inspector = Inspector::default();
     if let Some((key, part)) = part {
         inspector.draft = Some(Draft::new(key, part));
+        inspector.refresh(document);
     }
 }
 
@@ -347,9 +550,21 @@ fn move_activation(
 }
 
 pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument) {
+    inspector.refresh(document);
+    act_inner(action, inspector, document);
+    inspector.refresh(document);
+}
+
+fn act_inner(action: &Action, inspector: &mut Inspector, document: &mut EditorDocument) {
     match action {
         Action::Open => {
-            open(inspector, document);
+            if !inspector.is_open() {
+                open(inspector, document);
+            } else if inspector.has_changes() {
+                inspector.error = "草稿有修改，请先应用或取消；再次打开会保留当前草稿".into();
+            } else {
+                *inspector = Inspector::default();
+            }
             return;
         }
         Action::Cancel => {
@@ -369,7 +584,9 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
                 let command = if let Some(repair) = &inspector.repair {
                     Ok(EditorCommand::RepairDuplicates(Box::new(repair.clone())))
                 } else {
-                    draft.command(document)
+                    inspector
+                        .validate_references(document)
+                        .and_then(|()| draft.command(document))
                 };
                 match command {
                     Ok(command) => {
@@ -474,12 +691,10 @@ pub fn act(action: &Action, inspector: &mut Inspector, document: &mut EditorDocu
             }
         }
         Action::GenerateStaging => {
-            let result = if document.ship.part_at(draft.key) != Some(&draft.original) {
-                Err("部件已变更，请取消后重新打开属性".into())
-            } else {
+            let result = draft.current_part(document).and_then(|_| {
                 dr_core::generate_basic_staging(&document.ship, &document.catalog, draft.key)
                     .map_err(|error| error.to_string())
-            };
+            });
             match result {
                 Ok(staging) => {
                     inspector.preview = if staging.steps.is_empty() {
