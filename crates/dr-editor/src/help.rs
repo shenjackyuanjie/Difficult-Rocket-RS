@@ -101,76 +101,113 @@ pub(crate) fn input(
 
 const SHORTCUTS: &[(&str, &str)] = &[
     ("左键 / Shift+左键", "选择、拖动 / 增减选择"),
-    (
-        "R · Q/E · Shift+Q/E",
-        "90° · ±15° · ±1°；拖拽和预览中也可用",
-    ),
-    ("侧栏 −15° / +15°", "精细旋转选区；连接点/边随角度旋转"),
-    ("自由模式", "双连接点手动连/断；移动旋转不自动断连，不吸附"),
-    ("Esc / 右键", "取消预览；重叠落下保留位置并断开外部连接"),
-    ("中键拖动 / Ctrl+A", "框选 / 全选；侧栏可切换框选键"),
+    ("R · Q/E · Shift+Q/E", "旋转 90° · ±15° · ±1°"),
+    ("−15° / +15°", "精细旋转选区"),
+    ("自由模式（图标开关）", "手动连断；移动不自动断连、不吸附"),
+    ("吸附（图标开关）", "关闭后不再自动对齐与连边，已有连接保留"),
+    ("Esc / 右键", "取消预览；重叠落下断开外部连接"),
+    ("中键拖动 / Ctrl+A", "框选 / 全选；工具中可切换框选键"),
     ("Tab / Shift+Tab · P", "切换目录部件 · 放置"),
-    ("Delete · X / Y", "删除 · 镜像；拖拽中可组合旋转并原子撤销"),
-    ("↳ 子节点跟随", "侧栏开关；拖父节点带子孙，不带父节点"),
-    ("拖到右侧部件列表", "松手删除整个相连分量；Ctrl+Z 撤销"),
+    ("Delete · X / Y", "删除 · 镜像；拖动中也可用"),
+    ("跟随子节点（图标开关）", "默认开启；拖父节点时带上全部子孙"),
+    ("拖到 Parts 抽屉", "删除相连分量；Ctrl+Z 撤销"),
     ("Ctrl+C / X / V", "复制 / 剪切 / 粘贴"),
     ("Ctrl+Z / Y", "撤销 / 重做"),
     ("Ctrl+N / O / S / Shift+S", "新建 / 打开 / 保存 / 另存为"),
-    ("滚轮 · 空白拖动", "鼠标位置缩放 · 平移（框选键之外的键）"),
-    ("触控 · 单指", "拖部件移动；空白处拖动平移画布"),
-    (
-        "触控 · 选目录后",
-        "按住画布移动，抬指时在该处放置；取消或失焦不提交",
-    ),
-    (
-        "触控 · 双指",
-        "第二指加入即取消未提交编辑，并转为双指平移 / 缩放",
-    ),
-    ("触控 · 全抬指", "所有手指抬起后才能重新单指操作"),
-    ("Home · F / Shift+F", "视图复位 · 适配整船 / 选区"),
+    ("滚轮 · 空白拖动", "缩放 · 平移（框选键之外的键）"),
+    ("触控 · 单指", "拖部件移动；拖空白平移"),
+    ("触控 · 选目录后", "按住画布定位，抬指放置"),
+    ("触控 · 双指", "取消预览，平移 / 缩放"),
+    ("触控 · 全抬指", "全抬指后重新开始单指操作"),
+    ("Home · F / Shift+F", "复位 · 适配整船 / 选区"),
     ("F2 · F6", "属性与分级 · 连接树 / 图"),
-    ("F3 · F4 · F12", "调试轮廓 · 显隐贴图 · 截图"),
+    ("F3 · F4 · F12", "轮廓 · 贴图 · 截图"),
     ("F1 / Esc", "开关帮助 / 关闭"),
 ];
+
+fn legend_colors() -> [egui::Color32; 3] {
+    // 与 attachment_hints 的候选、吸附 sRGB 一致；未连接透明度直接复用渲染合同。
+    [
+        Color::srgb(0.67, 0.56, 0.88),
+        Color::srgb(0.85, 0.74, 1.0),
+        Color::WHITE.with_alpha(render::UNLINKED_ALPHA),
+    ]
+    .map(crate::egui_ui::ui_color)
+}
+
+fn legend(ui: &mut egui::Ui) {
+    let colors = legend_colors();
+    ui.with_layout(
+        egui::Layout::left_to_right(egui::Align::Center)
+            .with_main_align(egui::Align::Center)
+            .with_main_wrap(true),
+        |ui| {
+            for (text, color) in ["○ 候选", "○ 吸附", "◌ 未连接"].into_iter().zip(colors)
+            {
+                ui.colored_label(color, text);
+            }
+        },
+    );
+}
+
+fn shortcuts(ui: &mut egui::Ui) {
+    let width = ui.available_width();
+    ui.set_width(width);
+    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+    ui.vertical_centered(|ui| {
+        if width < 420.0 {
+            for (key, meaning) in SHORTCUTS {
+                ui.add(egui::Label::new(egui::RichText::new(*key).strong()).wrap());
+                ui.add(egui::Label::new(*meaning).wrap());
+                ui.add_space(6.0);
+            }
+        } else {
+            let column = (width - 20.0) / 2.0;
+            egui::Grid::new("editor_shortcuts")
+                .striped(true)
+                .spacing([20.0, 9.0])
+                .num_columns(2)
+                .min_col_width(column)
+                .max_col_width(column)
+                .show(ui, |ui| {
+                    for (key, meaning) in SHORTCUTS {
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(*key).strong())
+                                .wrap()
+                                .halign(egui::Align::Center),
+                        );
+                        ui.add(
+                            egui::Label::new(*meaning)
+                                .wrap()
+                                .halign(egui::Align::Center),
+                        );
+                        ui.end_row();
+                    }
+                });
+        }
+        ui.separator();
+        legend(ui);
+    });
+}
 
 fn show(ctx: &egui::Context, open: &mut bool) {
     if !*open {
         return;
     }
-    // 触控/窄屏：窗口收窄到可用区域，两列按剩余宽度换行，正文超出高度时滚动。
-    let size = topology_ui::window_size(ctx, egui::vec2(880.0, 560.0));
-    // 两列各分一半可用宽度，给窗口装饰留出余量，窄屏宁窄不溢出。
-    let column = ((size.x - 80.0) / 2.0).clamp(96.0, 420.0);
+    let size = topology_ui::window_size(ctx, egui::vec2(720.0, 560.0));
     egui::Window::new("? 操作帮助")
         .id(egui::Id::new("editor_help"))
         .open(open)
         .collapsible(false)
         .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-        .max_width(size.x)
-        .max_height(size.y)
+        // 默认位置只用于首次打开；不以 anchor 锁死正式 Window 的标题栏拖动。
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
+        .movable(true)
+        // 固定的是当前可用区域内的外框尺寸，标题栏与正文共享同一实际宽度。
+        .fixed_size(size)
         .vscroll(true)
-        .show(ctx, |ui| {
-            // 先给内容一个宽度硬上界（滚动区内容 ui 的可用宽度可能是无限），再强制换行，
-            // 否则长行会按自然宽度把自适应窗口撑宽。
-            ui.set_max_width(size.x);
-            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-            egui::Grid::new("editor_shortcuts")
-                .striped(true)
-                .spacing([20.0, 9.0])
-                .num_columns(2)
-                .max_col_width(column)
-                .show(ui, |ui| {
-                    for (key, meaning) in SHORTCUTS {
-                        ui.strong(*key);
-                        ui.label(*meaning);
-                        ui.end_row();
-                    }
-                });
-            ui.separator();
-            ui.label("紫色 ○ 连接候选 · 亮紫 ○ 已吸附 · 半透明：未连接");
-            ui.label("常用按钮用符号与短标签表示；悬停可查看说明。");
-        });
+        .show(ctx, shortcuts);
 }
 
 pub(crate) fn draw(mut contexts: EguiContexts, mut state: ResMut<HelpState>) {
@@ -560,6 +597,203 @@ mod tests {
             assert!(
                 window.is_positive() && screen.expand(1.0).contains_rect(window),
                 "{width}×{height} 滚动不应把帮助窗口撑出可用区域：{window:?}"
+            );
+        }
+    }
+
+    fn text_rect(output: &egui::FullOutput, needle: &str) -> egui::Rect {
+        output
+            .shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::epaint::Shape::Text(text) if text.galley.job.text == needle => {
+                    Some(text.visual_bounding_rect())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("应真实绘制文本：{needle}"))
+    }
+
+    fn collect_rects(shape: &egui::epaint::Shape, rects: &mut Vec<egui::Rect>) {
+        match shape {
+            egui::epaint::Shape::Rect(rect) => rects.push(rect.rect),
+            egui::epaint::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect_rects(shape, rects);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn help_window_title_drag_moves_and_reopening_keeps_the_position() {
+        let ctx = crate::egui_ui::test_context();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1440.0, 900.0));
+        let mut open = true;
+        for frame in 0..3 {
+            help_frame(&ctx, &mut open, screen, frame, vec![]);
+        }
+        let (output, before) = help_frame(&ctx, &mut open, screen, 3, vec![]);
+        assert!(
+            (before.center() - screen.center()).length() <= 1.0,
+            "首次默认居中：{before:?}"
+        );
+        let title = text_rect(&output, "? 操作帮助").center();
+        help_frame(
+            &ctx,
+            &mut open,
+            screen,
+            4,
+            vec![egui::Event::PointerMoved(title)],
+        );
+        help_frame(
+            &ctx,
+            &mut open,
+            screen,
+            5,
+            vec![egui::Event::PointerButton {
+                pos: title,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        help_frame(
+            &ctx,
+            &mut open,
+            screen,
+            6,
+            vec![egui::Event::PointerMoved(title + egui::vec2(18.0, 12.0))],
+        );
+        let delta = egui::vec2(64.0, 40.0);
+        help_frame(
+            &ctx,
+            &mut open,
+            screen,
+            7,
+            vec![egui::Event::PointerMoved(title + delta)],
+        );
+        help_frame(
+            &ctx,
+            &mut open,
+            screen,
+            8,
+            vec![egui::Event::PointerButton {
+                pos: title + delta,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }],
+        );
+        let (_, moved) = help_frame(&ctx, &mut open, screen, 9, vec![]);
+        assert!(open, "拖动标题栏不应关闭帮助");
+        assert!(
+            (moved.min - before.min - delta).length() <= 2.0,
+            "必须由正式 Window 的真实拖动移动：{before:?} → {moved:?}"
+        );
+        open = false;
+        help_frame(&ctx, &mut open, screen, 10, vec![]);
+        open = true;
+        let (_, reopened) = help_frame(&ctx, &mut open, screen, 11, vec![]);
+        assert!(
+            (reopened.min - moved.min).length() <= 1.0,
+            "重新打开保留用户位置，不强制再次居中"
+        );
+    }
+
+    #[test]
+    fn help_title_and_body_share_the_same_width_on_wide_and_narrow_screens() {
+        for (width, height) in [
+            (320.0, 640.0),
+            (390.0, 844.0),
+            (640.0, 360.0),
+            (1440.0, 900.0),
+        ] {
+            let ctx = crate::egui_ui::test_context();
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, height));
+            let mut open = true;
+            for frame in 0..3 {
+                help_frame(&ctx, &mut open, screen, frame, vec![]);
+            }
+            let (output, window) = help_frame(&ctx, &mut open, screen, 3, vec![]);
+            assert!(
+                screen.expand(1.0).contains_rect(window),
+                "窗口必须在 {width}×{height} 内：{window:?}"
+            );
+            assert!(
+                (window.center() - screen.center()).length() <= 1.0,
+                "内容尺寸变化不应偏离初始中心：{window:?}"
+            );
+            let expected = egui::vec2(720.0_f32.min(width - 40.0), 560.0_f32.min(height - 40.0));
+            assert!(
+                (window.size() - expected).length() <= 2.0,
+                "正文不可撑破共享外框：{window:?}"
+            );
+            let title_text = text_rect(&output, "? 操作帮助");
+            let mut rects = vec![];
+            for clipped in &output.shapes {
+                collect_rects(&clipped.shape, &mut rects);
+            }
+            let title = rects
+                .into_iter()
+                .find(|rect| {
+                    rect.contains(title_text.center())
+                        && rect.height() < 80.0
+                        && rect.width() > window.width() * 0.8
+                })
+                .expect("正式 Window 应绘制完整标题栏背景");
+            assert!(
+                (title.left() - window.left()).abs() <= 2.0
+                    && (title.right() - window.right()).abs() <= 2.0,
+                "标题栏与 body 左右缘必须一致：{title:?} / {window:?}"
+            );
+            if width < 420.0 {
+                let key = text_rect(&output, SHORTCUTS[0].0);
+                assert!(
+                    (key.center().x - window.center().x).abs() <= 10.0,
+                    "窄窗条目居中，只给滚动条预留必要空间：{key:?} / {window:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn help_legend_renders_actual_candidate_snapped_and_unlinked_colors() {
+        let ctx = crate::egui_ui::test_context();
+        let output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(390.0, 240.0),
+                )),
+                ..Default::default()
+            },
+            legend,
+        );
+        let expected = [
+            egui::Color32::from_rgb(171, 143, 224),
+            egui::Color32::from_rgb(217, 189, 255),
+            egui::Color32::from_white_alpha(100),
+        ];
+        assert_eq!(legend_colors(), expected);
+        for (label, expected) in ["○ 候选", "○ 吸附", "◌ 未连接"].into_iter().zip(expected)
+        {
+            let text = output
+                .shapes
+                .iter()
+                .find_map(|clipped| match &clipped.shape {
+                    egui::epaint::Shape::Text(text) if text.galley.job.text == label => Some(text),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("应绘制真实图例：{label}"));
+            assert!(
+                text.galley
+                    .job
+                    .sections
+                    .iter()
+                    .all(|section| section.format.color == expected),
+                "{label} 使用实际渲染色，而非只写颜色名称"
             );
         }
     }
