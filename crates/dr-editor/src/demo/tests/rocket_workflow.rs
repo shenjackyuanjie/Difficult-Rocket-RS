@@ -4,23 +4,15 @@ use properties::Action;
 
 fn document() -> EditorDocument {
     let mut document = crate::test_support::document();
-    // PartList 尺寸使用正整数；统一高度 1，让九部件串联保持在测试画布内。
+    // 直接读取只读原版目录，安装点、尺寸、形状与窗口演示完全相同。
     document.catalog = dr_core::catalog_from_xml(
-        r#"<PartTypes>
-          <PartType id="pod-1" type="pod" width="4" height="1" hidden="true"><AttachPoints>
-            <AttachPoint location="TopCenter"/><AttachPoint location="BottomCenter"/>
-          </AttachPoints></PartType>
-          <PartType id="fueltank-0" type="tank" width="4" height="1"><Tank fuel="100"/><AttachPoints>
-            <AttachPoint location="BottomCenter"/><AttachPoint location="TopCenter"/>
-          </AttachPoints></PartType>
-          <PartType id="engine-0" type="engine" width="4" height="1"><Engine/><AttachPoints>
-            <AttachPoint location="TopCenter"/><AttachPoint location="BottomCenter"/>
-          </AttachPoints></PartType>
-          <PartType id="detacher-1" type="detacher" width="4" height="1"><AttachPoints>
-            <AttachPoint location="TopCenter"/><AttachPoint location="BottomCenter"/>
-          </AttachPoints></PartType>
-        </PartTypes>"#,
-    ).unwrap();
+        &std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../Difficult-Rocket/assets/builtin/PartList.xml"
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     document.ship = new_ship(&document.catalog);
     document.saved_ship = document.ship.clone();
     document
@@ -41,10 +33,10 @@ fn hidden_pod_and_attachment_order_drive_the_read_only_placement_plan() {
     document.ship.parts[0].x = 3.25;
     document.ship.parts[0].y = 12.0;
     let before = document.ship.clone();
-    let plan = placement(&document, 1, "fueltank-0");
+    let plan = placement(&document, 0);
     assert_eq!((plan.parent, plan.child), (1, 2));
-    assert_eq!((plan.parent_attach, plan.child_attach), (1, 2));
-    assert_eq!(plan.position, (3.25, 11.5));
+    assert_eq!((plan.parent_attach, plan.child_attach), (1, 1));
+    assert_eq!(plan.position, (3.25, 10.75));
     let parent = document.ship.part(1).unwrap();
     let child_kind = document.catalog.get("fueltank-0").unwrap();
     let child = child_kind.instantiate(plan.child, plan.position);
@@ -52,10 +44,10 @@ fn hidden_pod_and_attachment_order_drive_the_read_only_placement_plan() {
         parent,
         &document.catalog.get("pod-1").unwrap().attach_points[0],
     );
-    let child_endpoint = dr_core::part_world_attach(&child, &child_kind.attach_points[1]);
+    let child_endpoint = dr_core::part_world_attach(&child, &child_kind.attach_points[0]);
     assert!(parent_endpoint.distance(child_endpoint) < 1e-10);
     let bottom = assembly_bottom(&document);
-    assert_eq!(bottom, (3.25, 7.75));
+    assert!(bottom.1 < plan.position.1);
     assert_eq!(document.ship, before);
     assert_eq!(document.revision, 0);
     assert_eq!(document.history.undo_len(), 0);
@@ -85,10 +77,12 @@ fn canvas_point(app: &mut App, position: (f64, f64)) {
     let world = app.world_mut();
     let mut windows = world.query_filtered::<&mut Window, With<bevy::window::PrimaryWindow>>();
     let mut window = windows.single_mut(world).unwrap();
+    let mut projection = OrthographicProjection::default_2d();
+    projection.scale = 10.0;
     let point = screen(
         &window,
         &Transform::IDENTITY,
-        &Projection::Orthographic(OrthographicProjection::default_2d()),
+        &Projection::Orthographic(projection),
         position,
     );
     window.set_cursor_position(Some(point));
@@ -107,6 +101,17 @@ fn assembled() -> EditorDocument {
             Update,
             panels::panel_actions.before(canvas_input::mouse_editor),
         );
+    // 与固定测试投影保持一致：缩小十倍，真实 SRB 高度也能完整落在画布内。
+    {
+        let world = app.world_mut();
+        let mut cameras = world.query_filtered::<(&mut Camera, &mut Projection), With<Camera2d>>();
+        let (mut camera, mut projection) = cameras.single_mut(world).unwrap();
+        camera.computed.clip_from_view =
+            Mat4::from_scale(Vec3::new(1.0 / 7200.0, 1.0 / 4500.0, 1.0));
+        if let Projection::Orthographic(projection) = &mut *projection {
+            projection.scale = 10.0;
+        }
+    }
     for (index, kind_id) in PARTS.iter().enumerate() {
         let document = app.world().resource::<EditorDocument>();
         let catalog_index = document
@@ -116,14 +121,14 @@ fn assembled() -> EditorDocument {
             .unwrap();
         let before = document.ship.clone();
         let revision = document.revision;
-        let plan = placement(document, index as i64 + 1, kind_id);
+        let plan = placement(document, index);
         app.world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()
             .reset_all();
         app.world_mut()
             .resource_mut::<Messages<panels::PanelButton>>()
             .write(panels::PanelButton::Part(catalog_index));
-        canvas_point(&mut app, plan.position);
+        canvas_point(&mut app, approach(plan, index));
         app.update();
         let document = app.world().resource::<EditorDocument>();
         let cursor = app.world().resource::<EditorCursor>();
@@ -132,7 +137,15 @@ fn assembled() -> EditorDocument {
         assert_eq!(document.revision, revision);
         assert_eq!(document.history.undo_len(), index);
         let (part, connection, allowed) = placement::preview(document, cursor).unwrap();
-        assert!(allowed && connection.is_some());
+        assert!(allowed);
+        assert!(
+            matches!(connection,
+            Some(EditorCommand::ConnectParts { parent, child, kind: LinkKind::Normal { parent_attach, child_attach } })
+            if (parent.id, child.id, parent_attach, child_attach) == (plan.parent, plan.child, plan.parent_attach, plan.child_attach)),
+            "第 {} 件的生产预览未使用计划安装点：{:?}",
+            index + 2,
+            connection
+        );
         assert!((part.x - plan.position.0).hypot(part.y - plan.position.1) < 1e-5);
         app.world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()
@@ -142,6 +155,11 @@ fn assembled() -> EditorDocument {
         assert_eq!(document.ship.parts.len(), index + 2);
         assert_eq!(document.ship.connections.len(), index + 1);
         assert_eq!(document.history.undo_len(), index + 1);
+        assert_eq!(
+            dr_core::ship_from_xml(&dr_core::ship_to_xml(&document.ship).unwrap()).unwrap(),
+            document.ship,
+            "每次真实放置后的 XML 往返必须保留部件、连接和状态"
+        );
         app.world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()
             .clear();
@@ -154,11 +172,16 @@ fn assembled() -> EditorDocument {
 }
 
 #[test]
-fn nine_parts_are_placed_by_production_mouse_input_with_eight_contact_edges() {
+fn sixteen_real_catalog_parts_are_placed_with_fifteen_contact_tree_edges() {
     let document = assembled();
     assert!(assert_rocket(&document) < 1e-5);
+    // 生产输入构成的同组无向树必须由真实核心算法接受，精确校验每张卡及标记。
+    let generated =
+        dr_core::generate_basic_staging(&document.ship, &document.catalog, PartKey::new(0, 1, 0))
+            .unwrap();
+    assert_staging(&generated, AUTO, false);
     assert!(staging(&document.ship).unwrap().steps.is_empty());
-    assert_eq!(document.history.undo_len(), 8);
+    assert_eq!(document.history.undo_len(), 15);
     assert_eq!(document.history.redo_len(), 0);
     assert_eq!(
         dr_core::ship_from_xml(&dr_core::ship_to_xml(&document.ship).unwrap()).unwrap(),
@@ -280,11 +303,11 @@ fn generate_staging_button_is_draft_only_then_apply_is_one_undoable_transaction(
     assert!(!panel.inspector.advanced_open && !panel.inspector.targets_open);
     panel.click(Action::GenerateStaging);
     assert_eq!(panel.document.ship, before);
-    assert_eq!(panel.document.history.undo_len(), 8);
+    assert_eq!(panel.document.history.undo_len(), 15);
     assert_staging(panel.draft(), AUTO, false);
     panel.click(Action::Apply);
     assert!(!panel.inspector.is_open());
-    assert_eq!(panel.document.history.undo_len(), 9);
+    assert_eq!(panel.document.history.undo_len(), 16);
     let applied = panel.document.ship.clone();
     assert_staging(staging(&applied).unwrap(), AUTO, false);
     assert!(panel.document.undo());
@@ -336,28 +359,40 @@ fn real_action_and_card_drags_preserve_multiset_cancel_and_single_apply_history(
     for _ in 0..3 {
         panel.frame(vec![]);
     }
-    panel.drag(Action::SelectActivation(2, 0), Action::SelectStage(1), None);
+    panel.drag(Action::SelectActivation(1, 0), Action::SelectStage(2), None);
     assert_staging(panel.draft(), MANUAL, true);
     let manual = panel.draft().clone();
     panel.drag(Action::SelectStage(0), Action::SelectStage(1), Some(true));
     let mut reordered = manual.clone();
     reordered.steps.swap(0, 1);
     assert_eq!(panel.draft(), &reordered);
-    assert_eq!(inventory(panel.draft()), vec![3, 4, 6, 7, 9]);
+    assert_eq!(
+        inventory(panel.draft()),
+        vec![3, 4, 6, 7, 9, 10, 11, 13, 14, 16]
+    );
     panel.drag(Action::SelectStage(1), Action::SelectStage(0), Some(false));
+    assert_eq!(panel.draft(), &manual);
+    panel.drag(Action::SelectActivation(2, 2), Action::SelectStage(1), None);
+    assert_eq!(
+        rows(panel.draft()),
+        AUTO.iter().map(|row| row.to_vec()).collect::<Vec<_>>()
+    );
+    assert_eq!(panel.draft().steps[1].activations[0].id, 9);
+    assert!(panel.draft().steps[1].activations[0].moved);
+    panel.drag(Action::SelectActivation(1, 0), Action::SelectStage(2), None);
     assert_eq!(panel.draft(), &manual);
     panel.click(Action::Cancel);
     assert!(!panel.inspector.is_open());
     assert_eq!(panel.document.ship, automatic);
-    assert_eq!(panel.document.history.undo_len(), 9);
+    assert_eq!(panel.document.history.undo_len(), 16);
     properties::open(&mut panel.inspector, &panel.document);
     for _ in 0..3 {
         panel.frame(vec![]);
     }
-    panel.drag(Action::SelectActivation(2, 0), Action::SelectStage(1), None);
+    panel.drag(Action::SelectActivation(1, 0), Action::SelectStage(2), None);
     assert_eq!(panel.draft(), &manual);
     panel.click(Action::Apply);
-    assert_eq!(panel.document.history.undo_len(), 10);
+    assert_eq!(panel.document.history.undo_len(), 17);
     let applied = panel.document.ship.clone();
     assert_staging(staging(&applied).unwrap(), MANUAL, true);
     assert_eq!(
@@ -410,9 +445,9 @@ fn visual_fixture() -> (Ship, Vec<VisualObservation>) {
 }
 
 #[test]
-fn visual_identity_accepts_exactly_nine_unique_matching_loaded_parts() {
+fn visual_identity_accepts_exactly_sixteen_unique_matching_loaded_parts() {
     let (ship, observations) = visual_fixture();
-    assert_eq!(observations.len(), 9);
+    assert_eq!(observations.len(), 16);
     assert_eq!(check_visuals(&ship, &observations), Ok(()));
 }
 

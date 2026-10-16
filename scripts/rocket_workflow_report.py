@@ -1,4 +1,4 @@
-"""三级火箭连续演示的 JSON/XML 证据合同；只读取本次产物与真实部件目录。"""
+"""16 部件对称分支火箭连续演示的 JSON/XML 证据合同；只读取本次产物与真实部件目录。"""
 import json
 import math
 from pathlib import Path
@@ -15,10 +15,18 @@ ARTIFACTS = (
     "rocket-workflow.json",
 )
 PART_TYPES = ("pod-1", "fueltank-0", "engine-0", "detacher-1", "fueltank-0",
-              "engine-0", "detacher-1", "fueltank-0", "engine-0")
-AUTO_STEPS = [[9], [7], [6], [4], [3]]
-MANUAL_STEPS = [[9], [7, 6], [], [4], [3]]
-TARGET_IDS = [3, 4, 6, 7, 9]
+              "engine-0", "detacher-1", "fueltank-0", "engine-0", "detacher-2",
+              "engine-4", "fueltank-0", "detacher-2", "engine-4", "fueltank-0", "parachute-1")
+# 深度8的 engine9 与 detacher10/13 同层，按 Engine → Detacher 稳定排序。
+AUTO_STEPS = [[11, 14], [9], [10, 13], [7], [6], [4], [3], [16]]
+MANUAL_STEPS = [[11, 14], [], [10, 13, 9], [7], [6], [4], [3], [16]]
+TARGET_IDS = [3, 4, 6, 7, 9, 10, 11, 13, 14, 16]
+CONNECTIONS = tuple((i, i + 1, "BottomCenter", "TopCenter") for i in range(1, 9)) + (
+    (8, 10, "LeftSide", "RightCenter"), (10, 11, "LeftCenter", "RightSide"),
+    (11, 12, "TopCenter", "BottomCenter"), (8, 13, "RightSide", "LeftCenter"),
+    (13, 14, "RightCenter", "LeftSide"), (14, 15, "TopCenter", "BottomCenter"),
+    (1, 16, "TopCenter", "BottomCenter"),
+)
 INPUT_MODE = "真实目录命中 / 生产画布鼠标 / egui 分帧拖放"
 CATALOG_PATH = Path(__file__).resolve().parents[2] / "Difficult-Rocket/assets/builtin/PartList.xml"
 ENDPOINT_TOLERANCE = 1e-5
@@ -26,7 +34,7 @@ VISUAL_TOLERANCE = 1e-3
 
 
 class WorkflowError(ValueError):
-    """工作流证据与真实串联火箭合同不符。"""
+    """工作流证据与真实对称分支火箭合同不符。"""
 
 
 def require(condition, message):
@@ -124,7 +132,9 @@ def load_catalog(path):
     visible = [item.get("id") for item in definitions if item.get("hidden", "false") != "true"]
     result = {}
     for part_type, kind in (("pod-1", "pod"), ("fueltank-0", "tank"),
-                            ("engine-0", "engine"), ("detacher-1", "detacher")):
+                            ("engine-0", "engine"), ("detacher-1", "detacher"),
+                            ("detacher-2", "detacher"), ("engine-4", "engine"),
+                            ("parachute-1", "parachute")):
         matches = [item for item in definitions if item.get("id") == part_type]
         require(len(matches) == 1, f"真实目录缺少唯一部件：{part_type}")
         item = matches[0]
@@ -154,7 +164,7 @@ def load_catalog(path):
         sprite = item.get("sprite")
         require(isinstance(sprite, str) and bool(sprite.strip()), f"真实目录贴图不能为空：{part_type}")
         result[part_type] = {"points": points, "index": None if hidden else visible.index(part_type),
-                             "sprite": sprite}
+                             "sprite": sprite, "width": width, "height": height}
     return result
 
 
@@ -206,19 +216,24 @@ def validate_ship(path, catalog, steps, moved_ids):
     require(root.tag == "Ship", f"{context} 根节点必须为 Ship")
     container = only(root, "Parts", context)
     elements = list(container)
-    require(len(elements) == 9 and all(item.tag == "Part" for item in elements)
-            and len(list(root.iter("Part"))) == 9, f"{context} 必须恰有 9 个主船体部件")
+    require(len(elements) == 16 and all(item.tag == "Part" for item in elements)
+            and len(list(root.iter("Part"))) == 16, f"{context} 必须恰有 16 个主船体部件")
     require(not list(root.iter("DisconnectedPart")), f"{context} 不能含断开组")
     parts, pod = {}, None
     for element in elements:
         part_id = xml_int(element, "id", context)
-        require(part_id in range(1, 10) and part_id not in parts, f"{context} 部件 ID 必须唯一且为 1..9")
+        require(part_id in range(1, 17) and part_id not in parts, f"{context} 部件 ID 必须唯一且为 1..16")
         part_type = element.get("partType")
-        require(part_type == PART_TYPES[part_id - 1], f"{context} 部件 {part_id} 类型与三级串联顺序不符")
+        require(part_type == PART_TYPES[part_id - 1], f"{context} 部件 {part_id} 类型与对称分支顺序不符")
         values = {name: xml_number(element, name, context) for name in ("x", "y", "angle")}
         flip_x = xml_int(element, "flippedX", context)
         flip_y = xml_int(element, "flippedY", context)
         require(flip_x in (0, 1) and flip_y in (0, 1), f"{context} 镜像值必须为 0/1")
+        require(values["angle"] == 0 and flip_x == 0 and flip_y == 0,
+                f"{context} 所有部件必须 angle0 且无镜像")
+        if part_type == "engine-4":
+            tank = only(element, "Tank", context)
+            require(xml_number(tank, "fuel", context) > 0, f"{context} SRB 必须自带固体燃料 Tank")
         parts[part_id] = dict(values, part_type=part_type, flip_x=flip_x, flip_y=flip_y)
         require(len(element.findall("Pod")) == (1 if part_id == 1 else 0),
                 f"{context} 只有部件 1 可以含 Pod")
@@ -227,9 +242,9 @@ def validate_ship(path, catalog, steps, moved_ids):
     require(len(list(root.iter("Pod"))) == 1, f"{context} 必须只有一个 Command Pod")
     validate_plan(root, pod, steps, moved_ids, context)
     connections = list(only(root, "Connections", context))
-    require(len(connections) == 8 and all(edge.tag == "Connection" for edge in connections)
-            and len(list(root.iter("Connection"))) == 8 and not list(root.iter("DockConnection")),
-            f"{context} 必须恰有 8 条 Normal 连接")
+    require(len(connections) == 15 and all(edge.tag == "Connection" for edge in connections)
+            and len(list(root.iter("Connection"))) == 15 and not list(root.iter("DockConnection")),
+            f"{context} 必须恰有 15 条 Normal 连接")
     edges, maximum_error = set(), 0.0
     for edge in connections:
         require(set(edge.attrib) == {"parentPart", "childPart", "parentAttachPoint", "childAttachPoint"}
@@ -238,25 +253,39 @@ def validate_ship(path, catalog, steps, moved_ids):
         require(parent in parts and child in parts and (parent, child) not in edges,
                 f"{context} 连接引用无效或重复")
         edges.add((parent, child))
+        expected = next((item for item in CONNECTIONS if item[:2] == (parent, child)), None)
+        require(expected is not None, f"{context} 分支连接方向不符")
         endpoints = []
-        for part_id, name in ((parent, "parentAttachPoint"), (child, "childAttachPoint")):
+        for part_id, name, location in ((parent, "parentAttachPoint", expected[2]),
+                                        (child, "childAttachPoint", expected[3])):
             index = xml_int(edge, name, context)
             points = catalog[parts[part_id]["part_type"]]["points"]
             require(1 <= index <= len(points), f"{context} 连接点索引越界")
+            definition = catalog[parts[part_id]["part_type"]]
+            w, h = definition["width"], definition["height"]
+            desired = {"TopCenter": (0, h / 2), "BottomCenter": (0, -h / 2),
+                       "LeftSide": (-w / 2, 0), "LeftCenter": (-w / 2, 0),
+                       "RightSide": (w / 2, 0), "RightCenter": (w / 2, 0)}[location]
+            require(points[index - 1] == desired, f"{context} 分支安装点不符：{parent}→{child}")
             endpoints.append(world_attach(parts[part_id], points[index - 1]))
         error = math.dist(*endpoints)
         require(math.isfinite(error) and error < ENDPOINT_TOLERANCE,
                 f"{context} Normal 连接端点不一致：{parent}→{child}")
         maximum_error = max(maximum_error, error)
-    require(edges == {(part_id, part_id + 1) for part_id in range(1, 9)},
-            f"{context} 必须为完整 1→9 无向树串联")
+    require(edges == {item[:2] for item in CONNECTIONS}, f"{context} 必须为完整十五边分支树")
+    axis = parts[8]["x"]
+    for left, right in ((10, 13), (11, 14), (12, 15)):
+        require(abs(parts[left]["x"] + parts[right]["x"] - 2 * axis) < ENDPOINT_TOLERANCE
+                and abs(parts[left]["y"] - parts[right]["y"]) < ENDPOINT_TOLERANCE
+                and parts[left]["x"] < axis < parts[right]["x"],
+                f"{context} 左右分支必须几何对称")
     return {"signature": signature(root), "parts": parts, "endpoint_error": maximum_error}
 
 
 def validate_drags(drags):
-    require(isinstance(drags, list) and len(drags) == 4, "manual-staging-drag.drags 必须记录四次真实拖放")
+    require(isinstance(drags, list) and len(drags) == 6, "manual-staging-drag.drags 必须记录六次真实拖放")
     last_frame = 0
-    for drag, kind in zip(drags, ("Activation", "CardDown", "CardUp", "Activation")):
+    for drag, kind in zip(drags, ("Activation", "CardDown", "CardUp", "ActivationBack", "Activation", "Activation")):
         fields(drag, {"kind": kind}, "manual-staging-drag.drags")
         source = vector(drag.get("source"), 2, "拖放 source")
         target = vector(drag.get("target"), 2, "拖放 target")
@@ -275,10 +304,10 @@ def validate_drags(drags):
 
 def validate_visuals(assembly, parts, catalog):
     """核对主 World 身份与派生材质证据；GPU 纹理绑定、遮挡及排序另由截图诊断。"""
-    fields(assembly, {"visual_entities": 9, "visual_stable_frames": 2}, "rocket-assembly")
+    fields(assembly, {"visual_entities": 16, "visual_stable_frames": 2}, "rocket-assembly")
     visuals = assembly.get("visuals")
-    require(isinstance(visuals, list) and len(visuals) == 9,
-            "rocket-assembly.visuals 必须记录九个真实视觉实体")
+    require(isinstance(visuals, list) and len(visuals) == 16,
+            "rocket-assembly.visuals 必须记录十六个真实视觉实体")
     entities, path_images, image_paths = set(), {}, {}
     for part_id, observed in enumerate(visuals, 1):
         context = f"rocket-assembly.visuals[{part_id - 1}]"
@@ -295,7 +324,7 @@ def validate_visuals(assembly, parts, catalog):
             require(isinstance(text, str) and bool(text.strip()) and text == text.strip(),
                     f"{context}.{name} 必须为非空标识或观测字符串")
         entity = observed["entity"]
-        require(entity not in entities, f"{context}.entity 重复，九个部件必须对应九个唯一实体")
+        require(entity not in entities, f"{context}.entity 重复，十六个部件必须对应十六个唯一实体")
         entities.add(entity)
         image = observed["image"]
         require(observed["expected_image"] == image == observed["material_image"],
@@ -355,29 +384,29 @@ def validate_workflow(chapter, output, started_ns, catalog_path=None):
         metrics.append(case["metrics"])
     assembly, basic, manual = metrics
     fields(assembly, {"start_parts": 1, "start_connections": 0, "start_staging_steps": 0,
-                      "parts": 9, "normal_connections": 8, "engines": 3, "detachers": 2,
-                      "physical_stages": 3, "placement_history_steps": 8, "xml_roundtrip": True}, CASE_IDS[0])
+                      "parts": 16, "normal_connections": 15, "engines": 5, "detachers": 4,
+                      "physical_stages": 4, "placement_history_steps": 15, "xml_roundtrip": True}, CASE_IDS[0])
     endpoint_error = assembly.get("endpoint_max_error")
     require(finite(endpoint_error) and 0 <= endpoint_error < ENDPOINT_TOLERANCE,
             "rocket-assembly.endpoint_max_error 必须为小于 1e-5 的有限非负数")
     fields(basic, {"steps": AUTO_STEPS, "current_stage": 0, "all_moved_false": True,
                    "draft_only_before_apply": True, "apply_history_delta": 1,
                    "undo_exact": True, "redo_exact": True, "xml_roundtrip": True}, CASE_IDS[1])
-    fields(manual, {"steps": MANUAL_STEPS, "moved_ids": [6], "activation_multiset": TARGET_IDS,
+    fields(manual, {"steps": MANUAL_STEPS, "moved_ids": [9], "activation_multiset": TARGET_IDS,
                     "draft_only_before_apply": True, "card_reordered": True, "card_restored": True,
                     "cancel_unchanged": True, "apply_history_delta": 1, "undo_exact": True,
                     "redo_exact": True, "xml_roundtrip": True}, CASE_IDS[2])
     validate_drags(manual.get("drags"))
     catalog = load_catalog(Path(catalog_path) if catalog_path is not None else CATALOG_PATH)
     ships = [validate_ship(output / name, catalog, steps, moved)
-             for name, steps, moved in zip(ARTIFACTS[5:8], ([], AUTO_STEPS, MANUAL_STEPS), ([], [], [6]))]
+             for name, steps, moved in zip(ARTIFACTS[5:8], ([], AUTO_STEPS, MANUAL_STEPS), ([], [], [9]))]
     require(all(ship["signature"] == ships[0]["signature"] for ship in ships[1:]),
             "三份火箭 XML 除分级计划外必须具有完全相同的几何、部件属性与连接")
     require(math.isclose(endpoint_error, ships[0]["endpoint_error"], abs_tol=1e-8, rel_tol=1e-4),
             "rocket-assembly.endpoint_max_error 与真实 XML 连接端点误差不符")
     validate_visuals(assembly, ships[0]["parts"], catalog)
     placements = assembly.get("placements")
-    require(isinstance(placements, list) and len(placements) == 8, "rocket-assembly.placements 必须记录八次真实放置")
+    require(isinstance(placements, list) and len(placements) == 15, "rocket-assembly.placements 必须记录十五次真实放置")
     for part_id, placement in enumerate(placements, 2):
         part_type = PART_TYPES[part_id - 1]
         fields(placement, {"id": part_id, "part_type": part_type, "catalog_index": catalog[part_type]["index"],

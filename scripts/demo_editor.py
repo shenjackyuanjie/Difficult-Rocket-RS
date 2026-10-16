@@ -201,7 +201,7 @@ def validate_report(report, output, started_ns, expected_mode=None):
             try:
                 rocket_workflow.validate_workflow(chapter, output, started_ns)
             except rocket_workflow.WorkflowError as error:
-                raise DemoError(f"三级火箭工作流证据无效：{error}") from error
+                raise DemoError(f"四物理推进级火箭工作流证据无效：{error}") from error
     return report
 
 

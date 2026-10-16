@@ -289,20 +289,37 @@ class DemoTests(unittest.TestCase):
         self.assertIn("editor-staging-performance.json", artifacts["staging"])
         self.assertIn("64 级 / 1024 动作", source)
 
+    def test_rocket_scale_and_chapter_copy_match_eight_card_contract(self):
+        self.assertEqual(demo.rocket_workflow.AUTO_STEPS,
+                         [[11, 14], [9], [10, 13], [7], [6], [4], [3], [16]])
+        self.assertEqual(demo.rocket_workflow.MANUAL_STEPS,
+                         [[11, 14], [], [10, 13, 9], [7], [6], [4], [3], [16]])
+        self.assertEqual(len(demo.rocket_workflow.PART_TYPES), 16)
+        self.assertEqual(sorted(Path(name).suffix for name in demo.rocket_workflow.ARTIFACTS),
+                         [".json", *[".png"] * 5, *[".xml"] * 3])
+        source = (demo.ROOT / "crates/dr-editor/src/demo/chapters.rs").read_text(encoding="utf-8")
+        chapter = re.search(r'const ROCKET_WORKFLOW: Chapter = Chapter \{(.*?)\n\};', source, re.S).group(1)
+        for phrase in ("三级芯级 + 双固体助推器", "四个物理推进级", "16 部件",
+                       "15 条 Normal 树边", "自动八卡", "移出、移回、再移出",
+                       "整卡下移回置", "取消后再应用"):
+            self.assertIn(phrase, chapter)
+        for old_copy in ("三级火箭：", "五步草稿", "9 部件", "8 条 Normal"):
+            self.assertNotIn(old_copy, chapter)
+
     def test_rocket_contract_is_mandatory_in_both_modes_and_wraps_validation_error(self):
         for mode in ("brief", "detailed"):
             report = complete_report(mode)
             self.write_evidence(report)
             chapter = next(chapter for chapter in report["chapters"] if chapter["id"] == "rocket-workflow")
             chapter["artifacts"] = []
-            with self.subTest(mode=mode, missing="declaration"), self.assertRaisesRegex(demo.DemoError, "三级火箭"):
+            with self.subTest(mode=mode, missing="declaration"), self.assertRaisesRegex(demo.DemoError, "四物理推进级火箭"):
                 demo.validate_report(report, self.output, self.started_ns, mode)
             chapter["artifacts"] = list(demo.rocket_workflow.ARTIFACTS)
             path = self.output / "rocket-workflow.json"
             document = json.loads(path.read_text(encoding="utf-8"))
             document["cases"][2]["metrics"]["drags"][0]["events"][1]["frame"] = document["cases"][2]["metrics"]["drags"][0]["events"][0]["frame"]
             path.write_text(json.dumps(document), encoding="utf-8")
-            with self.subTest(mode=mode, invalid="same-frame drag"), self.assertRaisesRegex(demo.DemoError, "三级火箭"):
+            with self.subTest(mode=mode, invalid="same-frame drag"), self.assertRaisesRegex(demo.DemoError, "四物理推进级火箭"):
                 demo.validate_report(report, self.output, self.started_ns, mode)
 
     def test_detailed_cases_cannot_be_missing_faked_or_unillustrated(self):

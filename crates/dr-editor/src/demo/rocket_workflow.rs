@@ -22,9 +22,35 @@ const PARTS: &[&str] = &[
     "detacher-1",
     "fueltank-0",
     "engine-0",
+    "detacher-2",
+    "engine-4",
+    "fueltank-0",
+    "detacher-2",
+    "engine-4",
+    "fueltank-0",
+    "parachute-1",
 ];
-const AUTO: &[&[i64]] = &[&[9], &[7], &[6], &[4], &[3]];
-const MANUAL: &[&[i64]] = &[&[9], &[7, 6], &[], &[4], &[3]];
+// 三级芯链、左右固体助推分支、驾驶舱顶部返回伞；父节点始终先于子节点搭建。
+const PARENTS: &[i64] = &[1, 2, 3, 4, 5, 6, 7, 8, 8, 10, 11, 8, 13, 14, 1];
+const DIRECTIONS: &[(f64, f64)] = &[
+    (0., -1.),
+    (0., -1.),
+    (0., -1.),
+    (0., -1.),
+    (0., -1.),
+    (0., -1.),
+    (0., -1.),
+    (0., -1.),
+    (-1., 0.),
+    (-1., 0.),
+    (0., 1.),
+    (1., 0.),
+    (1., 0.),
+    (0., 1.),
+    (0., 1.),
+];
+const AUTO: &[&[i64]] = &[&[11, 14], &[9], &[10, 13], &[7], &[6], &[4], &[3], &[16]];
+const MANUAL: &[&[i64]] = &[&[11, 14], &[], &[10, 13, 9], &[7], &[6], &[4], &[3], &[16]];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Phase {
@@ -254,13 +280,17 @@ struct Placement {
     child_attach: i32,
 }
 
-/// 落点来自实际目录连接点；不按部件图片高度或固定屏幕坐标猜位置。
-fn placement(document: &EditorDocument, parent: i64, kind_id: &str) -> Placement {
+/// 按芯链/左右/顶部方向选取实际目录连接点；不按图片或固定屏幕坐标猜位置。
+fn placement(document: &EditorDocument, index: usize) -> Placement {
     placement_from(
         &document.catalog,
-        document.ship.part(parent).expect("搭建父部件不存在"),
+        document
+            .ship
+            .part(PARENTS[index])
+            .expect("搭建父部件不存在"),
         document.ship.next_part_id(),
-        kind_id,
+        PARTS[index],
+        DIRECTIONS[index],
     )
 }
 
@@ -269,6 +299,7 @@ fn placement_from(
     parent_part: &dr_core::Part,
     child_id: i64,
     kind_id: &str,
+    direction: (f64, f64),
 ) -> Placement {
     let parent_kind = catalog.get(&parent_part.part_type).unwrap();
     let child_kind = catalog.get(kind_id).expect("原版目录缺少搭建部件");
@@ -279,16 +310,22 @@ fn placement_from(
         .enumerate()
         .filter(|(_, point)| !point.dock)
         .map(|(index, point)| (index, dr_core::part_world_attach(parent_part, point)))
-        .min_by(|(_, a), (_, b)| a.y.total_cmp(&b.y))
-        .expect("父部件需要底部连接点");
+        .max_by(|(_, a), (_, b)| {
+            (a.x * direction.0 + a.y * direction.1)
+                .total_cmp(&(b.x * direction.0 + b.y * direction.1))
+        })
+        .expect("父部件需要指定方向的连接点");
     let (child_index, child_point) = child_kind
         .attach_points
         .iter()
         .enumerate()
         .filter(|(_, point)| !point.dock)
         .map(|(index, point)| (index, dr_core::part_world_attach(&child, point)))
-        .max_by(|(_, a), (_, b)| a.y.total_cmp(&b.y))
-        .expect("新部件需要顶部连接点");
+        .min_by(|(_, a), (_, b)| {
+            (a.x * direction.0 + a.y * direction.1)
+                .total_cmp(&(b.x * direction.0 + b.y * direction.1))
+        })
+        .expect("新部件需要相对方向的连接点");
     Placement {
         position: (
             parent_point.x - child_point.x,
@@ -301,25 +338,47 @@ fn placement_from(
     }
 }
 
-/// 只计算未来串联末端，给生产滚轮缩放留足画布；不创建文档部件或历史。
+/// 从接触面外侧靠近，避免 f32 屏幕坐标的微小内嵌把端点接触误选为侧边重叠。
+fn approach(plan: Placement, index: usize) -> (f64, f64) {
+    let direction = DIRECTIONS[index];
+    (
+        plan.position.0 + direction.0 * 0.05,
+        plan.position.1 + direction.1 * 0.05,
+    )
+}
+
+/// 只计算未来芯链与助推器最低安装点，给生产滚轮缩放留足画布；不创建文档部件或历史。
 fn assembly_bottom(document: &EditorDocument) -> (f64, f64) {
-    let mut parent = document.ship.part(1).unwrap().clone();
-    for kind_id in PARTS {
-        let plan = placement_from(&document.catalog, &parent, parent.id + 1, kind_id);
-        parent = document
-            .catalog
-            .get(kind_id)
-            .unwrap()
-            .instantiate(plan.child, plan.position);
+    let mut parts = vec![document.ship.part(1).unwrap().clone()];
+    for (index, kind_id) in PARTS.iter().enumerate() {
+        let parent = parts.iter().find(|part| part.id == PARENTS[index]).unwrap();
+        let plan = placement_from(
+            &document.catalog,
+            parent,
+            index as i64 + 2,
+            kind_id,
+            DIRECTIONS[index],
+        );
+        parts.push(
+            document
+                .catalog
+                .get(kind_id)
+                .unwrap()
+                .instantiate(plan.child, plan.position),
+        );
     }
-    let bottom = document
-        .catalog
-        .get(&parent.part_type)
-        .unwrap()
-        .attach_points
+    let bottom = parts
         .iter()
-        .filter(|point| !point.dock)
-        .map(|point| dr_core::part_world_attach(&parent, point))
+        .flat_map(|part| {
+            document
+                .catalog
+                .get(&part.part_type)
+                .unwrap()
+                .attach_points
+                .iter()
+                .filter(|point| !point.dock)
+                .map(move |point| dr_core::part_world_attach(part, point))
+        })
         .min_by(|a, b| a.y.total_cmp(&b.y))
         .unwrap();
     (bottom.x, bottom.y)
@@ -364,17 +423,17 @@ fn assert_staging(actual: &StagingState, expected: &[&[i64]], moved: bool) {
     assert_eq!(actual.current_stage, 0);
     assert_eq!(
         inventory(actual),
-        vec![3, 4, 6, 7, 9],
+        vec![3, 4, 6, 7, 9, 10, 11, 13, 14, 16],
         "激活动作不能丢失或复制"
     );
     for activation in actual.steps.iter().flat_map(|step| &step.activations) {
-        assert_eq!(activation.moved, moved && activation.id == 6);
+        assert_eq!(activation.moved, moved && activation.id == 9);
     }
 }
 
 fn assert_rocket(document: &EditorDocument) -> f64 {
-    assert_eq!(document.ship.parts.len(), 9);
-    assert_eq!(document.ship.connections.len(), 8);
+    assert_eq!(document.ship.parts.len(), 16);
+    assert_eq!(document.ship.connections.len(), 15);
     assert!(document.ship.disconnected.is_empty());
     assert_eq!(
         document
@@ -383,7 +442,7 @@ fn assert_rocket(document: &EditorDocument) -> f64 {
             .iter()
             .filter(|p| document.catalog.get(&p.part_type).unwrap().kind == PartKind::Engine)
             .count(),
-        3
+        5
     );
     assert_eq!(
         document
@@ -392,8 +451,28 @@ fn assert_rocket(document: &EditorDocument) -> f64 {
             .iter()
             .filter(|p| document.catalog.get(&p.part_type).unwrap().kind == PartKind::Detacher)
             .count(),
-        2
+        4
     );
+    for (index, part) in document.ship.parts.iter().enumerate() {
+        assert_eq!(part.id, index as i64 + 1);
+        assert_eq!(
+            part.part_type,
+            if index == 0 {
+                "pod-1"
+            } else {
+                PARTS[index - 1]
+            }
+        );
+        assert_eq!(part.angle, 0.0, "发动机保持喷口朝下");
+        assert!(!part.flip_x && !part.flip_y);
+    }
+    for (left, right) in [(10, 13), (11, 14), (12, 15)] {
+        let left = document.ship.part(left).unwrap();
+        let right = document.ship.part(right).unwrap();
+        let axis = document.ship.part(8).unwrap().x;
+        assert!((left.x + right.x - 2.0 * axis).abs() < 1e-5);
+        assert!((left.y - right.y).abs() < 1e-5);
+    }
     let mut maximum: f64 = 0.0;
     for (index, edge) in document.ship.connections.iter().enumerate() {
         let Connection::Normal {
@@ -403,9 +482,9 @@ fn assert_rocket(document: &EditorDocument) -> f64 {
             child_attach,
         } = edge
         else {
-            panic!("串联火箭只应产生 Normal 接触连接")
+            panic!("分支火箭只应产生 Normal 接触连接")
         };
-        assert_eq!((*parent, *child), (index as i64 + 1, index as i64 + 2));
+        assert_eq!((*parent, *child), (PARENTS[index], index as i64 + 2));
         let endpoint = |id, attach: i32| {
             let part = document.ship.part(id).unwrap();
             let kind = document.catalog.get(&part.part_type).unwrap();
@@ -520,6 +599,7 @@ fn wheel(input: &mut EguiInput, pos: egui::Pos2, delta: f32) {
 #[derive(Clone, Copy, Debug)]
 enum Drag {
     Activation,
+    ActivationBack,
     CardDown,
     CardUp,
 }
@@ -571,7 +651,8 @@ fn drag(context: &mut Context, state: &mut State, kind: Drag, step: u8) -> bool 
             return false;
         }
         let (source, target) = match kind {
-            Drag::Activation => (SelectActivation(2, 0), SelectStage(1)),
+            Drag::Activation => (SelectActivation(1, 0), SelectStage(2)),
+            Drag::ActivationBack => (SelectActivation(2, 2), SelectStage(1)),
             Drag::CardDown => (SelectStage(0), SelectStage(1)),
             Drag::CardUp => (SelectStage(1), SelectStage(0)),
         };
@@ -590,7 +671,7 @@ fn drag(context: &mut Context, state: &mut State, kind: Drag, step: u8) -> bool 
             return false;
         };
         let target = match kind {
-            Drag::Activation => target.center(),
+            Drag::Activation | Drag::ActivationBack => target.center(),
             Drag::CardDown => egui::pos2(target.center().x, target.bottom() - 2.0),
             Drag::CardUp => egui::pos2(target.center().x, target.top() + 2.0),
         };
@@ -698,7 +779,7 @@ fn build(
         0 => {
             describe(
                 showcase,
-                "第一阶段：从默认 Command Pod 开始，目录选件、预览、吸附逐件搭建三级火箭",
+                "第一阶段：从默认 Command Pod 开始，目录选件、预览、吸附逐件搭建三级芯级与双固体助推四级火箭",
             );
             let document = &context.document;
             assert_eq!(document.ship.parts.len(), 1);
@@ -760,8 +841,8 @@ fn build(
                 context.cursor.placing && !context.cursor.palette_drag,
                 "真实目录点击未进入光标预览"
             );
-            let plan = placement(&context.document, state.part as i64 + 1, PARTS[state.part]);
-            context.point(plan.position);
+            let plan = placement(&context.document, state.part);
+            context.point(approach(plan, state.part));
             state.plan = Some(plan);
         }
         4 => {
@@ -774,7 +855,7 @@ fn build(
             let (part, connection, allowed) =
                 placement::preview(&context.document, &context.cursor).expect("生产预览不存在");
             let plan = state.plan.unwrap();
-            assert!(allowed, "生产预览拒绝了串联落点");
+            assert!(allowed, "生产预览拒绝了树形搭建落点");
             assert!((part.x - plan.position.0).hypot(part.y - plan.position.1) < 1e-5);
             assert!(
                 matches!(connection, Some(EditorCommand::ConnectParts { parent, child, kind: LinkKind::Normal { parent_attach, child_attach } })
@@ -785,7 +866,7 @@ fn build(
             }
         }
         5 => {
-            context.point(state.plan.unwrap().position);
+            context.point(approach(state.plan.unwrap(), state.part));
             context.mouse.press(MouseButton::Left);
         }
         6 => {
@@ -877,7 +958,7 @@ fn build(
             xml(&context.document.ship, "rocket-assembled.xml");
             state.cases.push(serde_json::json!({"id":"rocket-assembly", "status":"passed", "metrics":{
                 "start_parts":1, "start_connections":0, "start_staging_steps":0,
-                "parts":9, "normal_connections":8, "engines":3, "detachers":2, "physical_stages":3,
+                "parts":16, "normal_connections":15, "engines":5, "detachers":4, "physical_stages":4,
                 "placement_history_steps":context.document.history.undo_len(), "endpoint_max_error":endpoint_error,
                 "placements":state.placements, "xml_roundtrip":true,
                 "visual_entities":observations.len(), "visual_stable_frames":2, "visuals":table}}));
@@ -924,7 +1005,7 @@ fn generate(
             }
         }
         1 => {
-            context.unchanged(state.assembled.as_ref().unwrap(), 8);
+            context.unchanged(state.assembled.as_ref().unwrap(), 15);
             assert_staging(context.draft(), AUTO, false);
             capture(commands, state, "editor-rocket-generated.png");
         }
@@ -935,7 +1016,7 @@ fn generate(
         }
         3 => {
             assert!(!context.inspector.is_open());
-            assert_eq!(context.document.history.undo_len(), 9);
+            assert_eq!(context.document.history.undo_len(), 16);
             assert_staging(staging(&context.document.ship).unwrap(), AUTO, false);
             state.automatic = Some(context.document.ship.clone());
             xml(&context.document.ship, "rocket-basic-staging.xml");
@@ -947,12 +1028,12 @@ fn generate(
                 state.assembled.as_ref(),
                 "一次 Undo 必须完整撤销自动分级"
             );
-            assert_eq!(context.document.history.undo_len(), 8);
+            assert_eq!(context.document.history.undo_len(), 15);
             assert_eq!(context.document.history.redo_len(), 1);
             context.key(KeyCode::KeyY, true);
         }
         5 => {
-            context.unchanged(state.automatic.as_ref().unwrap(), 9);
+            context.unchanged(state.automatic.as_ref().unwrap(), 16);
             assert_rocket(&context.document);
             state.cases.push(
                 serde_json::json!({"id":"basic-staging", "status":"passed", "metrics":{
@@ -975,15 +1056,15 @@ fn manual(
     showcase: &mut Option<ResMut<Showcase>>,
     commands: &mut Commands,
 ) -> bool {
-    if state.step <= 21 {
-        context.unchanged(state.automatic.as_ref().unwrap(), 9);
+    if state.step <= 31 {
+        context.unchanged(state.automatic.as_ref().unwrap(), 16);
     }
     let step = state.step;
     match step {
         0..=3 => {
             describe(
                 showcase,
-                "第三阶段：按下、保持越过阈值、移动、释放，把发动机 6 拖入分离器 7 卡；再拖整卡并回置",
+                "第三阶段：按下、保持越过阈值、移动、释放，把芯级发动机 9 拖入双助推分离器卡；再拖整卡并回置",
             );
             if !drag(context, state, Drag::Activation, step) {
                 return false;
@@ -1002,7 +1083,10 @@ fn manual(
             let mut expected = state.manual.clone().unwrap();
             expected.steps.swap(0, 1);
             assert_eq!(context.draft(), &expected, "整卡拖放没有按最终下标重排");
-            assert_eq!(inventory(context.draft()), vec![3, 4, 6, 7, 9]);
+            assert_eq!(
+                inventory(context.draft()),
+                vec![3, 4, 6, 7, 9, 10, 11, 13, 14, 16]
+            );
         }
         10..=13 => {
             if !drag(context, state, Drag::CardUp, step - 10) {
@@ -1017,22 +1101,47 @@ fn manual(
             );
             capture(commands, state, "editor-rocket-manual.png");
         }
-        15 => {
+        15..=18 => {
+            if !drag(context, state, Drag::ActivationBack, step - 15) {
+                return false;
+            }
+        }
+        19 => {
+            assert_eq!(
+                rows(context.draft()),
+                AUTO.iter().map(|row| row.to_vec()).collect::<Vec<_>>()
+            );
+            let action = context.draft().steps[1].activations.first().unwrap();
+            assert_eq!((action.id, action.moved), (9, true));
+        }
+        20..=23 => {
+            if !drag(context, state, Drag::Activation, step - 20) {
+                return false;
+            }
+        }
+        24 => {
+            assert_eq!(
+                Some(context.draft()),
+                state.manual.as_ref(),
+                "动作移回再移出必须恢复手动草稿"
+            );
+        }
+        25 => {
             if !context.click(state, properties::Action::Cancel) {
                 return false;
             }
         }
-        16 => {
+        26 => {
             assert!(!context.inspector.is_open());
-            context.unchanged(state.automatic.as_ref().unwrap(), 9);
+            context.unchanged(state.automatic.as_ref().unwrap(), 16);
             context.key(KeyCode::F2, false);
         }
-        17..=20 => {
-            if !drag(context, state, Drag::Activation, step - 17) {
+        27..=30 => {
+            if !drag(context, state, Drag::Activation, step - 27) {
                 return false;
             }
         }
-        21 => {
+        31 => {
             assert_eq!(
                 Some(context.draft()),
                 state.manual.as_ref(),
@@ -1042,30 +1151,30 @@ fn manual(
                 return false;
             }
         }
-        22 => {
+        32 => {
             assert!(!context.inspector.is_open());
             assert_eq!(staging(&context.document.ship), state.manual.as_ref());
-            assert_eq!(context.document.history.undo_len(), 10);
+            assert_eq!(context.document.history.undo_len(), 17);
             state.before = Some(context.document.ship.clone());
             context.key(KeyCode::KeyZ, true);
         }
-        23 => {
+        33 => {
             assert_eq!(Some(&context.document.ship), state.automatic.as_ref());
-            assert_eq!(context.document.history.undo_len(), 9);
+            assert_eq!(context.document.history.undo_len(), 16);
             assert_eq!(context.document.history.redo_len(), 1);
             context.key(KeyCode::KeyY, true);
         }
-        24 => {
+        34 => {
             assert_eq!(Some(&context.document.ship), state.before.as_ref());
-            assert_eq!(context.document.history.undo_len(), 10);
+            assert_eq!(context.document.history.undo_len(), 17);
             assert_eq!(context.document.history.redo_len(), 0);
             assert_staging(staging(&context.document.ship).unwrap(), MANUAL, true);
             assert_rocket(&context.document);
             xml(&context.document.ship, "rocket-manual-staging.xml");
             state.cases.push(
                 serde_json::json!({"id":"manual-staging-drag", "status":"passed", "metrics":{
-                "steps":rows(staging(&context.document.ship).unwrap()), "moved_ids":[6],
-                "activation_multiset":[3,4,6,7,9], "draft_only_before_apply":true,
+                "steps":rows(staging(&context.document.ship).unwrap()), "moved_ids":[9],
+                "activation_multiset":[3,4,6,7,9,10,11,13,14,16], "draft_only_before_apply":true,
                 "card_reordered":true, "card_restored":true, "cancel_unchanged":true,
                 "apply_history_delta":1, "undo_exact":true, "redo_exact":true, "xml_roundtrip":true,
                 "drags":state.traces}}),

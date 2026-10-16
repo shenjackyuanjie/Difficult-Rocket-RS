@@ -137,11 +137,13 @@ class SubtitleAndFilterTests(unittest.TestCase):
     def test_rocket_captions_cover_continuous_assembly_staging_and_drag(self):
         lines = video.CAPTIONS["rocket-workflow"]
         self.assertEqual(len(lines), 4)
-        self.assertEqual(video.SHORT_TITLES["rocket-workflow"], "三级火箭")
+        self.assertEqual(video.SHORT_TITLES["rocket-workflow"], "四级火箭")
         body = " ".join(lines)
         for phrase in ("Command Pod", "真实选件", "预览", "吸附搭建", "自动基础分级",
-                       "五步草稿", "撤销重做", "分帧拖放", "发动机 6", "分离器 7",
-                       "整卡重排再回置", "取消保持文档不变", "XML 往返"):
+                       "三级芯级", "对称双固体助推器", "四个物理推进级", "16部件", "15 条 Normal 树边",
+                       "八卡草稿", "撤销重做", "分帧拖放", "发动机 9",
+                       "移出、移回、再移出", "整卡下移再回置", "取消保持文档不变",
+                       "再操作并应用", "XML 往返"):
             self.assertIn(phrase, body)
 
     def test_rocket_subtitles_follow_its_clip_window_in_srt_and_ass(self):
@@ -169,7 +171,7 @@ class SubtitleAndFilterTests(unittest.TestCase):
                               f"Subtitle,,0,0,0,,{video.ass_escape(text)}", ass)
             self.assertIn(f"{video.timestamp(clip['video_start_seconds'], True)},"
                           f"{video.timestamp(clip['video_end_seconds'], True)},"
-                          r"Chapter,,0,0,0,,{\pos(36,1020)}03 三级火箭", ass)
+                          r"Chapter,,0,0,0,,{\pos(36,1020)}03 四级火箭", ass)
 
     def test_captions_match_actual_mouse_config_and_separate_debug_visibility(self):
         selection = video.CAPTIONS["selection"]
