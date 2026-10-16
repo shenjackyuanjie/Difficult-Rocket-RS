@@ -24,6 +24,8 @@
 
 构建基底 `b6db201db166387e465a9a1c8731b687841a4fbd`，EXE SHA-256 为 `08b3fcc6d791c64042db41f3652a0481641f1b4535f9b90302301e04a464f899`；[构建身份](../target/validation-ui-staging/build-identity-final-dx12.json)记录该次源码快照。
 
+> 该段引用的 `demo-ui-staging-*` 与 `narrow-ui-staging-*` 产物已在 2026-10-16 的 `target/` 清理中删除（`validation-ui-staging/` 下的日志与构建身份保留），路径按历史引用保留，不补造产物。
+
 | 检查 | 该冻结基线的实际结果 / 本地证据 |
 | --- | --- |
 | Rust | Release 全量 **487 项**（core 120 / editor 367）通过；[日志](../target/validation-ui-staging/rust-final-dx12.log) |
