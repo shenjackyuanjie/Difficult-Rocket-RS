@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 from pathlib import Path, PureWindowsPath
+import rocket_workflow_report as rocket_workflow
 import subprocess
 import sys
 import time
@@ -19,11 +20,11 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 CHAPTER_IDS = (
-    "panels", "connections", "transforms", "selection", "view", "staging",
+    "panels", "connections", "rocket-workflow", "transforms", "selection", "view", "staging",
     "topology", "repair", "browser", "unsaved",
 )
 DETAILED_CHAPTER_IDS = (
-    "panels", "placement-cases", "connections", "geometry-cases", "transforms",
+    "panels", "placement-cases", "connections", "rocket-workflow", "geometry-cases", "transforms",
     "free-cases", "group-cases", "line-cases", "selection", "interaction-cases", "view", "staging",
     "history-cases", "topology", "topology-cases", "repair", "browser", "unsaved", "file-cases",
 )
@@ -149,7 +150,7 @@ def prepare_binary(options, root):
 def validate_report(report, output, started_ns, expected_mode=None):
     if not isinstance(report, dict) or report.get("completed") is not True:
         raise DemoError("报告未声明 completed: true")
-    mode = report.get("mode", "brief")  # 兼容既有十章视频报告；详细报告必须显式标识。
+    mode = report.get("mode", "brief")  # 未标识模式时按简略完整清单校验。
     expected = chapter_ids(mode)
     if expected_mode is not None and mode != expected_mode:
         raise DemoError(f"报告模式 {mode!r} 与请求的 {expected_mode!r} 不符")
@@ -196,6 +197,11 @@ def validate_report(report, output, started_ns, expected_mode=None):
             validate_cases(chapter, output)
         if mode == "detailed" and chapter_id == "staging":
             validate_detailed_staging(chapter, output)
+        if chapter_id == rocket_workflow.CHAPTER_ID:
+            try:
+                rocket_workflow.validate_workflow(chapter, output, started_ns)
+            except rocket_workflow.WorkflowError as error:
+                raise DemoError(f"三级火箭工作流证据无效：{error}") from error
     return report
 
 

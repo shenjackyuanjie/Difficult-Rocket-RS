@@ -13,6 +13,8 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
+from test_rocket_workflow_report import write_catalog, write_workflow_evidence
+
 
 SPEC = importlib.util.spec_from_file_location("demo_editor", Path(__file__).with_name("demo_editor.py"))
 demo = importlib.util.module_from_spec(SPEC)
@@ -26,7 +28,8 @@ def complete_report(mode="brief"):
         "chapters": [
             {"id": chapter_id, "title": "演示章节", "status": "passed",
              "elapsed_seconds": 0.45,
-             "artifacts": ([chapter_id + ".json", *["case-" + case_id + ".png" for case_id in demo.DETAILED_CASE_IDS[chapter_id]]]
+             "artifacts": (list(demo.rocket_workflow.ARTIFACTS) if chapter_id == "rocket-workflow" else
+                           [chapter_id + ".json", *["case-" + case_id + ".png" for case_id in demo.DETAILED_CASE_IDS[chapter_id]]]
                            if chapter_id in demo.DETAILED_CASE_IDS else [chapter_id + ".png", *(["editor-staging-performance.json"] if mode == "detailed" and chapter_id == "staging" else [])])}
             for chapter_id in demo.chapter_ids(mode)
         ],
@@ -75,6 +78,10 @@ class DemoTests(unittest.TestCase):
         for name in ("Test.xml", "Heronb.xml"):
             (self.samples / name).write_text("<Ship/>", encoding="utf-8")
         self.started_ns = 2_000_000_000
+        self.catalog = write_catalog(self.base / "Difficult-Rocket/assets/builtin/PartList.xml")
+        catalog_patch = patch.object(demo.rocket_workflow, "CATALOG_PATH", self.catalog)
+        catalog_patch.start()
+        self.addCleanup(catalog_patch.stop)
         self.report = complete_report()
         self.write_evidence(self.report)
         self.process = Mock()
@@ -88,6 +95,9 @@ class DemoTests(unittest.TestCase):
     def write_evidence(self, report, fresh=True):
         stamp = self.started_ns + 1_000_000 if fresh else self.started_ns - 1
         for chapter in report["chapters"]:
+            if chapter["id"] == "rocket-workflow":
+                write_workflow_evidence(self.output, stamp, self.catalog)
+                continue
             for name in chapter["artifacts"]:
                 artifact = self.output / name
                 artifact.write_bytes(b"mock screenshot evidence")
@@ -238,15 +248,17 @@ class DemoTests(unittest.TestCase):
                     demo.wait_for_demo(self.process, self.output, self.started_ns, None, True, "detailed")
 
     def test_modes_have_independent_complete_chapter_and_case_contracts(self):
-        self.assertEqual(len(demo.CHAPTER_IDS), 10)
-        self.assertEqual(len(demo.DETAILED_CHAPTER_IDS), 19)
+        self.assertEqual(len(demo.CHAPTER_IDS), 11)
+        self.assertEqual(len(demo.DETAILED_CHAPTER_IDS), 20)
         self.assertEqual(sum(map(len, demo.DETAILED_CASE_IDS.values())), 45)
+        self.assertEqual(demo.CHAPTER_IDS[1:3], ("connections", "rocket-workflow"))
+        self.assertEqual(demo.DETAILED_CHAPTER_IDS[2:5], ("connections", "rocket-workflow", "geometry-cases"))
         self.assertEqual(tuple(chapter for chapter in demo.DETAILED_CHAPTER_IDS if chapter not in demo.DETAILED_CASE_IDS), demo.CHAPTER_IDS)
         report = complete_report("detailed")
         self.write_evidence(report)
         self.assertEqual(demo.validate_report(report, self.output, self.started_ns, "detailed"), report)
         report["chapters"] = complete_report()["chapters"]
-        with self.assertRaisesRegex(demo.DemoError, "完整 19"):
+        with self.assertRaisesRegex(demo.DemoError, "完整 20"):
             demo.validate_report(report, self.output, self.started_ns, "detailed")
 
     def test_python_contract_matches_rust_case_manifest(self):
@@ -258,6 +270,40 @@ class DemoTests(unittest.TestCase):
                    "history-cases": "HISTORY", "topology-cases": "TOPOLOGY", "file-cases": "FILES"}
         for chapter, rust_name in mapping.items():
             self.assertEqual(demo.DETAILED_CASE_IDS[chapter], manifests[rust_name])
+
+    def test_legacy_19_chapters_45_cases_95_artifacts_remain_plus_1_3_9(self):
+        source = (demo.ROOT / "crates/dr-editor/src/demo/chapters.rs").read_text(encoding="utf-8")
+        entries = re.findall(r'id: "([^"]+)",.*?artifacts: &\[(.*?)\]', source, re.S)
+        artifacts = {chapter: re.findall(r'"([^"]+)"', body) for chapter, body in entries}
+        self.assertEqual(set(artifacts), set(demo.DETAILED_CHAPTER_IDS))
+        self.assertEqual(artifacts["rocket-workflow"], list(demo.rocket_workflow.ARTIFACTS))
+        for chapter, cases in demo.DETAILED_CASE_IDS.items():
+            artifacts[chapter].extend("case-" + case_id + ".png" for case_id in cases)
+        legacy_chapters = tuple(chapter for chapter in demo.DETAILED_CHAPTER_IDS if chapter != "rocket-workflow")
+        self.assertEqual(len(legacy_chapters), 19)
+        self.assertEqual(sum(map(len, demo.DETAILED_CASE_IDS.values())), 45)
+        self.assertEqual(sum(len(artifacts[chapter]) for chapter in legacy_chapters), 95)
+        self.assertEqual(len(artifacts), 20)
+        self.assertEqual(45 + len(demo.rocket_workflow.CASE_IDS), 48)
+        self.assertEqual(sum(map(len, artifacts.values())), 104)
+        self.assertIn("editor-staging-performance.json", artifacts["staging"])
+        self.assertIn("64 级 / 1024 动作", source)
+
+    def test_rocket_contract_is_mandatory_in_both_modes_and_wraps_validation_error(self):
+        for mode in ("brief", "detailed"):
+            report = complete_report(mode)
+            self.write_evidence(report)
+            chapter = next(chapter for chapter in report["chapters"] if chapter["id"] == "rocket-workflow")
+            chapter["artifacts"] = []
+            with self.subTest(mode=mode, missing="declaration"), self.assertRaisesRegex(demo.DemoError, "三级火箭"):
+                demo.validate_report(report, self.output, self.started_ns, mode)
+            chapter["artifacts"] = list(demo.rocket_workflow.ARTIFACTS)
+            path = self.output / "rocket-workflow.json"
+            document = json.loads(path.read_text(encoding="utf-8"))
+            document["cases"][2]["metrics"]["drags"][0]["events"][1]["frame"] = document["cases"][2]["metrics"]["drags"][0]["events"][0]["frame"]
+            path.write_text(json.dumps(document), encoding="utf-8")
+            with self.subTest(mode=mode, invalid="same-frame drag"), self.assertRaisesRegex(demo.DemoError, "三级火箭"):
+                demo.validate_report(report, self.output, self.started_ns, mode)
 
     def test_detailed_cases_cannot_be_missing_faked_or_unillustrated(self):
         report = complete_report("detailed")

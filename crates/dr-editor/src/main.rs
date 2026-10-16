@@ -164,6 +164,7 @@ fn main() -> anyhow::Result<()> {
                     topology_ui::smoke::run,
                     properties::egui_smoke::run,
                     connection_smoke::run,
+                    demo::rocket_workflow::run,
                     transform_smoke::run,
                     interaction_smoke::input,
                     performance::run,

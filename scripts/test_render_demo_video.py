@@ -123,12 +123,50 @@ class SubtitleAndFilterTests(unittest.TestCase):
 
     def test_chapter_captions_two_to_four(self):
         self.assertEqual(set(video.CAPTIONS), set(video.demo.CHAPTER_IDS))
+        self.assertEqual(set(video.SHORT_TITLES), set(video.demo.CHAPTER_IDS))
         for lines in video.CAPTIONS.values():
             self.assertTrue(2 <= len(lines) <= 4)
         body = " ".join(" ".join(lines) for lines in video.CAPTIONS.values())
         for required in ("碰撞", "紫色吸附", "R", "后代跟随", "删除", "视角帮助", "属性草稿", "分级",
                          "树图", "换父", "环路保护", "Heronb", "只读", "千船", "虚拟列表", "未保存模态"):
             self.assertIn(required, body)
+
+    def test_rocket_captions_cover_continuous_assembly_staging_and_drag(self):
+        lines = video.CAPTIONS["rocket-workflow"]
+        self.assertEqual(len(lines), 4)
+        self.assertEqual(video.SHORT_TITLES["rocket-workflow"], "三级火箭")
+        body = " ".join(lines)
+        for phrase in ("Command Pod", "真实选件", "预览", "吸附搭建", "自动基础分级",
+                       "五步草稿", "撤销重做", "分帧拖放", "发动机 6", "分离器 7",
+                       "整卡重排再回置", "取消保持文档不变", "XML 往返"):
+            self.assertIn(phrase, body)
+
+    def test_rocket_subtitles_follow_its_clip_window_in_srt_and_ass(self):
+        clip = self.clips[2]
+        self.assertEqual(self.clips[1]["id"], "connections")
+        self.assertEqual(clip["id"], "rocket-workflow")
+        captions = video.CAPTIONS[clip["id"]]
+        entries = [entry for entry in video.caption_entries(self.clips, self.duration)
+                   if entry[2] in captions]
+        self.assertEqual([entry[2] for entry in entries], list(captions))
+        self.assertAlmostEqual(entries[0][0], clip["video_start_seconds"])
+        self.assertAlmostEqual(entries[-1][1], clip["video_end_seconds"])
+        for index, (start, end, _) in enumerate(entries):
+            self.assertLess(start, end)
+            if index:
+                self.assertAlmostEqual(start, entries[index - 1][1])
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder)
+            video.write_subtitles(output, self.clips, self.duration)
+            srt = (output / "progress.srt").read_text(encoding="utf-8")
+            ass = (output / "progress.ass").read_text(encoding="utf-8")
+            for start, end, text in entries:
+                self.assertIn(f"{video.timestamp(start)} --> {video.timestamp(end)}\n{text}", srt)
+                self.assertIn(f"{video.timestamp(start, True)},{video.timestamp(end, True)},"
+                              f"Subtitle,,0,0,0,,{video.ass_escape(text)}", ass)
+            self.assertIn(f"{video.timestamp(clip['video_start_seconds'], True)},"
+                          f"{video.timestamp(clip['video_end_seconds'], True)},"
+                          r"Chapter,,0,0,0,,{\pos(36,1020)}03 三级火箭", ass)
 
     def test_captions_match_actual_mouse_config_and_separate_debug_visibility(self):
         selection = video.CAPTIONS["selection"]
@@ -161,6 +199,8 @@ class SubtitleAndFilterTests(unittest.TestCase):
             ass = (output / "progress.ass").read_bytes().decode("utf-8")
             for text in (srt, ass):
                 self.assertIn("开发进度", text)
+                self.assertIn("十一章编辑器展示与报告检查通过", text)
+                self.assertNotIn("十章", text)
                 self.assertIn("输入法不在本片验收", text)
                 self.assertIn("非完整游戏" if text == srt else "并非完整游戏", text)
             self.assertIn("00:00:00,000 --> 00:00:04,000", srt)

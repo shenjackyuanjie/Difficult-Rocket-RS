@@ -122,6 +122,23 @@ pub(super) const CHAPTERS: &[Chapter] = &[
     },
 ];
 
+const ROCKET_WORKFLOW: Chapter = Chapter {
+    id: "rocket-workflow",
+    title: "三级火箭：真实搭建、自动分级与拖放调级",
+    description: "同一文档连续完成目录选件与画布吸附 → 自动基础分级 → 动作及整卡真实拖放 → 应用、撤销重做和 XML 往返",
+    artifacts: &[
+        "editor-rocket-command-pod.png",
+        "editor-rocket-placement-preview.png",
+        "editor-rocket-assembled.png",
+        "editor-rocket-generated.png",
+        "editor-rocket-manual.png",
+        "rocket-assembled.xml",
+        "rocket-basic-staging.xml",
+        "rocket-manual-staging.xml",
+        "rocket-workflow.json",
+    ],
+};
+
 const DETAILED_CHAPTERS: &[(&str, Chapter)] = &[
     (
         "panels",
@@ -248,6 +265,10 @@ impl Mode {
             } else {
                 chapter
             });
+            // 三个阶段共用这一章的文档，不触发逐章重载。
+            if chapter.id == "connections" {
+                chapters.push(&ROCKET_WORKFLOW);
+            }
             if self == Self::Detailed {
                 chapters.extend(
                     DETAILED_CHAPTERS

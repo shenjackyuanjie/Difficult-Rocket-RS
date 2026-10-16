@@ -13,6 +13,7 @@ mod lifecycle;
 mod overlay;
 mod pacing;
 mod replay;
+pub(crate) mod rocket_workflow;
 
 use chapters::{Chapter, Mode, staging_fixture};
 use evidence::{append_actions, append_timeline, unix_ms};

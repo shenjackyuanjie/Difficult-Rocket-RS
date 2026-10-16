@@ -45,6 +45,11 @@ pub(crate) fn begin(world: &mut World) {
     document.revision = world.resource::<EditorDocument>().revision.wrapping_add(1);
     world.insert_resource(document);
     world.insert_resource(demo_cases::Run::new(chapter.id));
+    if chapter.id == "rocket-workflow" {
+        world.insert_resource(rocket_workflow::State::default());
+        world.insert_resource(panels::egui_panel::UiState::default());
+        world.insert_resource(egui_ui::UiHits::default());
+    }
     world.resource_mut::<EditorPaths>().ship = sample;
     world.insert_resource(DragState::default());
     world.insert_resource(EditorCursor::default());

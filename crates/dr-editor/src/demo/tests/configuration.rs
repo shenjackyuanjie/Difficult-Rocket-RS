@@ -111,8 +111,21 @@ fn chapters_are_unique_and_evidence_is_relative() {
             assert_eq!(std::path::Path::new(name).components().count(), 1);
         }
     }
-    let detailed = Mode::Detailed.chapters();
+    let all = Mode::Detailed.chapters();
+    // 新章是增量：旧 19 章、45 用例、95 项证据继续单独锁定。
+    let detailed: Vec<_> = all
+        .iter()
+        .copied()
+        .filter(|chapter| chapter.id != "rocket-workflow")
+        .collect();
     assert_eq!(detailed.len(), 19);
+    assert_eq!(
+        detailed
+            .iter()
+            .map(|chapter| demo_cases::cases(chapter.id).len())
+            .sum::<usize>(),
+        45
+    );
     assert_eq!(
         detailed
             .iter()
@@ -138,6 +151,52 @@ fn chapters_are_unique_and_evidence_is_relative() {
         .collect();
     assert_eq!(evidence.len(), 95);
     assert_eq!(evidence.iter().collect::<BTreeSet<_>>().len(), 95);
+    assert_eq!(all.len(), 20);
+    let all_evidence: Vec<_> = all.iter().flat_map(|chapter| chapter.evidence()).collect();
+    assert_eq!(all_evidence.len(), 104);
+    assert_eq!(all_evidence.iter().collect::<BTreeSet<_>>().len(), 104);
+}
+
+#[test]
+fn rocket_workflow_is_one_continuous_chapter_in_both_modes() {
+    let expected = [
+        "editor-rocket-command-pod.png",
+        "editor-rocket-placement-preview.png",
+        "editor-rocket-assembled.png",
+        "editor-rocket-generated.png",
+        "editor-rocket-manual.png",
+        "rocket-assembled.xml",
+        "rocket-basic-staging.xml",
+        "rocket-manual-staging.xml",
+        "rocket-workflow.json",
+    ];
+    for (mode, count) in [(Mode::Brief, 11), (Mode::Detailed, 20)] {
+        let chapters = mode.chapters();
+        assert_eq!(chapters.len(), count);
+        let position = chapters
+            .iter()
+            .position(|chapter| chapter.id == "rocket-workflow")
+            .unwrap();
+        assert_eq!(chapters[position - 1].id, "connections");
+        assert_eq!(
+            chapters
+                .iter()
+                .filter(|chapter| chapter.id == "rocket-workflow")
+                .count(),
+            1
+        );
+        assert_eq!(chapters[position].artifacts, expected);
+        assert_eq!(
+            chapters[position].evidence(),
+            expected
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect::<Vec<_>>()
+        );
+        for name in chapters[position].artifacts {
+            assert_eq!(std::path::Path::new(name).components().count(), 1);
+        }
+    }
 }
 
 #[test]
