@@ -23,6 +23,7 @@ mod render;
 mod scoped_smoke;
 mod selection;
 mod selection_smoke;
+mod sprite_shader;
 mod topology_ui;
 mod transform_smoke;
 mod view;
@@ -135,6 +136,7 @@ fn main() -> anyhow::Result<()> {
                 ..default()
             }),
     )
+    .add_plugins(sprite_shader::SpriteShaderPlugin)
     .add_plugins(native_buttons::NativeButtonsPlugin)
     .init_gizmo_group::<connection_lines::LineGizmos>()
     .add_plugins(egui_ui::EditorEguiPlugin)

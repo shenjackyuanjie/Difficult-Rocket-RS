@@ -2213,6 +2213,7 @@ dependencies = [
  "bevy_egui",
  "dr-core",
  "icu_provider",
+ "naga",
  "raw-window-handle",
  "rfd",
  "serde_json",
