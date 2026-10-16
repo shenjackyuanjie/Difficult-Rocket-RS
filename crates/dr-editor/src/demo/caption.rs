@@ -1,5 +1,4 @@
 //! 章节说明的非交互绘制；详细属性样例移到模态外侧，不遮挡错误和按钮。
-use super::*;
 use bevy_egui::egui;
 
 pub(super) fn paint(
@@ -7,7 +6,6 @@ pub(super) fn paint(
     title: &str,
     description: &str,
     details: Option<&str>,
-    step: Duration,
     left_of: Option<f32>,
 ) -> egui::Rect {
     let (id, anchor, offset, width) = if let Some(left) = left_of {
@@ -50,14 +48,6 @@ pub(super) fn paint(
                         ui.separator();
                         ui.label(details);
                     }
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "节奏基准 {}ms · 内部输入注入 · 窗口单次启动",
-                            step.as_millis()
-                        ))
-                        .size(12.)
-                        .weak(),
-                    );
                 });
         })
         .response

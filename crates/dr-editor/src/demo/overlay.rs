@@ -130,12 +130,5 @@ pub(crate) fn overlay(
     } else {
         None
     };
-    caption::paint(
-        ctx,
-        &title,
-        description,
-        details.as_deref(),
-        showcase.step,
-        left_of,
-    );
+    caption::paint(ctx, &title, description, details.as_deref(), left_of);
 }

@@ -83,7 +83,6 @@ fn detailed_property_caption_leaves_real_error_and_apply_cancel_visible_without_
                 "详细演示 12/18 · 历史与属性边界",
                 "非法草稿实际应用：显示错误并保留文档。",
                 Some(details),
-                Duration::from_millis(450),
                 Some(apply.left()),
             );
             assert_eq!(ctx.input(|input| input.events.clone()), before);
@@ -123,14 +122,7 @@ fn ordinary_chapter_caption_keeps_the_original_center_bottom_placement() {
             )),
             ..Default::default()
         });
-        let rect = paint(
-            &ctx,
-            "简略演示 1/10",
-            "原有节奏和位置",
-            None,
-            Duration::from_millis(450),
-            None,
-        );
+        let rect = paint(&ctx, "简略演示 1/10", "原有节奏和位置", None, None);
         let mut output = ctx.end_pass();
         output.textures_delta.clear();
         if frame >= 2 {
@@ -207,7 +199,6 @@ fn topology_hit_map_waits_for_interactive_layout_before_self_link_click() {
 预期：父/子设为同一实例，点击实际连接按钮后拒绝，文档和历史不变。
 路径：实际 egui 连接树控件 · 断言待验证",
             ),
-            std::time::Duration::from_millis(40),
             None,
         );
         ctx.end_pass().textures_delta.clear();
