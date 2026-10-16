@@ -9,15 +9,79 @@
 | XML / 核心 | 严格读写船体和 PartList，保留静态/运行/分级字段；未知内容明确拒绝，同目录临时文件原子保存 |
 | 事务 / 历史 | 放置/吸附/整组变换/删除/属性原子提交，失败/no-op 保留重做；256 步/64 MiB 快照预算 |
 | 分组 / 重号 | PartKey 定位具体实例，跨组合并只重映射相关冲突及引用；歧义已有显式修复，不自动猜测 |
-| 几何 / 连接 | 任意角度与镜像、真实 Shape/轮子、严格 5% 重叠和 0.35 吸附；自由模式跳过几何/占用但保留端点合法性及部件对唯一性 |
+| 几何 / 连接 | 任意角度与镜像、真实 Shape/轮子、严格 5% 重叠和 0.35 吸附；吸附与自由几何是两个独立开关——关闭吸附不再对齐也不新建自动连接，自由模式跳过整体碰撞但新的自动连接仍严格校验占用、歧义、重复部件对与连接碰撞，关闭吸附不删除已有连接 |
 | 输入 / 显示 | 连续抓取偏移、松手末段位移、同帧视觉同步；鼠标按下触发，触摸抬指一次，UI/模态隔离 |
-| 界面 | 四组独立目录、分级停靠/部件图标/悬停船上联动、普通属性与重号修复 Modal；灰黑/青柠共享样式 |
+| 界面 | 56px 图标底栏，Menu / Staging / Help 三枚原生入口与 egui 图标同高同 48px 间距排成一条连续工具栏；Parts / Ships / Tools 彼此互斥，但打开属性 / 分级不再收起它们，停靠分级可与右侧部件 / 工具或左侧船体抽屉共存；子节点跟随（默认开启）、吸附、自由模式是三个互不联动的图标开关；帮助窗口默认居中且可拖动，底部图例用真实渲染色 |
 | 小屏 | 最小 320×320，单侧抽屉、44px 触控入口，按实际画布适配；物理触屏与平台发布另行验证 |
-| 演示 / 工具 | brief 10 章；detailed 19 章/45 例/95 证据，独立进程身份及源哈希保护；既有视频/便携包脚本 |
+| 分级 | 从所选 Pod 的同组 Normal 连接树显式生成基础草稿；卡片与动作真实拖放，跨卡移动标记 moved；停靠分级并入主编辑——画布拖动 / 框选 / 放置与 F3/F4 不受它限制；Ctrl+Z / Ctrl+Y 先回退草稿本地历史、耗尽后回落文档历史；Apply 按字段三方合并，外部改同一字段才拒绝并保留草稿 |
+| 演示 / 工具 | brief 11 章；detailed 20 章/48 例/104 证据；火箭章升级为 14 件 / 13 条连接 / 四个物理推进级的双固体助推火箭（SRB 为叶子、自带固体燃料 Tank，顶部不挂罐），自动生成 8 张卡、手动六次真实拖放；另有分级多状态截图驱动（`--staging-shots`）输出 6 张状态图与 JSON 证据；视频工具支持 brief / detailed 两种成片 |
 
 原生按钮使用 Bevy 0.20 的 ui_widgets / picking / Activate，无旧 Interaction 兼容层。依赖版本以 Cargo.lock 为准。DRRS 的具体 API 合同与差异见[核心覆盖核对](drrs-core-coverage.md)。
 
-## 2026-10-16 局部重构与回归
+## 2026-10-16 最近冻结基线：正式修复后的 DX12 闭环
+
+**这是新一轮用户要求之前的验收基线，不代表后续在改工作区或新增功能已经通过。** 上一轮三级火箭的数据、交互及 DX12 缺件 / 错图问题已在正式修复构建中闭环；完整复刻与下列新增要求继续进行。
+
+构建基底 `b6db201db166387e465a9a1c8731b687841a4fbd`，EXE SHA-256 为 `08b3fcc6d791c64042db41f3652a0481641f1b4535f9b90302301e04a464f899`；[构建身份](../target/validation-ui-staging/build-identity-final-dx12.json)记录该次源码快照。
+
+| 检查 | 该冻结基线的实际结果 / 本地证据 |
+| --- | --- |
+| Rust | Release 全量 **487 项**（core 120 / editor 367）通过；[日志](../target/validation-ui-staging/rust-final-dx12.log) |
+| Python | 全量 **189 项**通过；[日志](../target/validation-ui-staging/python-final-dx12.log) |
+| 格式 / Release | fmt check、严格 Release Clippy `-D warnings`、workspace Release build 均通过；[Clippy](../target/validation-ui-staging/clippy-final-dx12.log)、[build](../target/validation-ui-staging/build-final-dx12.log) |
+| DX12 完整详细演示 | 40ms 内部输入回放，**20 章 / 48 例 / 104 个唯一非空产物**，全部章节通过、完整退出 0；两份源船体 SHA256 未变；[报告](../target/demo-ui-staging-final-dx12-20261016/demo-report.json)、[日志](../target/validation-ui-staging/demo-final-dx12.log) |
+| 火箭原图复验 | 装配、生成、手调原图均为九件连续火箭，#9 发动机贴图正确；[装配](../target/demo-ui-staging-final-dx12-20261016/editor-rocket-assembled.png)、[生成](../target/demo-ui-staging-final-dx12-20261016/editor-rocket-generated.png)、[手调](../target/demo-ui-staging-final-dx12-20261016/editor-rocket-manual.png) |
+| 三窄窗分级 | 同 SHA 构建串行完成 **390×844、640×360、320×640**，三例均 `passed=true`、退出 0；每例仍为 **64 级 / 1024 动作**，末级末项真实可达，编辑、Apply、撤销重做 / XML、悬停恢复及窗口尺寸合同通过；[报告](../target/narrow-ui-staging-final-dx12-20261016/report.json) |
+| 连续章 / 压力保留 | 显式生成 `[[9],[7],[6],[4],[3]]` 与真实跨帧手调 `[[9],[7,6],[],[4],[3]]`、仅 6 的 `moved=true` 合同不变；旧 19 章 / 45 例 / 95 产物及 64 / 1024 专项保留；[火箭报告](../target/demo-ui-staging-final-dx12-20261016/rocket-workflow.json) |
+
+完整闭环见[正式修复历史](validation-history.md#2026-10-16-正式修复后的-dx12-验收闭环新增要求之前的基线)。以下诊断构建的失败、公开 / 私有 Render 边界和独立 Naga 反例仍按原身份保留，不用后续通过覆盖历史事实。
+
+## 2026-10-16 新增界面与分级融合：双后端冻结基线
+
+**这一节取代此前“新增要求进行中”的状态**：帮助窗口可拖动 / 居中 / 真实颜色图例、分级与左右抽屉及画布历史的融合、工具溢出与默认跟随、独立吸附开关、DX12 与 Vulkan 完整验证、简略与详细两份视频、sr1 多状态图均已交付并验收。
+
+构建基底 `3332912`（其后仅文档提交，二进制未变），EXE SHA-256 `32a9b610459aeb296bf5af9245a66d746063c681e7802cf59e4e24462d8a42be`；DX12 与 Vulkan 用**同一个二进制**，只切换 `WGPU_BACKEND`；[构建身份](../target/validation-ui-fusion/build-identity-fusion-dx12.json)。
+
+| 检查 | 本轮实际结果 / 本地证据 |
+| --- | --- |
+| Rust | Release 全量 **533 项**（core 120 / editor 413）通过；[日志](../target/validation-ui-fusion/rust-fusion-final.log) |
+| Python | 全量 **203 项**通过；[日志](../target/validation-ui-fusion/python-final-pre-rocket.log) |
+| 格式 / Release | fmt check、严格 Release Clippy `-D warnings`、workspace Release build 通过；[Clippy](../target/validation-ui-fusion/clippy-fusion-2.log)、[build](../target/validation-ui-fusion/build-fusion.log) |
+| DX12 完整详细演示 | 40ms 内部输入回放，**20 章 / 48 例 / 104 个唯一非空产物**、退出 0；[报告](../target/demo-final-dx12-20261016/demo-report.json)、[日志](../target/validation-ui-fusion/final2-dx12.log) |
+| Vulkan 完整详细演示 | 同 EXE 仅切后端，**20 章 / 104 产物**、退出 0、`backend: Vulkan`；[报告](../target/demo-final-vulkan-20261016/demo-report.json)、[日志](../target/validation-ui-fusion/final2-vulkan.log) |
+| 贴图加载告警 | 四次窗口运行的日志中 `Multiple AssetLoaders` 均为 **0** 次 |
+| 三窄窗分级 | **390×844、640×360、320×640** 三例 `passed=true`、退出 0，每例 64 级 / 1024 动作；[报告](../target/narrow-final2-dx12-20261016/report.json) |
+| 分级多状态图 | 6 张状态图 + `staging-shots.json`（`complete=true`），含停靠分级与部件目录共存、停靠期间画布拖动、整卡插入线像素、外部删目标后的诊断；[目录](../target/staging-shots-final2-dx12-20261016) |
+| 两版视频 | 简略 `dr-rs-progress-1080p.mp4`（365.3s）、详细 `dr-rs-progress-detailed-1080p.mp4`（616.1s），均通过成片校验；[简略](../target/video-final-brief-20261016/video-manifest.json)、[详细](../target/video-final-detailed-20261016/video-manifest.json) |
+| 火箭章 | 14 件 / 13 连接 / 四个物理推进级的双固体助推火箭（SRB 为叶子、自带固体 Tank、顶部不挂罐）；自动 8 卡、手动六次真实拖放；[火箭报告](../target/demo-final-dx12-20261016/rocket-workflow.json) |
+
+本轮窗口运行中修掉的三处真实回归（自由模式与吸附解耦后的旧样例、三方合并下的“同值收敛”样例、演示说明框多余文字）与两处环境干扰（窄窗前台所有权失败、视频录制被 Windows 任务切换浮层遮挡）记录在[历史验收](validation-history.md#2026-10-16-新增界面与分级融合双后端完整验收)。
+
+仍未完成、继续保持未完成状态：系统键鼠 / 输入法 / 物理触屏等原生输入专项、完整复刻的其余缺口与原版对照清单。
+
+## 2026-10-16 历史诊断构建：完整交互通过，DX12 画面未通过
+
+以下为正式修复前的诊断快照，未通过结论仅属于该 SHA；后续闭环见上方冻结基线。
+
+本节对应临时 RenderWorld 诊断构建；程序退出 0 与数据、交互合同通过分别记录，**不等于最终画面正确，也不表示本任务完成**。构建基底为 `37996ef`，Ships 抽屉入口修复已独立提交为 `b6db201`；源码快照及 EXE 身份见[构建身份](../target/validation-ui-staging/build-identity-render-probe.json)。
+
+| 检查 | 本轮实际结果 / 本地证据 |
+| --- | --- |
+| Rust | Release 全量 **485 项**（core 120 / editor 365）通过；[日志](../target/validation-ui-staging/rust-render-probe.log) |
+| Python | 全量 **189 项**通过；[日志](../target/validation-ui-staging/python-tests-final.log) |
+| 格式 / Release | fmt check、严格 Release Clippy `-D warnings`、workspace Release build 均通过；[Clippy](../target/validation-ui-staging/clippy-render-probe.log)、[build](../target/validation-ui-staging/build-render-probe.log) |
+| 完整详细演示 | 40ms 内部 UI / 画布输入回放，**20 章 / 48 例 / 104 个唯一非空产物**，完整退出 0；两份源船体 SHA256 未变；[报告](../target/demo-ui-staging-render-probe-20261016/demo-report.json)、[日志](../target/validation-ui-staging/demo-render-probe.log) |
+| 连续火箭 / 旧压力 | 九件、八条 Normal 连接与三阶段真实输入、草稿、Apply / Cancel、撤销重做及 XML 合同通过；原 19 章 / 45 例 / 95 产物保留，原 **64 级 / 1024 动作**专项保留；[火箭报告](../target/demo-ui-staging-render-probe-20261016/rocket-workflow.json)、[分级报告](../target/demo-ui-staging-render-probe-20261016/editor-staging-performance.json) |
+| RenderWorld 公开链路 | 一次稳定观测 `status=observed`，`invalid/pending` 为空；九件实例映射、phase membership 与 draw coverage 各 1，材质映射一致；Storage 的反射最小项尺寸 112 字节、10 项、缓冲区 1120 字节；[诊断表](../target/validation-ui-staging/rocket-render-table.json) |
+| DX12 GPU 原图 | **未通过**：装配 / 手调原图仍仅见 5 张精灵，并有发动机错贴油箱图；可见位置呈 `2*i` 分布；[装配原图](../target/demo-ui-staging-render-probe-20261016/editor-rocket-assembled.png)、[手调原图](../target/demo-ui-staging-render-probe-20261016/editor-rocket-manual.png) |
+| 同 EXE Vulkan 对照 | 仅切换 `WGPU_BACKEND=vulkan`，brief **11 章**完整退出 0，手调原图九件紧密完整、发动机 9 贴图正确；不是 Vulkan detailed 20 章验收；[报告](../target/demo-ui-staging-vulkan-diagnostic-20261016/demo-report.json)、[原图](../target/demo-ui-staging-vulkan-diagnostic-20261016/editor-rocket-manual.png)、[身份](../target/validation-ui-staging/build-identity-vulkan.json) |
+| Naga 独立最小反例 | Naga 30.0.1 的 WGSL → HLSL 实测中，命名局部变量路径重复加入 `first_instance`，直接表达式路径只加入一次，严格断言通过；与 DX12 的 `2*i` 观测吻合，尚无生产修复复验；[named](../target/validation-ui-staging/naga-instance-probe/named.hlsl#L20-L21)、[direct](../target/validation-ui-staging/naga-instance-probe/direct.hlsl#L20)、[日志](../target/validation-ui-staging/naga-instance-probe/probe.log#L53) |
+
+本轮 EXE SHA-256：`6b7d0ba761fd4490916260b7ad9c648a856f75c184da5e09cbd3bdf4b63b75b1`。默认材质分配器实测为 `NonBindless`；公开表能核对 source、prepared material、binding 身份和实际 phase / draw 范围，但不能读取私有的已上传 uniform 字节或最终绑定纹理描述符。source 重算不是 GPU 实际读值；后端对照与独立翻译反例是新的定位证据，生产 shader 尚未修复并完成 DX12 复验。probe 是临时诊断，未增加章、case 或产物合同，后续可能移除。
+
+上一构建已串行通过三窄窗 **390×844、640×360、320×640** 的 64 / 1024 分级专项，具体身份见[后续实测记录](validation-history.md#窄窗换行与真实导航的后续实测)；不把该结果写成当前 probe 构建的重跑。当前构建的完整合同与公开 / 私有 Render 边界见[本轮历史记录](validation-history.md#2026-10-16-完整演示与-renderworld-诊断边界)。
+
+## 2026-10-16 局部重构与回归（历史构建）
 
 本节记录 UI 与自动分级改造前的独立重构验收，后续功能以各自构建记录为准。
 
@@ -47,7 +111,7 @@
 - 悬停级标题或动作图标/名称时，本组相应部件同步显示青柠填充、轮廓和 ID，移开恢复已选焦点；不改船体/选区/历史，不猜缺失或歧义引用。点击/修改继续保留目标联动。
 - UI 卡片从第 1 级显示，XML 执行索引仍从 0 起。分级编辑期间隐藏会遮挡船底目标的演示横幅；驱动复用真实滚动正文，不猜固定位置。
 
-### 本次最终构建的实际验收
+### 该历史构建的实际验收
 
 | 检查 | 实际结果 / 本地证据 |
 | --- | --- |
@@ -66,11 +130,12 @@
 
 ## 未完成与兼容边界
 
-1. 复杂连接点自动镜像的原版可执行行为尚无定论；flipX/flipY 元数据保留，但不能凭字段名猜测自动选择。非中心接触和混合交互继续按证据收敛。
-2. 320×640 / 640×360 初始相机可能将船体置于顶栏后方，可用既有“适配视野”；尺寸验收不等于初始自动整船取景。
-3. 真实大型船体目录耗时、不同驱动/设备和长时间混合交互仍需抽验。内部同帧 Transform 回归不是物理显示延迟测量。
-4. Android / iOS / Web 宿主、资源/存储及系统文件选择未交付；物理触屏、软键盘、安全区域和第三方输入法需目标设备专项。按当前约定跳过输入法/系统文字专项。
-5. Python 扩展兼容、旧 Console/任务栏等应用平台能力仍独立列项；不迁移原版未启用实验，也不照搬有数据丢失风险的 SaveStatus。
-6. 新 XML 扩展必须先确认无损合同并加入对照回归；5 个已知异常输入明确拒绝，不为追求“全库退出 0”削弱检查。
+1. 新增帮助 / 抽屉 / 画布历史融合、工具行为、双后端完整验证、两份视频与 sr1 多状态图仍在进行中。上轮三级火箭 DX12 缺件 / 错图已有正式修复及原图闭环，不把该基线当作新要求已经完成。
+2. 复杂连接点自动镜像的原版可执行行为尚无定论；flipX/flipY 元数据保留，但不能凭字段名猜测自动选择。非中心接触和混合交互继续按证据收敛。
+3. 窄窗尺寸验收与初始相机整船取景分别核对；旧顶栏布局下的相机边界属于原构建记录，当前仍可用既有“适配视野”，不以尺寸正确推断初始取景已通过。
+4. 真实大型船体目录耗时、不同驱动/设备和长时间混合交互仍需抽验。内部同帧 Transform 回归不是物理显示延迟测量。
+5. Android / iOS / Web 宿主、资源/存储及系统文件选择未交付；物理触屏、软键盘、安全区域和第三方输入法需目标设备专项。按当前约定跳过输入法/系统文字专项。
+6. Python 扩展兼容、旧 Console/任务栏等应用平台能力仍独立列项；不迁移原版未启用实验，也不照搬有数据丢失风险的 SaveStatus。
+7. 新 XML 扩展必须先确认无损合同并加入对照回归；5 个已知异常输入明确拒绝，不为追求“全库退出 0”削弱检查。
 
 原版行为对照以 Difficult-Rocket 的 SR1 Rust/Python 源码、PartList/船体库，以及已实际打开的 SimpleRockets-PC-1.6.11 sandbox/Builder 为依据。没有证据的差异保持未完成，不以 UI 截图或旧通过记录推断兼容。

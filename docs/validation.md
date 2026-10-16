@@ -34,13 +34,13 @@ cargo run -p dr-core --example verify_history --release --locked -- ../Difficult
 ```powershell
 $env:WGPU_BACKEND = 'dx12' # 仅本次进程；普通编辑器默认后端不改
 
-# 完整详细回归：19 章、45 例、95 个证据，40ms 节拍，完成自动退出
+# 完整详细回归：20 章、48 例、104 个证据，40ms 节拍，完成自动退出
 uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --editor-bin target/release/dr-editor.exe --mode detailed --fast --output target/demo-detailed-new
 
 # 详细观看：450ms 节奏基准，完成自动退出
 uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --editor-bin target/release/dr-editor.exe --mode detailed --step-ms 450 --exit-on-complete --output target/demo-watch-new
 
-# 简略十章；默认 450ms，完成后保留窗口
+# 简略十一章；默认 450ms，完成后保留窗口
 uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --editor-bin target/release/dr-editor.exe --mode brief --output target/demo-brief-new
 ```
 
@@ -48,10 +48,11 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --edi
 
 正常观看按技术/导航/拖动/点击分配停顿、抵达目标才发输入边沿，逐帧移动紫色指针；快速回归跳过移动动画。`UiTestInput` 的短点击按下/抬起成对交给同一次 egui pass，避免慢帧变长按，不重复释放；长按/拖动仍分帧。章节底部说明和动作提示不拦截画布，分级停靠期间隐藏章节横幅，避免挡住船底目标。
 
-| 基础十章 | 内容 |
+| 基础十一章 | 内容 |
 | --- | --- |
 | 部件目录与放置 | 真实部件行、预览变换/碰撞/放置、组标题收起及全部展开 |
 | 连接点与吸附 | 沿边与同边多点连接、撤销与 XML |
+| 三级火箭连续操作 | 从 Command Pod 实际选件/放置/吸附搭成 9 件、8 连接，显式自动分级，再分帧拖动动作与整卡，核对草稿/历史/XML |
 | 旋转/镜像/自由连接 | 精调、自由连断、线设置、整组变换 |
 | 选择与编辑 | 三键配置、框选/后代跟随、连续拖动、复制粘贴与连接分量删除 |
 | 视角与显示 | F/Shift+F、调试/显隐、F1 与输入隔离 |
@@ -61,11 +62,12 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --edi
 | 船体目录 | 临时千船体目录、坏 XML、虚拟滚动与末项打开 |
 | 未保存确认 | 主窗口模态取消、隔离及放弃 |
 
-详细模式穿插放置（3）、精确重叠（6）、自由连接（7）、整组变换（6）、连线（5）、交互回放（4）、历史/属性（7）、拓扑（4）、文件（3）九组，共 45 例。每例核对内存文档/历史和真实 metrics，不宣称穷举。严格 5% 的几何例用精确事务参数；对接类型夹具显式设置 `dock=true`，不改原资源。详细分级为 64 级/1,024 动作，简略为 8 级/48 动作；驱动核对真实规模及末项修改。详细分级报告另记录实际停靠/船体/目标矩形与组/ID，检查面板不覆盖船体、修改目标完整可见，不能只用布尔字段宣称通过。
+详细模式保留放置（3）、精确重叠（6）、自由连接（7）、整组变换（6）、连线（5）、交互回放（4）、历史/属性（7）、拓扑（4）、文件（3）九组原有 45 例，另加连续三级火箭的搭建、自动分级、手动拖放 3 例，共 48 例。每例核对内存文档/历史和真实 metrics，不宣称穷举。严格 5% 的几何例用精确事务参数；对接类型夹具显式设置 `dock=true`，不改原资源。详细分级为 64 级/1,024 动作，简略为 8 级/48 动作；驱动核对真实规模及末项修改。详细分级报告另记录实际停靠/船体/目标矩形与组/ID，检查面板不覆盖船体、修改目标完整可见，不能只用布尔字段宣称通过。
 
 - 成功报告 `demo-report.json` 在全模式完成后才原子发布；模式、章节顺序、状态、耗时、路径及新鲜非空产物均须通过。
 - `demo-timeline.jsonl` 记录章首/章尾时间；`demo-actions.jsonl` 仅记录实际重播后的按下/滚轮，供音效同步，不记录移动/松开。
-- 详细模式另有九份 `*-cases.json` 与 45 张 `case-*.png`；缺例/缺图、提前关闭、非零退出或简略冒充详细均失败。
+- 详细模式保留九份 `*-cases.json` 与 45 张 `case-*.png`；三级火箭另有五张连续状态图、三份同几何 XML 和 `rocket-workflow.json`。缺例/缺图、提前关闭、非零退出或简略冒充详细均失败。
+- 火箭搭建截图前，连续两次核对九个唯一部件实体、目录纹理与 `Sprite.image` / 派生 `SpriteMeshMaterial.image`、加载尺寸、local/global 坐标与镜头可见性；观测写入报告供独立校验。该检查覆盖主 World 的身份与派生材质边界，GPU 实际贴图/排序仍须查看原图。四次拖放各保留按下、跨阈值、目标保持、释放四个递增 Update 帧。
 - Test.xml / Heronb.xml 只读，成功/异常路径都核对源哈希；输出不得包含源样本或其祖先目录。
 - 演示隔离原生鼠标/键盘/文字/滚轮，使用内部 Bevy/egui 注入，不移动系统指针，不等于系统键鼠、输入法或 input-to-photon 延迟实测。
 
@@ -78,11 +80,16 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/validate_narrow_wind
 # 同一工具与三种尺寸，另验真实分级正文、末项修改及船上目标联动
 uv run --no-project --python 3.12 python -B -X utf8 scripts/validate_narrow_windows.py --editor target/release/dr-editor.exe --assets ../Difficult-Rocket/assets --staging --output target/narrow-staging-new
 cargo run --release --locked -p dr-editor -- --ship ../Difficult-Rocket/assets/ships/Test.xml --smoke-test --smoke-window-size 390x844
+
+# 分级多状态展示图：真实窗口内驱动六个状态并写 PNG + staging-shots.json
+target/release/dr-editor.exe --smoke-test --smoke-window-size 1440x900 --staging-shots target/staging-shots-new
 ```
+
+`--staging-shots` 必须与 `--smoke-test` 一起使用，目录只能指定一次，并在该模式下暂停普通 5 秒截图自测。六张图依次是空分级草稿、生成后、停靠分级与右侧部件目录共存、停靠期间画布拖动、整卡拖动到插入位置、外部删除目标后的诊断；报告记录每张图的真实矩形、共存判定、拖动前后位置、插入线像素与 PNG 头校验。建议固定 1440×900：更窄的窗口会把「适配视野」入口折叠进工具抽屉，驱动目前没有抽屉回退路径。
 
 窄窗串行检查 390×844、640×360、320×640，核对 Win32 客户区、Bevy 逻辑/物理尺寸与 DPI、原始 PNG。仅只读观测，不改系统窗口几何。启动截图约 5s 后输出 `target/editor-smoke.png` / `editor-smoke-window.json` 并退出；它证明启动/尺寸，不代替完整侧栏内容、初始自动整船取景、交互或物理设备验收。
 
-`--staging` 复用窗口身份/尺寸观测与既有 `staging_smoke`，在同一窄窗内滚动 64 级/1,024 动作至末项、只移动指针验证悬停高亮及移开恢复，再修改草稿、应用、撤销重做及 XML 往返；核对 `editor-staging-performance.json` 的真实布局/悬停/目标几何，截图使用 `editor-staging-draft.png`。驱动取本帧实际滚动正文中心，不从按钮位置猜固定偏移。组合 `--smoke-test --staging-smoke-test --smoke-window-size` 时由分级流程截图退出，不被启动自测的 5s 退出截断。仍是内部注入、非物理触摸，动作行不换行及图标的视觉质量须另看原图。
+`--staging` 复用窗口身份/尺寸观测与既有 `staging_smoke`，在同一窄窗内滚动 64 级/1,024 动作至末项、只移动指针验证悬停高亮及移开恢复，再修改草稿、应用、撤销重做及 XML 往返；核对 `editor-staging-performance.json` 的真实布局/悬停/目标几何，截图使用 `editor-staging-draft.png`。驱动取本帧实际滚动正文中心，不从按钮位置猜固定偏移。组合 `--smoke-test --staging-smoke-test --smoke-window-size` 时由分级流程截图退出，不被启动自测的 5s 退出截断。仍是内部注入、非物理触摸；紧凑卡片的缩略图可以换行，工具图标的裁剪、触达与视觉质量须另看原图。
 
 ## 单项窗口与系统输入
 
@@ -116,13 +123,16 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/check_native_input.p
 
 ## 录制无配音 1080p 视频
 
-需要 Windows、FFmpeg/ffprobe 与系统微软雅黑。复用简略十章及时间线，不是截图轮播；默认静音，`--sound-effects` 可合成真实按下/滚轮的轻量音效，不含配音或音乐。
+需要 Windows、FFmpeg/ffprobe 与系统微软雅黑。复用演示章节与时间线，不是截图轮播；默认静音，`--sound-effects` 可合成真实按下/滚轮的轻量音效，不含配音或音乐。`--demo-mode` 决定成片对应哪一套章节：简略 11 章输出 `dr-rs-progress-1080p.mp4`，详细 20 章输出 `dr-rs-progress-detailed-1080p.mp4`，两者各自使用全新目录、互不覆盖，报告与 manifest 都带模式，跨模式复用会被拒绝。
 
 ```powershell
-uv run --no-project --python 3.12 python -B -X utf8 scripts/render_demo_video.py --no-build --output target/video-new
+uv run --no-project --python 3.12 python -B -X utf8 scripts/render_demo_video.py --no-build --demo-mode brief --output target/video-brief-new
+uv run --no-project --python 3.12 python -B -X utf8 scripts/render_demo_video.py --no-build --demo-mode detailed --output target/video-detailed-new
 uv run --no-project --python 3.12 python -B -X utf8 scripts/render_demo_video.py --no-build --sound-effects --output target/video-sound-new
-uv run --no-project --python 3.12 python -B -X utf8 scripts/render_demo_video.py --render-only target/video-new
+uv run --no-project --python 3.12 python -B -X utf8 scripts/render_demo_video.py --render-only target/video-detailed-new --demo-mode detailed
 ```
+
+详细模式默认超时 1800s（简略 600s），可用 `--timeout` 覆盖。
 
 录制专用窗口为无边框、scale factor 1 的 1920×1080。脚本仅置顶自建窗口（不激活、不改位置/大小），使用 `gdigrab desktop` 输入端坐标裁剪该物理客户区；不是后台捕获，须保持可见、勿最小化/移动/遮挡。持续所有权、几何与九点遮挡检查不能保证绝对无遮挡。
 
