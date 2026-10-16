@@ -172,7 +172,7 @@ fn assembled() -> EditorDocument {
 }
 
 #[test]
-fn sixteen_real_catalog_parts_are_placed_with_fifteen_contact_tree_edges() {
+fn fourteen_real_catalog_parts_are_placed_with_thirteen_contact_tree_edges() {
     let document = assembled();
     assert!(assert_rocket(&document) < 1e-5);
     // 生产输入构成的同组无向树必须由真实核心算法接受，精确校验每张卡及标记。
@@ -181,7 +181,7 @@ fn sixteen_real_catalog_parts_are_placed_with_fifteen_contact_tree_edges() {
             .unwrap();
     assert_staging(&generated, AUTO, false);
     assert!(staging(&document.ship).unwrap().steps.is_empty());
-    assert_eq!(document.history.undo_len(), 15);
+    assert_eq!(document.history.undo_len(), 13);
     assert_eq!(document.history.redo_len(), 0);
     assert_eq!(
         dr_core::ship_from_xml(&dr_core::ship_to_xml(&document.ship).unwrap()).unwrap(),
@@ -303,11 +303,11 @@ fn generate_staging_button_is_draft_only_then_apply_is_one_undoable_transaction(
     assert!(!panel.inspector.advanced_open && !panel.inspector.targets_open);
     panel.click(Action::GenerateStaging);
     assert_eq!(panel.document.ship, before);
-    assert_eq!(panel.document.history.undo_len(), 15);
+    assert_eq!(panel.document.history.undo_len(), 13);
     assert_staging(panel.draft(), AUTO, false);
     panel.click(Action::Apply);
     assert!(!panel.inspector.is_open());
-    assert_eq!(panel.document.history.undo_len(), 16);
+    assert_eq!(panel.document.history.undo_len(), 14);
     let applied = panel.document.ship.clone();
     assert_staging(staging(&applied).unwrap(), AUTO, false);
     assert!(panel.document.undo());
@@ -368,7 +368,7 @@ fn real_action_and_card_drags_preserve_multiset_cancel_and_single_apply_history(
     assert_eq!(panel.draft(), &reordered);
     assert_eq!(
         inventory(panel.draft()),
-        vec![3, 4, 6, 7, 9, 10, 11, 13, 14, 16]
+        vec![3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
     );
     panel.drag(Action::SelectStage(1), Action::SelectStage(0), Some(false));
     assert_eq!(panel.draft(), &manual);
@@ -384,7 +384,7 @@ fn real_action_and_card_drags_preserve_multiset_cancel_and_single_apply_history(
     panel.click(Action::Cancel);
     assert!(!panel.inspector.is_open());
     assert_eq!(panel.document.ship, automatic);
-    assert_eq!(panel.document.history.undo_len(), 16);
+    assert_eq!(panel.document.history.undo_len(), 14);
     properties::open(&mut panel.inspector, &panel.document);
     for _ in 0..3 {
         panel.frame(vec![]);
@@ -392,7 +392,7 @@ fn real_action_and_card_drags_preserve_multiset_cancel_and_single_apply_history(
     panel.drag(Action::SelectActivation(1, 0), Action::SelectStage(2), None);
     assert_eq!(panel.draft(), &manual);
     panel.click(Action::Apply);
-    assert_eq!(panel.document.history.undo_len(), 17);
+    assert_eq!(panel.document.history.undo_len(), 15);
     let applied = panel.document.ship.clone();
     assert_staging(staging(&applied).unwrap(), MANUAL, true);
     assert_eq!(
@@ -445,9 +445,9 @@ fn visual_fixture() -> (Ship, Vec<VisualObservation>) {
 }
 
 #[test]
-fn visual_identity_accepts_exactly_sixteen_unique_matching_loaded_parts() {
+fn visual_identity_accepts_exactly_fourteen_unique_matching_loaded_parts() {
     let (ship, observations) = visual_fixture();
-    assert_eq!(observations.len(), 16);
+    assert_eq!(observations.len(), 14);
     assert_eq!(check_visuals(&ship, &observations), Ok(()));
 }
 

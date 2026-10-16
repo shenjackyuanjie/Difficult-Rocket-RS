@@ -1,4 +1,4 @@
-"""16 部件分支火箭证据验收回归：临时夹具与只读目录，不启动编辑器。"""
+"""14 部件分支火箭证据验收回归：临时夹具与只读目录，不启动编辑器。"""
 import copy
 import json
 import math
@@ -55,14 +55,12 @@ def fixture_document(catalog_path):
     for parent, child in zip(types, types[1:]):
         y -= (heights[parent] + heights[child]) / 4
         positions.append([1.25, y])
-    types.extend(["detacher-2", "engine-4", "fueltank-0", "detacher-2",
-                  "engine-4", "fueltank-0", "parachute-1"])
+    types.extend(["detacher-2", "engine-4", "detacher-2", "engine-4", "parachute-1"])
     for sign in (-1, 1):
         x = 1.25 + sign * (widths["fueltank-0"] + widths["detacher-2"]) / 4
         positions.append([x, positions[7][1]])
         x += sign * (widths["detacher-2"] + widths["engine-4"]) / 4
         positions.append([x, positions[7][1]])
-        positions.append([x, positions[7][1] + (heights["engine-4"] + heights["fueltank-0"]) / 4])
     positions.append([1.25, 2.5 + (heights["pod-1"] + heights["parachute-1"]) / 4])
     placements = [{"id": part_id, "part_type": part_type, "catalog_index": visible.index(part_type),
                    "catalog_hit": [12.0, 20.0, 180.0, 68.0], "preview_unchanged": True,
@@ -96,16 +94,16 @@ def fixture_document(catalog_path):
         "cases": [
             {"id": "rocket-assembly", "status": "passed", "metrics": {
                 "start_parts": 1, "start_connections": 0, "start_staging_steps": 0,
-                "parts": 16, "normal_connections": 15, "engines": 5, "detachers": 4, "physical_stages": 4,
-                "placement_history_steps": 15, "endpoint_max_error": 0.0,
+                "parts": 14, "normal_connections": 13, "engines": 5, "detachers": 4, "physical_stages": 4,
+                "placement_history_steps": 13, "endpoint_max_error": 0.0,
                 "placements": placements, "xml_roundtrip": True,
-                 "visual_entities": 16, "visual_stable_frames": 2, "visuals": visuals}},
+                 "visual_entities": 14, "visual_stable_frames": 2, "visuals": visuals}},
             {"id": "basic-staging", "status": "passed", "metrics": {
-                "steps": [[11, 14], [9], [10, 13], [7], [6], [4], [3], [16]], "current_stage": 0, "all_moved_false": True,
+                "steps": [[11, 13], [9], [10, 12], [7], [6], [4], [3], [14]], "current_stage": 0, "all_moved_false": True,
                 "draft_only_before_apply": True, "apply_history_delta": 1,
                 "undo_exact": True, "redo_exact": True, "xml_roundtrip": True}},
             {"id": "manual-staging-drag", "status": "passed", "metrics": {
-                "steps": [[11, 14], [], [10, 13, 9], [7], [6], [4], [3], [16]], "moved_ids": [9], "activation_multiset": [3, 4, 6, 7, 9, 10, 11, 13, 14, 16],
+                "steps": [[11, 13], [], [10, 12, 9], [7], [6], [4], [3], [14]], "moved_ids": [9], "activation_multiset": [3, 4, 6, 7, 9, 10, 11, 12, 13, 14],
                 "draft_only_before_apply": True, "card_reordered": True, "card_restored": True,
                 "cancel_unchanged": True, "apply_history_delta": 1, "undo_exact": True, "redo_exact": True,
                 "xml_roundtrip": True, "drags": drags}},
@@ -119,7 +117,7 @@ def write_workflow_evidence(output, stamp, catalog_path):
     output.mkdir(parents=True, exist_ok=True)
     for name in workflow.ARTIFACTS[:5]:
         (output / name).write_bytes(b"fixture screenshot evidence")
-    for name, rows in zip(workflow.ARTIFACTS[5:8], ([], [[11, 14], [9], [10, 13], [7], [6], [4], [3], [16]], [[11, 14], [], [10, 13, 9], [7], [6], [4], [3], [16]])):
+    for name, rows in zip(workflow.ARTIFACTS[5:8], ([], [[11, 13], [9], [10, 12], [7], [6], [4], [3], [14]], [[11, 13], [], [10, 12, 9], [7], [6], [4], [3], [14]])):
         root = ET.Element("Ship", version="1", liftedOff="0", touchingGround="1")
         parts = ET.SubElement(root, "Parts")
         for part_id, (part_type, (x, y)) in enumerate(zip(["pod-1"] + [item["part_type"] for item in report["cases"][0]["metrics"]["placements"]], positions), 1):
@@ -142,8 +140,8 @@ def write_workflow_evidence(output, stamp, catalog_path):
                 ET.SubElement(part, "Engine", fuel="0")
         connections = ET.SubElement(root, "Connections")
         edges = [(i, i + 1, 2, 1) for i in range(1, 9)] + [
-            (8, 10, 3, 2), (10, 11, 1, 4), (11, 12, 1, 2),
-            (8, 13, 4, 1), (13, 14, 2, 3), (14, 15, 1, 2), (1, 16, 1, 1)]
+            (8, 10, 3, 2), (10, 11, 1, 4),
+            (8, 12, 4, 1), (12, 13, 2, 3), (1, 14, 1, 1)]
         for parent, child, parent_point, child_point in edges:
             ET.SubElement(connections, "Connection", parentPart=str(parent), childPart=str(child),
                           parentAttachPoint=str(parent_point), childAttachPoint=str(child_point))
@@ -227,9 +225,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.validate(), document)
 
     def test_branch_topology_and_exact_installation_points_are_required(self):
-        for edge_index, field, value in ((8, "parentPart", "5"), (9, "childPart", "14"),
+        for edge_index, field, value in ((8, "parentPart", "5"), (9, "childPart", "13"),
                                          (8, "parentAttachPoint", "4"), (9, "childAttachPoint", "3"),
-                                         (14, "childAttachPoint", "2")):
+                                         (12, "childAttachPoint", "2")):
             self.reset()
             self.change_xml("rocket-assembled.xml", lambda root: root.findall("Connections/Connection")[edge_index].set(field, value))
             with self.subTest(edge=edge_index, field=field), self.assertRaises(workflow.WorkflowError):
@@ -239,12 +237,20 @@ class WorkflowTests(unittest.TestCase):
         def skew(root):
             for part in root.findall("Parts/Part"):
                 part_id = int(part.get("id"))
-                if 10 <= part_id <= 15:
-                    delta = 6e-6 if part_id <= 12 else -6e-6
+                if 10 <= part_id <= 13:
+                    delta = 6e-6 if part_id <= 11 else -6e-6
                     part.set("y", str(float(part.get("y")) + delta))
         self.change_xml("rocket-assembled.xml", skew)
         with self.assertRaisesRegex(workflow.WorkflowError, "几何对称"):
             workflow.validate_ship(self.output / "rocket-assembled.xml", workflow.load_catalog(self.catalog), [], [])
+
+    def test_srb_child_is_rejected_by_explicit_leaf_contract(self):
+        for srb_id in (11, 13):
+            self.reset()
+            # 保持部件和连接总数，重定向一条边，要求命中叶子合同而非精确拓扑合同。
+            self.change_xml("rocket-assembled.xml", lambda root: root.findall("Connections/Connection")[0].set("parentPart", str(srb_id)))
+            with self.subTest(srb=srb_id), self.assertRaisesRegex(workflow.WorkflowError, "SRB 必须为叶子"):
+                workflow.validate_ship(self.output / "rocket-assembled.xml", workflow.load_catalog(self.catalog), [], [])
 
     def test_nonzero_angle_mirroring_and_srb_without_own_fuel_are_rejected(self):
         for mutate in (lambda p: p.set("angle", "0.1"), lambda p: p.set("flippedX", "1"),
@@ -304,7 +310,7 @@ class WorkflowTests(unittest.TestCase):
     def test_staging_targets_preserve_order_empty_card_multiset_and_only_engine9_moved(self):
         for case_index, field, values in (
                 (1, "steps", ([], [[3], [4], [6], [7], [9]], [[9], [7], [6], [4]], [[9.0], [7], [6], [4], [3]])),
-                (2, "steps", ([[9], [7, 6], [4], [3]], [[9], [7, 6, 6], [], [4], [3]], [[11, 14], [9], [10, 13], [7], [6], [4], [3], [16]])),
+                (2, "steps", ([[9], [7, 6], [4], [3]], [[9], [7, 6, 6], [], [4], [3]], [[11, 13], [9], [10, 12], [7], [6], [4], [3], [14]])),
                 (2, "moved_ids", ([], [7], [6, 9], [9.0], [True])),
                 (2, "activation_multiset", ([3, 4, 6, 9], [3, 4, 6, 6, 7, 9], [9, 7, 6, 4, 3], [3, 4, 6, 7, 8]))):
             for value in values:
@@ -325,7 +331,7 @@ class WorkflowTests(unittest.TestCase):
         self.reject_report(lambda d: d["cases"][0]["metrics"]["placements"].append(copy.deepcopy(d["cases"][0]["metrics"]["placements"][0])))
         self.reject_report(lambda d: d["cases"][0]["metrics"]["placements"].__setitem__(0, None))
 
-    def test_visual_evidence_requires_sixteen_ordered_unique_keys_and_entities(self):
+    def test_visual_evidence_requires_fourteen_ordered_unique_keys_and_entities(self):
         mutations = [lambda metrics: metrics.pop("visuals"), lambda metrics: metrics.update(visuals=None),
                      lambda metrics: metrics.update(visuals=[]), lambda metrics: metrics["visuals"].pop(),
                      lambda metrics: metrics["visuals"].append(copy.deepcopy(metrics["visuals"][0])),

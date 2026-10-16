@@ -125,7 +125,7 @@ pub(super) const CHAPTERS: &[Chapter] = &[
 const ROCKET_WORKFLOW: Chapter = Chapter {
     id: "rocket-workflow",
     title: "三级芯级 + 双固体助推器：真实搭建、自动分级与拖放调级",
-    description: "同一文档搭建四个物理推进级、16 部件与 15 条 Normal 树边 → 自动八卡 → 动作跨卡移出、移回、再移出及整卡下移回置 → 取消后再应用、撤销重做和 XML 往返",
+    description: "同一文档搭建四个物理推进级、14 部件与 13 条 Normal 树边；SRB 为叶子，仅接侧挂分离器，自带固体 Tank，无需额外挂罐 → 自动八卡 → 动作跨卡移出、移回、再移出及整卡下移回置 → 取消后再应用、撤销重做和 XML 往返",
     artifacts: &[
         "editor-rocket-command-pod.png",
         "editor-rocket-placement-preview.png",

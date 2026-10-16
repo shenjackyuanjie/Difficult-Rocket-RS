@@ -24,14 +24,12 @@ const PARTS: &[&str] = &[
     "engine-0",
     "detacher-2",
     "engine-4",
-    "fueltank-0",
     "detacher-2",
     "engine-4",
-    "fueltank-0",
     "parachute-1",
 ];
 // 三级芯链、左右固体助推分支、驾驶舱顶部返回伞；父节点始终先于子节点搭建。
-const PARENTS: &[i64] = &[1, 2, 3, 4, 5, 6, 7, 8, 8, 10, 11, 8, 13, 14, 1];
+const PARENTS: &[i64] = &[1, 2, 3, 4, 5, 6, 7, 8, 8, 10, 8, 12, 1];
 const DIRECTIONS: &[(f64, f64)] = &[
     (0., -1.),
     (0., -1.),
@@ -43,14 +41,12 @@ const DIRECTIONS: &[(f64, f64)] = &[
     (0., -1.),
     (-1., 0.),
     (-1., 0.),
-    (0., 1.),
     (1., 0.),
     (1., 0.),
-    (0., 1.),
     (0., 1.),
 ];
-const AUTO: &[&[i64]] = &[&[11, 14], &[9], &[10, 13], &[7], &[6], &[4], &[3], &[16]];
-const MANUAL: &[&[i64]] = &[&[11, 14], &[], &[10, 13, 9], &[7], &[6], &[4], &[3], &[16]];
+const AUTO: &[&[i64]] = &[&[11, 13], &[9], &[10, 12], &[7], &[6], &[4], &[3], &[14]];
+const MANUAL: &[&[i64]] = &[&[11, 13], &[], &[10, 12, 9], &[7], &[6], &[4], &[3], &[14]];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Phase {
@@ -423,7 +419,7 @@ fn assert_staging(actual: &StagingState, expected: &[&[i64]], moved: bool) {
     assert_eq!(actual.current_stage, 0);
     assert_eq!(
         inventory(actual),
-        vec![3, 4, 6, 7, 9, 10, 11, 13, 14, 16],
+        vec![3, 4, 6, 7, 9, 10, 11, 12, 13, 14],
         "激活动作不能丢失或复制"
     );
     for activation in actual.steps.iter().flat_map(|step| &step.activations) {
@@ -432,8 +428,8 @@ fn assert_staging(actual: &StagingState, expected: &[&[i64]], moved: bool) {
 }
 
 fn assert_rocket(document: &EditorDocument) -> f64 {
-    assert_eq!(document.ship.parts.len(), 16);
-    assert_eq!(document.ship.connections.len(), 15);
+    assert_eq!(document.ship.parts.len(), 14);
+    assert_eq!(document.ship.connections.len(), 13);
     assert!(document.ship.disconnected.is_empty());
     assert_eq!(
         document
@@ -466,12 +462,32 @@ fn assert_rocket(document: &EditorDocument) -> f64 {
         assert_eq!(part.angle, 0.0, "发动机保持喷口朝下");
         assert!(!part.flip_x && !part.flip_y);
     }
-    for (left, right) in [(10, 13), (11, 14), (12, 15)] {
+    for (left, right) in [(10, 12), (11, 13)] {
         let left = document.ship.part(left).unwrap();
         let right = document.ship.part(right).unwrap();
         let axis = document.ship.part(8).unwrap().x;
         assert!((left.x + right.x - 2.0 * axis).abs() < 1e-5);
         assert!((left.y - right.y).abs() < 1e-5);
+    }
+    // 固体助推器使用自身燃料，只接侧挂分离器，保持无子部件的无向树叶子。
+    for id in [11, 13] {
+        assert_eq!(document.ship.part(id).unwrap().part_type, "engine-4");
+        assert!(
+            document.ship.connections.iter().all(|edge| !matches!(edge,
+            Connection::Normal { parent, .. } if *parent == id)),
+            "SRB 不能挂接子部件"
+        );
+        assert_eq!(
+            document
+                .ship
+                .connections
+                .iter()
+                .filter(|edge| matches!(edge,
+            Connection::Normal { parent, child, .. } if *parent == id || *child == id))
+                .count(),
+            1,
+            "SRB 必须是只连接侧挂分离器的叶子"
+        );
     }
     let mut maximum: f64 = 0.0;
     for (index, edge) in document.ship.connections.iter().enumerate() {
@@ -958,7 +974,7 @@ fn build(
             xml(&context.document.ship, "rocket-assembled.xml");
             state.cases.push(serde_json::json!({"id":"rocket-assembly", "status":"passed", "metrics":{
                 "start_parts":1, "start_connections":0, "start_staging_steps":0,
-                "parts":16, "normal_connections":15, "engines":5, "detachers":4, "physical_stages":4,
+                "parts":14, "normal_connections":13, "engines":5, "detachers":4, "physical_stages":4,
                 "placement_history_steps":context.document.history.undo_len(), "endpoint_max_error":endpoint_error,
                 "placements":state.placements, "xml_roundtrip":true,
                 "visual_entities":observations.len(), "visual_stable_frames":2, "visuals":table}}));
@@ -1005,7 +1021,7 @@ fn generate(
             }
         }
         1 => {
-            context.unchanged(state.assembled.as_ref().unwrap(), 15);
+            context.unchanged(state.assembled.as_ref().unwrap(), 13);
             assert_staging(context.draft(), AUTO, false);
             capture(commands, state, "editor-rocket-generated.png");
         }
@@ -1016,7 +1032,7 @@ fn generate(
         }
         3 => {
             assert!(!context.inspector.is_open());
-            assert_eq!(context.document.history.undo_len(), 16);
+            assert_eq!(context.document.history.undo_len(), 14);
             assert_staging(staging(&context.document.ship).unwrap(), AUTO, false);
             state.automatic = Some(context.document.ship.clone());
             xml(&context.document.ship, "rocket-basic-staging.xml");
@@ -1028,12 +1044,12 @@ fn generate(
                 state.assembled.as_ref(),
                 "一次 Undo 必须完整撤销自动分级"
             );
-            assert_eq!(context.document.history.undo_len(), 15);
+            assert_eq!(context.document.history.undo_len(), 13);
             assert_eq!(context.document.history.redo_len(), 1);
             context.key(KeyCode::KeyY, true);
         }
         5 => {
-            context.unchanged(state.automatic.as_ref().unwrap(), 16);
+            context.unchanged(state.automatic.as_ref().unwrap(), 14);
             assert_rocket(&context.document);
             state.cases.push(
                 serde_json::json!({"id":"basic-staging", "status":"passed", "metrics":{
@@ -1057,7 +1073,7 @@ fn manual(
     commands: &mut Commands,
 ) -> bool {
     if state.step <= 31 {
-        context.unchanged(state.automatic.as_ref().unwrap(), 16);
+        context.unchanged(state.automatic.as_ref().unwrap(), 14);
     }
     let step = state.step;
     match step {
@@ -1085,7 +1101,7 @@ fn manual(
             assert_eq!(context.draft(), &expected, "整卡拖放没有按最终下标重排");
             assert_eq!(
                 inventory(context.draft()),
-                vec![3, 4, 6, 7, 9, 10, 11, 13, 14, 16]
+                vec![3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
             );
         }
         10..=13 => {
@@ -1133,7 +1149,7 @@ fn manual(
         }
         26 => {
             assert!(!context.inspector.is_open());
-            context.unchanged(state.automatic.as_ref().unwrap(), 16);
+            context.unchanged(state.automatic.as_ref().unwrap(), 14);
             context.key(KeyCode::F2, false);
         }
         27..=30 => {
@@ -1154,19 +1170,19 @@ fn manual(
         32 => {
             assert!(!context.inspector.is_open());
             assert_eq!(staging(&context.document.ship), state.manual.as_ref());
-            assert_eq!(context.document.history.undo_len(), 17);
+            assert_eq!(context.document.history.undo_len(), 15);
             state.before = Some(context.document.ship.clone());
             context.key(KeyCode::KeyZ, true);
         }
         33 => {
             assert_eq!(Some(&context.document.ship), state.automatic.as_ref());
-            assert_eq!(context.document.history.undo_len(), 16);
+            assert_eq!(context.document.history.undo_len(), 14);
             assert_eq!(context.document.history.redo_len(), 1);
             context.key(KeyCode::KeyY, true);
         }
         34 => {
             assert_eq!(Some(&context.document.ship), state.before.as_ref());
-            assert_eq!(context.document.history.undo_len(), 17);
+            assert_eq!(context.document.history.undo_len(), 15);
             assert_eq!(context.document.history.redo_len(), 0);
             assert_staging(staging(&context.document.ship).unwrap(), MANUAL, true);
             assert_rocket(&context.document);
@@ -1174,7 +1190,7 @@ fn manual(
             state.cases.push(
                 serde_json::json!({"id":"manual-staging-drag", "status":"passed", "metrics":{
                 "steps":rows(staging(&context.document.ship).unwrap()), "moved_ids":[9],
-                "activation_multiset":[3,4,6,7,9,10,11,13,14,16], "draft_only_before_apply":true,
+                "activation_multiset":[3,4,6,7,9,10,11,12,13,14], "draft_only_before_apply":true,
                 "card_reordered":true, "card_restored":true, "cancel_unchanged":true,
                 "apply_history_delta":1, "undo_exact":true, "redo_exact":true, "xml_roundtrip":true,
                 "drags":state.traces}}),

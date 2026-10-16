@@ -1,4 +1,4 @@
-"""16 部件对称分支火箭连续演示的 JSON/XML 证据合同；只读取本次产物与真实部件目录。"""
+"""14 部件对称分支火箭连续演示的 JSON/XML 证据合同；只读取本次产物与真实部件目录。"""
 import json
 import math
 from pathlib import Path
@@ -16,16 +16,15 @@ ARTIFACTS = (
 )
 PART_TYPES = ("pod-1", "fueltank-0", "engine-0", "detacher-1", "fueltank-0",
               "engine-0", "detacher-1", "fueltank-0", "engine-0", "detacher-2",
-              "engine-4", "fueltank-0", "detacher-2", "engine-4", "fueltank-0", "parachute-1")
-# 深度8的 engine9 与 detacher10/13 同层，按 Engine → Detacher 稳定排序。
-AUTO_STEPS = [[11, 14], [9], [10, 13], [7], [6], [4], [3], [16]]
-MANUAL_STEPS = [[11, 14], [], [10, 13, 9], [7], [6], [4], [3], [16]]
-TARGET_IDS = [3, 4, 6, 7, 9, 10, 11, 13, 14, 16]
+              "engine-4", "detacher-2", "engine-4", "parachute-1")
+# 深度8的 engine9 与 detacher10/12 同层，按 Engine → Detacher 稳定排序。
+AUTO_STEPS = [[11, 13], [9], [10, 12], [7], [6], [4], [3], [14]]
+MANUAL_STEPS = [[11, 13], [], [10, 12, 9], [7], [6], [4], [3], [14]]
+TARGET_IDS = [3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
 CONNECTIONS = tuple((i, i + 1, "BottomCenter", "TopCenter") for i in range(1, 9)) + (
     (8, 10, "LeftSide", "RightCenter"), (10, 11, "LeftCenter", "RightSide"),
-    (11, 12, "TopCenter", "BottomCenter"), (8, 13, "RightSide", "LeftCenter"),
-    (13, 14, "RightCenter", "LeftSide"), (14, 15, "TopCenter", "BottomCenter"),
-    (1, 16, "TopCenter", "BottomCenter"),
+    (8, 12, "RightSide", "LeftCenter"), (12, 13, "RightCenter", "LeftSide"),
+    (1, 14, "TopCenter", "BottomCenter"),
 )
 INPUT_MODE = "真实目录命中 / 生产画布鼠标 / egui 分帧拖放"
 CATALOG_PATH = Path(__file__).resolve().parents[2] / "Difficult-Rocket/assets/builtin/PartList.xml"
@@ -216,13 +215,13 @@ def validate_ship(path, catalog, steps, moved_ids):
     require(root.tag == "Ship", f"{context} 根节点必须为 Ship")
     container = only(root, "Parts", context)
     elements = list(container)
-    require(len(elements) == 16 and all(item.tag == "Part" for item in elements)
-            and len(list(root.iter("Part"))) == 16, f"{context} 必须恰有 16 个主船体部件")
+    require(len(elements) == 14 and all(item.tag == "Part" for item in elements)
+            and len(list(root.iter("Part"))) == 14, f"{context} 必须恰有 14 个主船体部件")
     require(not list(root.iter("DisconnectedPart")), f"{context} 不能含断开组")
     parts, pod = {}, None
     for element in elements:
         part_id = xml_int(element, "id", context)
-        require(part_id in range(1, 17) and part_id not in parts, f"{context} 部件 ID 必须唯一且为 1..16")
+        require(part_id in range(1, 15) and part_id not in parts, f"{context} 部件 ID 必须唯一且为 1..14")
         part_type = element.get("partType")
         require(part_type == PART_TYPES[part_id - 1], f"{context} 部件 {part_id} 类型与对称分支顺序不符")
         values = {name: xml_number(element, name, context) for name in ("x", "y", "angle")}
@@ -242,9 +241,13 @@ def validate_ship(path, catalog, steps, moved_ids):
     require(len(list(root.iter("Pod"))) == 1, f"{context} 必须只有一个 Command Pod")
     validate_plan(root, pod, steps, moved_ids, context)
     connections = list(only(root, "Connections", context))
-    require(len(connections) == 15 and all(edge.tag == "Connection" for edge in connections)
-            and len(list(root.iter("Connection"))) == 15 and not list(root.iter("DockConnection")),
-            f"{context} 必须恰有 15 条 Normal 连接")
+    require(len(connections) == 13 and all(edge.tag == "Connection" for edge in connections)
+            and len(list(root.iter("Connection"))) == 13 and not list(root.iter("DockConnection")),
+            f"{context} 必须恰有 13 条 Normal 连接")
+    # SRB 自带固体燃料且是叶子；独立于下方精确拓扑合同核验。
+    srb_ids = {part_id for part_id, part in parts.items() if part["part_type"] == "engine-4"}
+    require(all(xml_int(edge, "parentPart", context) not in srb_ids for edge in connections),
+            f"{context} SRB 必须为叶子，不能挂载子部件")
     edges, maximum_error = set(), 0.0
     for edge in connections:
         require(set(edge.attrib) == {"parentPart", "childPart", "parentAttachPoint", "childAttachPoint"}
@@ -272,9 +275,9 @@ def validate_ship(path, catalog, steps, moved_ids):
         require(math.isfinite(error) and error < ENDPOINT_TOLERANCE,
                 f"{context} Normal 连接端点不一致：{parent}→{child}")
         maximum_error = max(maximum_error, error)
-    require(edges == {item[:2] for item in CONNECTIONS}, f"{context} 必须为完整十五边分支树")
+    require(edges == {item[:2] for item in CONNECTIONS}, f"{context} 必须为完整十三边分支树")
     axis = parts[8]["x"]
-    for left, right in ((10, 13), (11, 14), (12, 15)):
+    for left, right in ((10, 12), (11, 13)):
         require(abs(parts[left]["x"] + parts[right]["x"] - 2 * axis) < ENDPOINT_TOLERANCE
                 and abs(parts[left]["y"] - parts[right]["y"]) < ENDPOINT_TOLERANCE
                 and parts[left]["x"] < axis < parts[right]["x"],
@@ -304,10 +307,10 @@ def validate_drags(drags):
 
 def validate_visuals(assembly, parts, catalog):
     """核对主 World 身份与派生材质证据；GPU 纹理绑定、遮挡及排序另由截图诊断。"""
-    fields(assembly, {"visual_entities": 16, "visual_stable_frames": 2}, "rocket-assembly")
+    fields(assembly, {"visual_entities": 14, "visual_stable_frames": 2}, "rocket-assembly")
     visuals = assembly.get("visuals")
-    require(isinstance(visuals, list) and len(visuals) == 16,
-            "rocket-assembly.visuals 必须记录十六个真实视觉实体")
+    require(isinstance(visuals, list) and len(visuals) == 14,
+            "rocket-assembly.visuals 必须记录十四个真实视觉实体")
     entities, path_images, image_paths = set(), {}, {}
     for part_id, observed in enumerate(visuals, 1):
         context = f"rocket-assembly.visuals[{part_id - 1}]"
@@ -324,7 +327,7 @@ def validate_visuals(assembly, parts, catalog):
             require(isinstance(text, str) and bool(text.strip()) and text == text.strip(),
                     f"{context}.{name} 必须为非空标识或观测字符串")
         entity = observed["entity"]
-        require(entity not in entities, f"{context}.entity 重复，十六个部件必须对应十六个唯一实体")
+        require(entity not in entities, f"{context}.entity 重复，十四个部件必须对应十四个唯一实体")
         entities.add(entity)
         image = observed["image"]
         require(observed["expected_image"] == image == observed["material_image"],
@@ -384,8 +387,8 @@ def validate_workflow(chapter, output, started_ns, catalog_path=None):
         metrics.append(case["metrics"])
     assembly, basic, manual = metrics
     fields(assembly, {"start_parts": 1, "start_connections": 0, "start_staging_steps": 0,
-                      "parts": 16, "normal_connections": 15, "engines": 5, "detachers": 4,
-                      "physical_stages": 4, "placement_history_steps": 15, "xml_roundtrip": True}, CASE_IDS[0])
+                      "parts": 14, "normal_connections": 13, "engines": 5, "detachers": 4,
+                      "physical_stages": 4, "placement_history_steps": 13, "xml_roundtrip": True}, CASE_IDS[0])
     endpoint_error = assembly.get("endpoint_max_error")
     require(finite(endpoint_error) and 0 <= endpoint_error < ENDPOINT_TOLERANCE,
             "rocket-assembly.endpoint_max_error 必须为小于 1e-5 的有限非负数")
@@ -406,7 +409,7 @@ def validate_workflow(chapter, output, started_ns, catalog_path=None):
             "rocket-assembly.endpoint_max_error 与真实 XML 连接端点误差不符")
     validate_visuals(assembly, ships[0]["parts"], catalog)
     placements = assembly.get("placements")
-    require(isinstance(placements, list) and len(placements) == 15, "rocket-assembly.placements 必须记录十五次真实放置")
+    require(isinstance(placements, list) and len(placements) == 13, "rocket-assembly.placements 必须记录十三次真实放置")
     for part_id, placement in enumerate(placements, 2):
         part_type = PART_TYPES[part_id - 1]
         fields(placement, {"id": part_id, "part_type": part_type, "catalog_index": catalog[part_type]["index"],
