@@ -794,7 +794,7 @@ pub(crate) fn draw_preview(
         let image = if sprite_path.is_empty() {
             default()
         } else {
-            assets.load(format!("textures/parts/{sprite_path}"))
+            assets.load(render::part_sprite_path(sprite_path))
         };
         let (custom_size, anchor) = render::sprite_geometry(kind, &image, &images, part);
         let sprite = Sprite {

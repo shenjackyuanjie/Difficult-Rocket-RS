@@ -199,7 +199,7 @@ impl Context<'_, '_> {
             let key = PartKey::new(observed.visual.group, observed.visual.id, observed.visual.occurrence);
             let part = self.document.ship.part_at(key);
             let path = part.and_then(|part| self.document.catalog.get(&part.part_type))
-                .map(|kind| format!("textures/parts/{}", kind.sprite));
+                .map(|kind| render::part_sprite_path(&kind.sprite));
             let expected_image = path.as_ref().and_then(|path| self.assets.get_handle::<Image>(path.clone()))
                 .map(|handle| handle.id());
             let image = observed.sprite.image.id();

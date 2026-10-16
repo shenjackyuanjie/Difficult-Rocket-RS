@@ -53,7 +53,7 @@ impl PartImages {
                 if kind.sprite.is_empty() {
                     Handle::<Image>::default()
                 } else {
-                    assets.load(format!("textures/parts/{}", kind.sprite))
+                    assets.load(render::part_sprite_path(&kind.sprite))
                 },
             ))
         });

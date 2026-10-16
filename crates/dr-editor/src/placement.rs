@@ -355,7 +355,7 @@ pub(crate) fn draw_preview(
             Vec2::new(kind.width as f32 * 30.0, kind.height as f32 * 30.0),
         )
     } else {
-        Sprite::from_image(assets.load(format!("textures/parts/{}", kind.sprite)))
+        Sprite::from_image(assets.load(render::part_sprite_path(&kind.sprite)))
     };
     let (custom_size, anchor) = render::sprite_geometry(Some(kind), &sprite.image, &images, &part);
     sprite.custom_size = custom_size;

@@ -79,13 +79,25 @@ pub(crate) fn update_hud(
     }
 }
 
+/// 原版数据存在大写扩展名（PartList.xml 的 dock-1 是 DockingConnector.PNG，磁盘上是 .png）。
+/// Bevy 只按小写登记 AssetLoader，原样路径会走兜底并打出多 loader 告警；这里只规范化扩展名，
+/// 保持目录与文件名主干原样，避免改动只读样本或目录 XML。
+pub(crate) fn part_sprite_path(sprite: &str) -> String {
+    match sprite.rsplit_once('.') {
+        Some((stem, extension)) => {
+            format!("textures/parts/{stem}.{}", extension.to_ascii_lowercase())
+        }
+        None => format!("textures/parts/{sprite}"),
+    }
+}
+
 /// 原版贴图使用 PNG 原始像素，不以 PartList 的物理尺寸缩放。
 pub(crate) fn image_size(
     texture: &str,
     assets: &AssetServer,
     images: &Assets<Image>,
 ) -> Option<Vec2> {
-    let handle = assets.get_handle::<Image>(format!("textures/parts/{texture}"))?;
+    let handle = assets.get_handle::<Image>(part_sprite_path(texture))?;
     images.get(&handle).map(|image| image.size().as_vec2())
 }
 
@@ -331,7 +343,7 @@ pub(crate) fn sync(
                 sprite.image = if texture.is_empty() {
                     default()
                 } else {
-                    assets.load(format!("textures/parts/{texture}"))
+                    assets.load(part_sprite_path(texture))
                 };
                 visual.texture = texture.to_owned();
             }
@@ -366,7 +378,7 @@ pub(crate) fn sync(
             let mut sprite = if texture.is_empty() {
                 Sprite::from_color(color, size)
             } else {
-                Sprite::from_image(assets.load(format!("textures/parts/{texture}")))
+                Sprite::from_image(assets.load(part_sprite_path(texture)))
             };
             let (custom_size, anchor) = sprite_geometry(kind, &sprite.image, &images, sprite_part);
             sprite.custom_size = custom_size;
@@ -970,6 +982,31 @@ mod tests {
                 .query::<&Transform>()
                 .iter(app.world())
                 .all(|transform| transform.translation.x == 0.0)
+        );
+    }
+
+    #[test]
+    fn part_sprite_path_only_lowercases_the_final_extension() {
+        assert_eq!(
+            part_sprite_path("DockingConnector.PNG"),
+            "textures/parts/DockingConnector.png"
+        );
+        assert_eq!(
+            part_sprite_path("DockingConnector.png"),
+            "textures/parts/DockingConnector.png"
+        );
+        assert_eq!(part_sprite_path("pod"), "textures/parts/pod");
+        assert_eq!(part_sprite_path(""), "textures/parts/");
+        assert_eq!(part_sprite_path("a.B.C"), "textures/parts/a.B.c");
+    }
+
+    #[test]
+    fn catalog_sprite_with_uppercase_extension_uses_the_lowercase_asset_key() {
+        let mut kind = crate::test_support::catalog().get("pod").unwrap().clone();
+        kind.sprite = "DockingConnector.PNG".into();
+        assert_eq!(
+            part_sprite_path(&kind.sprite),
+            "textures/parts/DockingConnector.png"
         );
     }
 }
