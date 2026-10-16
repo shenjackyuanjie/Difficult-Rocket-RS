@@ -24,6 +24,7 @@ mod scoped_smoke;
 mod selection;
 mod selection_smoke;
 mod sprite_shader;
+mod staging_shots;
 mod topology_ui;
 mod transform_smoke;
 mod view;
@@ -210,7 +211,7 @@ fn main() -> anyhow::Result<()> {
             view::draw_debug,
             render::update_hud,
             files::update_window_title,
-            window::capture_screenshot,
+            window::capture_screenshot.run_if(staging_shots::ordinary_capture),
             files::native_file_dialog_test,
             demo::pace,
         )
@@ -225,6 +226,13 @@ fn main() -> anyhow::Result<()> {
     .add_systems(
         PostUpdate,
         demo::isolate_pointer.after(bevy_egui::EguiPostUpdateSet::EndPass),
+    )
+    .init_resource::<staging_shots::CaptureResult>()
+    .add_systems(
+        Update,
+        staging_shots::run
+            .before(panels::pointer_over_ui)
+            .after(demo::restore_pointer),
     )
     .add_systems(Last, demo::finish)
     .add_systems(

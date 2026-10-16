@@ -29,6 +29,7 @@ pub(crate) struct SmokeTest {
     pub(crate) view: bool,
     pub(crate) browser: bool,
     pub(crate) staging: bool,
+    pub(crate) staging_shots: Option<std::path::PathBuf>,
     pub(crate) native_ime: bool,
     pub(crate) native_input: Option<std::path::PathBuf>,
     pub(crate) native_keys: Option<std::path::PathBuf>,
@@ -65,6 +66,39 @@ pub(crate) fn smoke_window_size(args: &[String]) -> anyhow::Result<Option<UVec2>
     let height: u32 = anyhow::Context::context(height.parse(), "窗口高度应为正整数")?;
     anyhow::ensure!(width >= 320 && height >= 320, "窗口截图尺寸至少为 320x320");
     Ok(Some(UVec2::new(width, height)))
+}
+
+/// 截图驱动显式依附窗口自测，目录参数保持原样，允许包含空格。
+pub(crate) fn staging_shots_directory(
+    args: &[String],
+) -> anyhow::Result<Option<std::path::PathBuf>> {
+    let indices: Vec<_> = args
+        .iter()
+        .enumerate()
+        .filter(|(_, arg)| *arg == "--staging-shots")
+        .map(|(i, _)| i)
+        .collect();
+    let Some(&index) = indices.first() else {
+        return Ok(None);
+    };
+    anyhow::ensure!(indices.len() == 1, "--staging-shots 只能指定一次");
+    anyhow::ensure!(
+        args.iter().any(|arg| arg == "--smoke-test"),
+        "--staging-shots 需要 --smoke-test"
+    );
+    let value = anyhow::Context::context(args.get(index + 1), "--staging-shots 需要输出目录")?;
+    anyhow::ensure!(
+        !value.trim().is_empty() && !value.starts_with("--"),
+        "--staging-shots 需要输出目录"
+    );
+    anyhow::ensure!(
+        !args.iter().any(
+            |arg| (arg != "--smoke-test" && arg.ends_with("-smoke-test"))
+                || arg == "--demo-presentation"
+        ),
+        "分级截图驱动应独立运行，不与其它交互自测混用"
+    );
+    Ok(Some(value.into()))
 }
 
 pub(crate) fn initial_window_resolution(
@@ -128,6 +162,7 @@ impl SmokeTest {
             view: args.iter().any(|arg| arg == "--view-smoke-test"),
             browser: args.iter().any(|arg| arg == "--browser-smoke-test"),
             staging: args.iter().any(|arg| arg == "--staging-smoke-test"),
+            staging_shots: staging_shots_directory(args).expect("分级截图参数无效"),
             native_ime: args.iter().any(|arg| arg == "--native-ime-test"),
             native_keys: args
                 .windows(2)
