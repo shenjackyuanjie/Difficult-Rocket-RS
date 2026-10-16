@@ -7,7 +7,7 @@ owned PID置顶（不激活、不改位置大小），持续核对客户区、TO
 
 python scripts/render_demo_video.py --no-build
 python scripts/render_demo_video.py --render-only target/video-YYYYmmdd-HHMMSS
-仅当十一章原报告、样本保护与 ffprobe 全部通过才发布最终 MP4。
+仅当当前模式原报告、样本保护与 ffprobe 全部通过才发布最终 MP4。
 """
 import argparse
 from array import array
@@ -35,6 +35,7 @@ ACTIONS_NAME = "demo-actions.jsonl"
 SOUND_NAME = "progress-effects.wav"
 MANIFEST_NAME = "video-manifest.json"
 FINAL_NAME = "dr-rs-progress-1080p.mp4"
+DETAILED_FINAL_NAME = "dr-rs-progress-detailed-1080p.mp4"
 FONT = "C:/Windows/Fonts/msyh.ttc"
 INTRO_SECONDS = 4.0
 OUTRO_SECONDS = 5.0
@@ -55,12 +56,57 @@ CAPTIONS = {
     "repair": ("Heronb 歧义修复：为真实重号部件逐一分配引用", "未分配引用时拒绝应用；完成分配后展示撤销重做", "只读原版样本：修复结果写入独立目录，不覆盖源文件"),
     "browser": ("千船虚拟列表：扫描临时目录中的 1000 份船体", "坏 XML 跳过：列表只绘制可见行", "滚动到末尾并点击打开，保留浏览位置"),
     "unsaved": ("未保存模态：窗口内暗色确认提示保护当前修改", "取消保留文档，放弃修改后继续；不演示原生保存路径"),
+    "placement-cases": ("目录预览取消：旋转、镜像后按 Esc，文档与历史保持原状",
+                        "自由模式仍遵守数量上限：已有唯一对接插头时拒绝再次放置",
+                        "不可旋转的轮子：R 与 Shift+E 均保持原角度，不新增历史"),
+    "geometry-cases": ("精确参数检验重叠边界：4.9% 允许，恰好 5% 与 5.1% 拒绝",
+                       "共转 37° 并双轴镜像：恰好 5% 仍拒绝",
+                       "相对旋转 45°：尖角三角交集也遵守严格小于 5% 的规则",
+                       "较小实体完全包含：按较小实体计为 100%，拒绝重叠移动",
+                       "绿色与红色轮廓展示候选；合法移动核对撤销重做与 XML 往返"),
+    "free-cases": ("手动连接取消：重复点同一端点、按 Esc 或点空白，清理待连接起点",
+                   "文档版本更新：旧连接起点失效，避免沿用旧姿态",
+                   "同一零件的不同端点：拒绝自连接并保留文档",
+                   "临时显式对接点：拒绝与普通点混接，原版普通安装点语义不变",
+                   "反向点击已有连接：精确断开原边，一次撤销恢复"),
+    "group-cases": ("空选区旋转与镜像保持原状；单件 Shift+Q 精调为 359°，中心不变",
+                    "不相连的多选：绕共同中心刚性变换，保留间距与未选零件",
+                    "非直角组合镜像：连续两次 X 或两次 Y 恢复原姿态",
+                    "变换顺序：先旋转再镜像与先镜像再旋转，结果不同",
+                    "后代跟随拖转：只带自身及后代，上级不动，整次拖动只记一条历史"),
+    "line-cases": ("实际设置按钮：连接线粗细到 1px 或 12px 后继续点击仍保持边界",
+                   "组合显示设置一键重置：只改会话配置，保留船体与编辑历史",
+                   "零长度连接路径：流动与箭头安全跳过，回放继续",
+                   "隐藏连接线后：紫色手动端点仍可点击，保留待连接交互"),
+    "interaction-cases": ("内部连续拖动：非中心抓取、反向与微移，同帧核对视觉跟随",
+                          "松手末段保留抓取偏移：只提交一条历史，并核对撤销重做",
+                          "背景平移：两种按键配置与两档缩放，同帧核对相机且保留松手末段",
+                          "多连接面临时夹具：同一部件对只提示最近合法一对，提交端点与提示一致",
+                          "自由模式换点或反向换点：拒绝重复建边，撤销重做保持唯一连接",
+                          "这些是内部输入与状态断言，不测量物理显示延迟"),
+    "topology-cases": ("实际树控件：拒绝自身连接与后代作父，保留原边和历史",
+                       "同一夹具切到有向图：允许闭环，一步撤销完整恢复",
+                       "跨组合并遇到重号：只重编号冲突实例，保持端点归属",
+                       "合并结果核对引用有效、XML 往返与原子撤销"),
+    "history-cases": ("空历史 Ctrl+Z / Ctrl+Y：文档、脏标记与历史保持原状",
+                      "批处理后一步非法删除：整批回滚，前一步旋转也不残留",
+                      "旋转后撤销再镜像：清空旧重做分支，重做不恢复旧旋转",
+                      "燃料草稿 NaN、负值与超容量：点击实际应用按钮均拒绝",
+                      "属性草稿过期：保留新事务状态，旧草稿不能覆盖",
+                      "草稿值由内部参数设置，本章不演示系统文字输入"),
+    "file-cases": ("打开临时损坏 XML：保留当前文档、路径、脏状态与撤销历史",
+                   "保存目的地设为临时目录：失败保留未保存状态与历史",
+                   "未保存模态隔离输入：旋转和删除快捷键不穿透画布",
+                   "点击取消：完整保留未保存文档；文件操作仅使用临时路径"),
 }
 SHORT_TITLES = {
     "panels": "面板碰撞", "connections": "连接吸附", "rocket-workflow": "三级火箭",
     "transforms": "旋转连接", "selection": "选择编辑",
     "view": "视角帮助", "staging": "属性分级", "topology": "树图拓扑",
     "repair": "歧义修复", "browser": "千船浏览", "unsaved": "未保存确认",
+    "placement-cases": "放置边界", "geometry-cases": "重叠边界", "free-cases": "手动连断",
+    "group-cases": "整组变换", "line-cases": "连线边界", "interaction-cases": "连续交互",
+    "topology-cases": "拓扑边界", "history-cases": "事务历史", "file-cases": "文件保护",
 }
 
 
@@ -70,6 +116,19 @@ class VideoError(demo.DemoError):
 
 class WindowOwnershipError(VideoError):
     pass
+
+
+def final_name(mode):
+    demo.chapter_ids(mode)
+    return FINAL_NAME if mode == "brief" else DETAILED_FINAL_NAME
+
+
+def presentation_text(mode):
+    ids = demo.chapter_ids(mode)
+    for chapter_id in ids:
+        if not CAPTIONS.get(chapter_id) or not SHORT_TITLES.get(chapter_id):
+            raise VideoError(f"章节缺少字幕或短名：{chapter_id}")
+    return ({key: CAPTIONS[key] for key in ids}, {key: SHORT_TITLES[key] for key in ids})
 
 
 def write_json(path, value):
@@ -114,20 +173,21 @@ def capture_origin(log):
     return int(math.floor(seconds * 1000 + 0.5))
 
 
-def load_timeline(path):
+def load_timeline(path, mode="brief"):
     try:
         rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     except (OSError, ValueError) as error:
         raise VideoError(f"无法读取 timeline：{error}") from error
-    return validate_timeline(rows)
+    return validate_timeline(rows, mode)
 
 
-def validate_timeline(rows):
-    if not isinstance(rows, list) or len(rows) != 2 * len(demo.CHAPTER_IDS):
-        raise VideoError("timeline 必须有十一章完整的开始/结束事件")
+def validate_timeline(rows, mode="brief"):
+    ids = demo.chapter_ids(mode)
+    if not isinstance(rows, list) or len(rows) != 2 * len(ids):
+        raise VideoError(f"timeline 必须有{len(ids)}章完整的开始/结束事件（{mode}）")
     chapters = []
     last_ms = -1
-    for index, chapter_id in enumerate(demo.CHAPTER_IDS):
+    for index, chapter_id in enumerate(ids):
         pair = rows[index * 2:index * 2 + 2]
         for row, event in zip(pair, ("chapter_started", "chapter_finished")):
             if not isinstance(row, dict) or row.get("event") != event or row.get("id") != chapter_id:
@@ -170,16 +230,18 @@ def plan_clips(chapters, capture_start_unix_ms, raw_duration):
     return clips, cursor + OUTRO_SECONDS
 
 
-def caption_entries(clips, duration):
+def caption_entries(clips, duration, mode="brief"):
+    captions, _ = presentation_text(mode)
     entries = [(0.0, INTRO_SECONDS, "dr-rs 开发进度"),
                (0.0, INTRO_SECONDS, NOT_ACCEPTANCE)]
     for clip in clips:
-        lines = CAPTIONS[clip["id"]]
+        lines = captions[clip["id"]]
         part = (clip["video_end_seconds"] - clip["video_start_seconds"]) / len(lines)
         for index, text in enumerate(lines):
             start = clip["video_start_seconds"] + part * index
             entries.append((start, start + part, text))
-    entries.extend([(duration - OUTRO_SECONDS, duration, "当前完成：十一章编辑器展示与报告检查通过；非完整游戏"),
+    count_text = "十一章" if mode == "brief" else "二十章"
+    entries.extend([(duration - OUTRO_SECONDS, duration, f"当前完成：{count_text}编辑器展示与报告检查通过；非完整游戏"),
                     (duration - OUTRO_SECONDS, duration, NOT_ACCEPTANCE)])
     return entries
 
@@ -188,13 +250,15 @@ def ass_escape(text):
     return text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}").replace("\n", "\\N")
 
 
-def write_subtitles(output, clips, duration):
-    entries = caption_entries(clips, duration)
+def write_subtitles(output, clips, duration, mode="brief"):
+    _, titles = presentation_text(mode)
+    count_text = "十一章" if mode == "brief" else "二十章"
+    entries = caption_entries(clips, duration, mode)
     # SRT 用单条两行首尾，避免播放器重叠条目。
     srt_entries = [(0.0, INTRO_SECONDS, "dr-rs 开发进度\n" + NOT_ACCEPTANCE)]
     srt_entries.extend(entries[2:-2])
     srt_entries.append((duration - OUTRO_SECONDS, duration,
-                        "当前完成：十一章编辑器展示与报告检查通过；非完整游戏\n" + NOT_ACCEPTANCE))
+                        f"当前完成：{count_text}编辑器展示与报告检查通过；非完整游戏\n" + NOT_ACCEPTANCE))
     srt = "\n\n".join(f"{i}\n{timestamp(start)} --> {timestamp(end)}\n{text}"
                        for i, (start, end, text) in enumerate(srt_entries, 1)) + "\n"
     (output / "progress.srt").write_text(srt, encoding="utf-8")
@@ -218,17 +282,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     dialogues = []
     def add(start, end, style, text):
         dialogues.append(f"Dialogue: 0,{timestamp(start, True)},{timestamp(end, True)},{style},,0,0,0,,{text}")
-    add(0, INTRO_SECONDS, "Card", ass_escape("dr-rs 开发进度\n十一章编辑器能力展示"))
+    add(0, INTRO_SECONDS, "Card", ass_escape(f"dr-rs 开发进度\n{count_text}编辑器能力展示"))
     add(0, INTRO_SECONDS, "Scope", ass_escape(NOT_ACCEPTANCE))
     for start, end, text in entries[2:-2]:
         add(start, end, "Subtitle", ass_escape(text))
     for index, clip in enumerate(clips, 1):
         # 短章名水平置于底部独立字幕栏左侧；正文从x360起，不遮UI或章名。
-        title = f"{index:02} " + SHORT_TITLES[clip["id"]]
+        title = f"{index:02} " + titles[clip["id"]]
         add(clip["video_start_seconds"], clip["video_end_seconds"], "Chapter",
             "{\\pos(36,1020)}" + ass_escape(title))
     add(duration - OUTRO_SECONDS, duration, "Card", ass_escape(
-        "当前完成\n十一章编辑器展示与报告检查通过\n这是开发进度展示，并非完整游戏"))
+        f"当前完成\n{count_text}编辑器展示与报告检查通过\n这是开发进度展示，并非完整游戏"))
     add(duration - OUTRO_SECONDS, duration, "Scope", ass_escape(NOT_ACCEPTANCE))
     (output / "progress.ass").write_text(header + "\n".join(dialogues) + "\n", encoding="utf-8")
 
@@ -667,10 +731,12 @@ def capture_command(output, region, crf):
 
 def record(options, output, manifest):
     binary = demo.prepare_binary(options, ROOT)
-    command = [str(binary), "--demo-showcase", str(output), "--demo-step-ms", "450", "--demo-presentation"]
+    command = [str(binary), "--demo-showcase", str(output), "--demo-mode", options.demo_mode,
+               "--demo-step-ms", "450", "--demo-presentation"]
     editor = recorder = None
     started_ns = time.time_ns()
-    manifest.update({"editor_command": command, "editor_started_unix_ms": started_ns // 1000000,
+    manifest.update({"demo_mode": options.demo_mode, "editor_command": command,
+                     "editor_started_unix_ms": started_ns // 1000000,
                      "report_started_ns": started_ns, "status": "recording"})
     write_json(output / MANIFEST_NAME, manifest)
     try:
@@ -703,11 +769,11 @@ def record(options, output, manifest):
                     raise VideoError("报告完成前编辑器退出；禁止autoexit")
                 if owned_capture_region(capture_api, hwnd, editor.pid) != region:
                     raise VideoError("录制中owned物理客户区移动；禁止继续截取旧区域")
-                report = demo.read_completed_report(output, started_ns)
+                report = demo.read_completed_report(output, started_ns, expected_mode=options.demo_mode)
                 if report is not None:
                     break
                 if time.monotonic() >= deadline:
-                    raise VideoError("十一章报告等待超时")
+                    raise VideoError(f"{options.demo_mode} 模式报告等待超时")
                 time.sleep(0.10)
             # 报告 passed 后才发 q；整个等待期间编辑器保持存活。
             stop_recorder(recorder)
@@ -727,13 +793,17 @@ def record(options, output, manifest):
 
 
 def render(options, output, manifest, originals):
-    final = output / FINAL_NAME
+    mode = options.demo_mode
+    final = output / final_name(mode)
     if final.exists():
         raise VideoError("最终成片已存在；不覆盖既有交付或字幕")
+    if manifest.get("demo_mode", "brief") != mode:
+        raise VideoError("manifest演示模式与请求不一致")
+    presentation_text(mode)
     started_ns = manifest.get("report_started_ns")
     if type(started_ns) is not int or started_ns <= 0:
         raise VideoError("manifest缺少本次报告起点，无法验证原始证据")
-    report = demo.read_completed_report(output, started_ns)
+    report = demo.read_completed_report(output, started_ns, expected_mode=options.demo_mode)
     if report is None:
         raise VideoError("原始报告未通过，禁止成片")
     demo.check_samples(originals)
@@ -741,7 +811,9 @@ def render(options, output, manifest, originals):
     raw_info = probe(raw)
     raw_duration = validate_raw_probe(raw_info)
     manifest["raw_ffprobe"] = raw_info
-    chapters = load_timeline(output / TIMELINE_NAME)
+    chapters = load_timeline(output / TIMELINE_NAME, mode)
+    if [chapter["id"] for chapter in report["chapters"]] != list(demo.chapter_ids(mode)):
+        raise VideoError("原报告章节清单与演示模式不一致")
     report_titles = {chapter["id"]: chapter["title"] for chapter in report["chapters"]}
     if any(report_titles[c["id"]] != c["title"] for c in chapters):
         raise VideoError("timeline标题与原报告不一致")
@@ -762,7 +834,10 @@ def render(options, output, manifest, originals):
     manifest.setdefault("presentation", {}).update({
         "chapter_title": "底部独立字幕栏左侧水平短章名，位置36,1020",
         "subtitle_margin_left": 360, "subtitle_margin_right": 70})
-    write_subtitles(output, clips, duration)
+    manifest["demo_mode"] = mode
+    manifest["presentation"].update({"chapter_ids": list(demo.chapter_ids(mode)),
+                                     "short_titles": presentation_text(mode)[1]})
+    write_subtitles(output, clips, duration, mode)
     graph = build_filter(clips, output / "progress.ass")
     (output / "render-filter.txt").write_text(graph, encoding="utf-8")
     partial = output / "render.partial.mp4"
@@ -779,7 +854,7 @@ def render(options, output, manifest, originals):
         spec = validate_probe(info, duration, sound_effects)
         demo.check_samples(originals)
         manifest.update({"status": "validated", "specification": spec, "ffprobe": info,
-                         "video_sha256": sha256(partial), "video_file": FINAL_NAME,
+                         "video_sha256": sha256(partial), "video_file": final.name,
                          "subtitles": {name: sha256(output / name) for name in ("progress.srt", "progress.ass")},
                          "scope": NOT_ACCEPTANCE + "；本片为编辑器开发进度，不是完整游戏"})
         write_json(output / MANIFEST_NAME, manifest)
@@ -798,10 +873,15 @@ def parse_args(argv=None):
     parser.add_argument("--output", type=Path, help="默认target/video-时间戳；录制要求全新目录")
     parser.add_argument("--editor-bin", type=Path)
     parser.add_argument("--no-build", action="store_true")
-    parser.add_argument("--timeout", type=demo.positive_seconds, default=600)
+    parser.add_argument("--demo-mode", choices=("brief", "detailed"), default="brief",
+                        help="演示模式：brief 简略；detailed 详细，默认 brief")
+    parser.add_argument("--timeout", type=demo.positive_seconds,
+                        help="超时秒数；brief 默认 600，detailed 默认 1800")
     parser.add_argument("--crf", type=int, choices=(18, 20), default=18)
     parser.add_argument("--sound-effects", action="store_true", help="按真实replay事件自合成低量提示音；默认无音轨，无配音")
     options = parser.parse_args(argv)
+    if options.timeout is None:
+        options.timeout = 600 if options.demo_mode == "brief" else 1800
     if options.render_only and options.output:
         parser.error("--render-only不能与--output同时使用")
     return options
@@ -825,7 +905,7 @@ def main(argv=None):
                 raise VideoError("原样本SHA与录制manifest不一致；不会恢复覆盖样本")
         else:
             output.mkdir(parents=True, exist_ok=False)
-            manifest = {"schema_version": 1, "status": "prepared", "output_directory": str(output),
+            manifest = {"schema_version": 1, "status": "prepared", "demo_mode": options.demo_mode, "output_directory": str(output),
                         "samples_sha256": {str(path): digest for path, digest in originals.items()},
                         "recording": {"source": "gdigrab desktop restricted to visible TOPMOST owned physical client region",
                                       "requires_visible_unoccluded_window": True, "background_capture": False, "fps": 30, "audio": False,
@@ -842,7 +922,7 @@ def main(argv=None):
         print(f"未交付成片：{error}", file=sys.stderr, flush=True)
         if manifest is not None and output.is_dir():
             # 既有成功交付不因render-only误调用被降级。
-            if not (output / FINAL_NAME).exists():
+            if not any((output / name).exists() for name in (FINAL_NAME, DETAILED_FINAL_NAME)):
                 manifest.update({"status": "failed", "error": str(error)})
                 write_json(output / MANIFEST_NAME, manifest)
             cleanup_partial(output)

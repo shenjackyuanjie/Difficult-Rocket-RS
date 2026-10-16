@@ -12,10 +12,10 @@ from unittest.mock import Mock, patch
 import render_demo_video as video
 
 
-def timeline():
+def timeline(mode="brief"):
     rows = []
     clock = 1700000000000
-    for index, chapter_id in enumerate(video.demo.CHAPTER_IDS):
+    for index, chapter_id in enumerate(video.demo.chapter_ids(mode)):
         duration = 4000 + index * 500
         for event, stamp in (("chapter_started", clock), ("chapter_finished", clock + duration)):
             rows.append({"event": event, "id": chapter_id, "title": "章节" + chapter_id, "unix_ms": stamp})
@@ -122,9 +122,12 @@ class SubtitleAndFilterTests(unittest.TestCase):
         self.clips, self.duration = video.plan_clips(chapters, chapters[0]["started_unix_ms"], 100)
 
     def test_chapter_captions_two_to_four(self):
-        self.assertEqual(set(video.CAPTIONS), set(video.demo.CHAPTER_IDS))
-        self.assertEqual(set(video.SHORT_TITLES), set(video.demo.CHAPTER_IDS))
-        for lines in video.CAPTIONS.values():
+        self.assertEqual(set(video.CAPTIONS), set(video.demo.DETAILED_CHAPTER_IDS))
+        captions, titles = video.presentation_text("brief")
+        self.assertEqual(set(captions), set(video.demo.CHAPTER_IDS))
+        self.assertEqual(set(video.SHORT_TITLES), set(video.demo.DETAILED_CHAPTER_IDS))
+        self.assertEqual(set(titles), set(video.demo.CHAPTER_IDS))
+        for lines in captions.values():
             self.assertTrue(2 <= len(lines) <= 4)
         body = " ".join(" ".join(lines) for lines in video.CAPTIONS.values())
         for required in ("碰撞", "紫色吸附", "R", "后代跟随", "删除", "视角帮助", "属性草稿", "分级",
@@ -563,12 +566,12 @@ class ProtectionAndCleanupTests(unittest.TestCase):
                 (output / name).write_bytes(b"existing")
             with patch.object(video.demo, "read_completed_report") as read:
                 with self.assertRaises(video.VideoError):
-                    video.render(SimpleNamespace(crf=18), output, {}, {})
+                    video.render(SimpleNamespace(demo_mode="brief", crf=18), output, {}, {})
                 read.assert_not_called()
             for name in (video.FINAL_NAME, "progress.ass", "progress.srt"):
                 self.assertEqual((output / name).read_bytes(), b"existing")
 
-    def test_record_stops_ffmpeg_before_owned_editor(self):
+    def test_record_stops_ffmpeg_before_owned_editor(self, mode="brief"):
         with tempfile.TemporaryDirectory() as folder:
             output = Path(folder)
             editor, recorder = Mock(), Mock()
@@ -581,25 +584,31 @@ class ProtectionAndCleanupTests(unittest.TestCase):
                 process.poll.return_value = 0
                 (output / "capture.log").write_text(
                     "Duration: N/A, start: 1700000000.123000, bitrate: 1", encoding="utf-8")
-            options = SimpleNamespace(timeout=1, crf=18)
+            options = SimpleNamespace(demo_mode=mode, timeout=1, crf=18)
             with patch.object(video.demo, "prepare_binary", return_value=Path("editor.exe")), \
                     patch.object(video, "find_owned_window", return_value=0x1234), \
                     patch.object(video, "open_capture_api", return_value=Mock()), \
                     patch.object(video, "owned_capture_region", return_value=(260, 260, 1920, 1080)), \
                     patch.object(video.subprocess, "Popen", side_effect=[editor, recorder]) as popen, \
-                    patch.object(video.demo, "read_completed_report", return_value={"completed": True}), \
+                    patch.object(video.demo, "read_completed_report", return_value={"completed": True}) as read, \
                     patch.object(video, "stop_recorder", side_effect=stop_capture), \
                     patch.object(video.demo, "stop_owned_process", side_effect=lambda p: stopped.append("editor")):
                 manifest = {}
                 video.record(options, output, manifest)
             self.assertEqual(stopped, ["ffmpeg", "editor"])
+            self.assertEqual(manifest["demo_mode"], mode)
+            read.assert_called_once_with(output, manifest["report_started_ns"], expected_mode=mode)
             commands = [call.args[0] for call in popen.call_args_list]
             self.assertNotIn("--demo-autoexit", commands[0])
             self.assertIn("--demo-presentation", commands[0])
+            self.assertEqual(commands[0][commands[0].index("--demo-mode") + 1], mode)
             self.assertEqual(commands[1][commands[1].index("-i") + 1], "desktop")
             self.assertEqual(commands[1][commands[1].index("-offset_x") + 1], "260")
             self.assertEqual(commands[1][commands[1].index("-video_size") + 1], "1920x1080")
             self.assertEqual(manifest["capture_start_unix_ms"], 1700000000123)
+
+    def test_detailed_record_command_and_report_mode(self):
+        self.test_record_stops_ffmpeg_before_owned_editor("detailed")
 
     def test_sample_protection_detects_change_without_restore(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -633,7 +642,7 @@ class ProtectionAndCleanupTests(unittest.TestCase):
                 patch.object(video.demo, "read_completed_report", return_value=None), \
                 patch.object(video.subprocess, "run") as run:
             with self.assertRaises(video.VideoError):
-                video.render(SimpleNamespace(crf=18), Path(folder), {"report_started_ns": 1}, {})
+                video.render(SimpleNamespace(demo_mode="brief", crf=18), Path(folder), {"report_started_ns": 1}, {})
             run.assert_not_called()
             self.assertFalse((Path(folder) / video.FINAL_NAME).exists())
 
@@ -642,11 +651,11 @@ class ProtectionAndCleanupTests(unittest.TestCase):
             output = Path(folder)
             raw = valid_probe()
             raw["streams"][0].update(width=1456, height=939)
-            with patch.object(video.demo, "read_completed_report", return_value={"completed": True}), \
+            with patch.object(video.demo, "read_completed_report", return_value={"completed": True}) as read, \
                     patch.object(video, "probe", return_value=raw), \
                     patch.object(video.subprocess, "run") as run, \
                     self.assertRaises(video.VideoError):
-                video.render(SimpleNamespace(crf=18), output, {"report_started_ns": 1}, {})
+                video.render(SimpleNamespace(demo_mode="brief", crf=18), output, {"report_started_ns": 1}, {})
             run.assert_not_called()
             for name in (video.FINAL_NAME, "progress.ass", "progress.srt"):
                 self.assertFalse((output / name).exists())
@@ -669,7 +678,7 @@ class ProtectionAndCleanupTests(unittest.TestCase):
                     patch.object(video, "check_raw_dynamics", return_value={"passed": True}), \
                     patch.object(video.subprocess, "run", side_effect=fail):
                 with self.assertRaises(subprocess.CalledProcessError):
-                    video.render(SimpleNamespace(crf=18), output, manifest, {})
+                    video.render(SimpleNamespace(demo_mode="brief", crf=18), output, manifest, {})
             self.assertFalse((output / "render.partial.mp4").exists())
             self.assertFalse((output / video.FINAL_NAME).exists())
             self.assertTrue((output / video.RAW_NAME).exists())
@@ -690,7 +699,7 @@ class ProtectionAndCleanupTests(unittest.TestCase):
                     patch.object(video, "check_raw_dynamics", return_value={"passed": True}), \
                     patch.object(video.subprocess, "run", side_effect=fake_render):
                 with self.assertRaises(video.VideoError):
-                    video.render(SimpleNamespace(crf=18), output, manifest, {})
+                    video.render(SimpleNamespace(demo_mode="brief", crf=18), output, manifest, {})
             self.assertFalse((output / video.FINAL_NAME).exists())
             self.assertFalse((output / "render.partial.mp4").exists())
 
@@ -900,7 +909,7 @@ class RenderGateTests(unittest.TestCase):
                     patch.object(video, "check_raw_dynamics", side_effect=video.VideoError("raw章节画面冻结")), \
                     patch.object(video.subprocess, "run") as run, \
                     self.assertRaises(video.VideoError):
-                video.render(SimpleNamespace(crf=18), output, manifest, {})
+                video.render(SimpleNamespace(demo_mode="brief", crf=18), output, manifest, {})
             run.assert_not_called()
             for name in (video.FINAL_NAME, "progress.ass", "progress.srt"):
                 self.assertFalse((output / name).exists())
@@ -915,7 +924,7 @@ class RenderGateTests(unittest.TestCase):
                     patch.object(video, "check_raw_dynamics", return_value={"passed": True}), \
                     patch.object(video.subprocess, "run") as run, \
                     self.assertRaises(video.VideoError):
-                video.render(SimpleNamespace(crf=18, sound_effects=True), output, manifest, {})
+                video.render(SimpleNamespace(demo_mode="brief", crf=18, sound_effects=True), output, manifest, {})
             run.assert_not_called()
             self.assertFalse((output / video.SOUND_NAME).exists())
             self.assertFalse((output / video.FINAL_NAME).exists())
@@ -940,7 +949,7 @@ class RenderGateTests(unittest.TestCase):
                     patch.object(video, "load_timeline", return_value=chapters), \
                     patch.object(video, "check_raw_dynamics", return_value={"passed": True}), \
                     patch.object(video.subprocess, "run", side_effect=fake_render):
-                final = video.render(SimpleNamespace(crf=18, sound_effects=True), output, manifest, {})
+                final = video.render(SimpleNamespace(demo_mode="brief", crf=18, sound_effects=True), output, manifest, {})
             self.assertEqual(final, output / video.FINAL_NAME)
             self.assertTrue(final.exists())
             self.assertTrue(manifest["sound_effects"]["enabled"])
@@ -950,6 +959,139 @@ class RenderGateTests(unittest.TestCase):
             self.assertEqual(manifest["sound_effects"]["wav_sha256"], video.sha256(output / video.SOUND_NAME))
             self.assertTrue(manifest["specification"]["audio"])
             self.assertEqual(manifest["status"], "completed")
+
+
+class DemoModeTests(unittest.TestCase):
+    def test_mode_defaults_and_timeout_override(self):
+        self.assertEqual(video.parse_args([]).demo_mode, "brief")
+        for mode, timeout in (("brief", 600), ("detailed", 1800)):
+            with self.subTest(mode=mode):
+                self.assertEqual(video.parse_args(["--demo-mode", mode]).timeout, timeout)
+                self.assertEqual(video.parse_args(["--demo-mode", mode, "--timeout", "42"]).timeout, 42)
+
+    def test_detailed_timeline_requires_twenty_chapters(self):
+        rows = timeline("detailed")
+        self.assertEqual(len(rows), 40)
+        self.assertEqual([c["id"] for c in video.validate_timeline(rows, "detailed")],
+                         list(video.demo.DETAILED_CHAPTER_IDS))
+        for invalid in (rows[:-1], timeline(), rows + rows[-2:]):
+            with self.subTest(length=len(invalid)), self.assertRaises(video.VideoError):
+                video.validate_timeline(invalid, "detailed")
+        with self.assertRaises(video.VideoError):
+            video.validate_timeline(rows, "brief")
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / video.TIMELINE_NAME
+            import json
+            path.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+            self.assertEqual(len(video.load_timeline(path, "detailed")), 20)
+
+    def test_detailed_captions_titles_and_missing_case_chapter_fail(self):
+        captions, titles = video.presentation_text("detailed")
+        self.assertEqual(set(captions), set(video.demo.DETAILED_CHAPTER_IDS))
+        self.assertEqual(set(titles), set(captions))
+        chapters = video.validate_timeline(timeline("detailed"), "detailed")
+        clips, duration = video.plan_clips(chapters, chapters[0]["started_unix_ms"], 300)
+        for chapter_id in video.demo.DETAILED_CASE_IDS:
+            self.assertTrue(3 <= len(captions[chapter_id]) <= 7)
+            self.assertTrue(titles[chapter_id].strip())
+            for collection in (video.CAPTIONS, video.SHORT_TITLES):
+                missing = dict(collection)
+                del missing[chapter_id]
+                with self.subTest(chapter=chapter_id, collection=collection is video.CAPTIONS), \
+                        patch.dict(collection, missing, clear=True), self.assertRaisesRegex(video.VideoError, chapter_id):
+                    video.caption_entries(clips, duration, "detailed")
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder)
+            video.write_subtitles(output, clips, duration, "detailed")
+            srt = (output / "progress.srt").read_text(encoding="utf-8")
+            ass = (output / "progress.ass").read_text(encoding="utf-8")
+            self.assertIn("二十章", srt)
+            self.assertIn("二十章", ass)
+            self.assertNotIn("十一章", srt + ass)
+            for chapter_id in captions:
+                for text in captions[chapter_id]:
+                    self.assertIn(text, srt)
+                    self.assertIn(video.ass_escape(text), ass)
+                self.assertIn(titles[chapter_id], ass)
+
+    def test_mismatched_report_modes_are_rejected_before_probe(self):
+        from test_demo_editor import complete_report
+        for actual, requested in (("detailed", "brief"), ("brief", "detailed")):
+            with self.subTest(actual=actual), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder)
+                video.write_json(output / video.demo.REPORT_NAME, complete_report(actual))
+                with patch.object(video, "probe") as probe, self.assertRaisesRegex(video.demo.DemoError, "报告模式.*不符"):
+                    video.render(video.parse_args(["--demo-mode", requested]), output,
+                                 {"report_started_ns": 1, "demo_mode": requested}, {})
+                probe.assert_not_called()
+                self.assertFalse((output / video.final_name(requested)).exists())
+
+    def test_detailed_publish_manifest_probe_and_no_overwrite(self):
+        import json
+        for mode, name in (("brief", "dr-rs-progress-1080p.mp4"),
+                           ("detailed", "dr-rs-progress-detailed-1080p.mp4")):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder)
+                chapters = video.validate_timeline(timeline(mode), mode)
+                report = {"chapters": chapters}
+                manifest = {"report_started_ns": 1, "demo_mode": mode,
+                            "capture_start_unix_ms": chapters[0]["started_unix_ms"]}
+                for evidence in (video.RAW_NAME, video.TIMELINE_NAME, video.demo.REPORT_NAME):
+                    (output / evidence).write_bytes(b"evidence")
+                _, duration = video.plan_clips(chapters, manifest["capture_start_unix_ms"], 300)
+                final_probe = valid_probe()
+                final_probe["format"]["duration"] = str(duration)
+                def fake_render(*args, **kwargs):
+                    (output / "render.partial.mp4").write_bytes(b"mock-only")
+                with patch.object(video.demo, "read_completed_report", return_value=report) as read, \
+                        patch.object(video, "load_timeline", return_value=chapters) as load, \
+                        patch.object(video, "probe", side_effect=[dict(valid_probe(), format={"duration": "300", "size": "1000"}), final_probe]), \
+                        patch.object(video, "check_raw_dynamics", return_value={"passed": True}), \
+                        patch.object(video.subprocess, "run", side_effect=fake_render), \
+                        patch.object(video, "record") as record:
+                    final = video.render(video.parse_args(["--demo-mode", mode]), output, manifest, {})
+                record.assert_not_called()
+                read.assert_called_once_with(output, 1, expected_mode=mode)
+                load.assert_called_once_with(output / video.TIMELINE_NAME, mode)
+                self.assertEqual(final.name, name)
+                self.assertTrue(final.exists())
+                saved = json.loads((output / video.MANIFEST_NAME).read_text(encoding="utf-8"))
+                self.assertEqual(saved["video_file"], name)
+                self.assertEqual(saved["demo_mode"], mode)
+                self.assertEqual(saved["status"], "completed")
+                self.assertEqual(saved["ffprobe"], final_probe)
+                self.assertEqual(saved["presentation"]["chapter_ids"], list(video.demo.chapter_ids(mode)))
+                before = {p.name: p.read_bytes() for p in output.iterdir()}
+                with patch.object(video.demo, "read_completed_report") as read, self.assertRaises(video.VideoError):
+                    video.render(video.parse_args(["--demo-mode", mode]), output, manifest, {})
+                read.assert_not_called()
+                self.assertEqual(before, {p.name: p.read_bytes() for p in output.iterdir()})
+
+    def test_render_only_main_reuses_evidence_without_recording(self):
+        for mode in ("brief", "detailed"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder)
+                original = {"demo_mode": mode, "samples_sha256": {}, "report_started_ns": 1}
+                video.write_json(output / video.MANIFEST_NAME, original)
+                final = output / video.final_name(mode)
+                with patch.object(video.shutil, "which", return_value="mock-program"), \
+                        patch.object(video.demo, "sample_hashes", return_value={}), \
+                        patch.object(video, "record") as record, \
+                        patch.object(video, "render", return_value=final) as render:
+                    self.assertEqual(video.main(["--render-only", str(output), "--demo-mode", mode]), 0)
+                record.assert_not_called()
+                options, actual_output, manifest, originals = render.call_args.args
+                self.assertEqual(options.demo_mode, mode)
+                self.assertEqual(actual_output, output.resolve())
+                self.assertEqual(manifest, original)
+                self.assertEqual(originals, {})
+
+    def test_manifest_mode_mismatch_is_rejected(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(video.demo, "read_completed_report") as read:
+            with self.assertRaisesRegex(video.VideoError, "模式"):
+                video.render(video.parse_args(["--demo-mode", "detailed"]), Path(folder),
+                             {"demo_mode": "brief", "report_started_ns": 1}, {})
+            read.assert_not_called()
 
 
 if __name__ == "__main__":
