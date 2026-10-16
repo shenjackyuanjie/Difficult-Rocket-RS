@@ -15,6 +15,9 @@ pub(crate) struct Hint {
 }
 
 pub(crate) fn nearby(document: &EditorDocument, source: &Part, key: Option<PartKey>) -> Vec<Hint> {
+    if !document.snap_enabled {
+        return vec![];
+    }
     let Some(st) = document.catalog.get(&source.part_type) else {
         return vec![];
     };
@@ -46,6 +49,7 @@ pub(crate) fn nearby(document: &EditorDocument, source: &Part, key: Option<PartK
                 target,
                 target_key,
                 &candidate,
+                document.free_mode,
             ) {
                 continue;
             }
@@ -105,6 +109,9 @@ fn draw_hint(gizmos: &mut Gizmos, hint: &Hint, radius: f32) {
 // 多选已由 selection::movement 原子校验，只展示其实际连接命令，
 // 不把单个部件可以连接误当作整体也能连接。
 fn group_hints(document: &EditorDocument, drag: &DragState, command: &EditorCommand) -> Vec<Hint> {
+    if !document.snap_enabled {
+        return vec![];
+    }
     match command {
         EditorCommand::Batch(commands) => commands
             .iter()
@@ -196,9 +203,8 @@ pub(crate) fn draw(
             radius,
             !pointer.blocked,
         );
-        return;
     }
-    if pointer.blocked || !cursor.valid {
+    if !document.snap_enabled || pointer.blocked || !cursor.valid {
         return;
     }
     let mut sources = vec![];
@@ -214,7 +220,9 @@ pub(crate) fn draw(
         sources.push((None, part));
     }
     for (key, part) in sources {
-        if let Some(kind) = document.catalog.get(&part.part_type) {
+        if !document.free_mode
+            && let Some(kind) = document.catalog.get(&part.part_type)
+        {
             for attach in &kind.attach_points {
                 let (a, b) = dr_core::connections::segment(&part, kind, attach);
                 let color = SOURCE_COLOR;

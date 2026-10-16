@@ -151,3 +151,56 @@ fn snapped_connections_use_one_based_sr1_indices() {
     assert!(document.undo());
     assert_eq!(document.ship, before);
 }
+
+#[test]
+fn loaded_documents_start_with_snapping_enabled_and_free_geometry_disabled() {
+    let directory = tempfile::tempdir().unwrap();
+    let catalog = directory.path().join("parts.xml");
+    std::fs::write(
+        &catalog,
+        r#"<PartTypes><PartType id="pod" type="pod"/></PartTypes>"#,
+    )
+    .unwrap();
+    let document = load_document(None, catalog.to_str().unwrap()).unwrap();
+    assert!(!document.free_mode);
+    assert!(document.snap_enabled);
+    assert!(!document.dirty && !document.history.can_undo());
+}
+
+#[test]
+fn editor_switches_do_not_rewrite_existing_connections_or_enter_ship_history() {
+    for free_mode in [false, true] {
+        for snap_enabled in [false, true] {
+            let mut document = document();
+            let mut second = document.ship.parts[0].clone();
+            second.id = 2;
+            second.x = 4.0;
+            document.ship.parts.push(second);
+            document.ship.connections.push(Connection::Normal {
+                parent: 1,
+                child: 2,
+                parent_attach: 1,
+                child_attach: 1,
+            });
+            document.saved_ship = document.ship.clone();
+            let before = document.ship.clone();
+            document.free_mode = free_mode;
+            document.snap_enabled = snap_enabled;
+            document.refresh();
+            assert_eq!(document.ship, before);
+            assert!(!document.dirty && !document.history.can_undo());
+            assert!(document.execute(EditorCommand::SetActive(1, true)));
+            assert_eq!(document.ship.connections, before.connections);
+            let after = document.ship.clone();
+            assert!(document.undo());
+            assert_eq!(document.ship, before);
+            assert!(!document.dirty);
+            assert!(document.redo());
+            assert_eq!(document.ship, after);
+            assert_eq!(
+                (document.free_mode, document.snap_enabled),
+                (free_mode, snap_enabled)
+            );
+        }
+    }
+}

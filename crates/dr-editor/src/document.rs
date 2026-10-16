@@ -7,7 +7,10 @@ use std::collections::BTreeSet;
 
 #[derive(Resource)]
 pub(crate) struct EditorDocument {
+    /// 自由几何与原有连接保留策略；不切换吸附。
     pub free_mode: bool,
+    /// 对齐与新自动连接；关闭时保留已有连接。
+    pub snap_enabled: bool,
     pub revision: u64,
     pub ship: Ship,
     pub catalog: PartCatalog,
@@ -111,6 +114,7 @@ pub(crate) fn load_document(
         .unwrap_or_else(|| new_ship(&catalog));
     Ok(EditorDocument {
         free_mode: false,
+        snap_enabled: true,
         revision: 0,
         saved_ship: ship.clone(),
         status: String::new(),

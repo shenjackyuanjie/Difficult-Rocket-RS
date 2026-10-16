@@ -370,15 +370,15 @@ pub(crate) fn movement_transformed(
     pose: SelectionPose,
     delta: (f64, f64),
 ) -> ((f64, f64), EditorCommand, bool) {
-    if document.free_mode {
-        let command = drag_command(keys, pose, delta);
-        let valid = document
-            .edit_command(command.clone())
-            .preview_with_catalog(&document.ship, &document.catalog)
-            .is_ok();
-        return (delta, command, valid);
-    }
-    movement_transformed_for(&document.ship, &document.catalog, keys, pose, delta)
+    movement_transformed_with_modes(
+        &document.ship,
+        &document.catalog,
+        keys,
+        pose,
+        delta,
+        document.free_mode,
+        document.snap_enabled,
+    )
 }
 
 pub(crate) fn drag_command(
@@ -403,6 +403,7 @@ pub(crate) fn drag_command(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn movement_transformed_for(
     ship: &Ship,
     catalog: &PartCatalog,
@@ -410,7 +411,26 @@ pub(crate) fn movement_transformed_for(
     pose: SelectionPose,
     delta: (f64, f64),
 ) -> ((f64, f64), EditorCommand, bool) {
+    movement_transformed_with_modes(ship, catalog, keys, pose, delta, false, true)
+}
+
+fn movement_transformed_with_modes(
+    ship: &Ship,
+    catalog: &PartCatalog,
+    keys: &[PartKey],
+    pose: SelectionPose,
+    delta: (f64, f64),
+    free_mode: bool,
+    snap_enabled: bool,
+) -> ((f64, f64), EditorCommand, bool) {
     let command = |offset| drag_command(keys, pose, offset);
+    let preview = |command: &EditorCommand| {
+        if free_mode {
+            EditorCommand::FreeEdit(Box::new(command.clone())).preview_with_catalog(ship, catalog)
+        } else {
+            command.preview_with_catalog(ship, catalog)
+        }
+    };
     let selected: HashSet<_> = keys.iter().copied().collect();
     let others = dr_core::geometry::CollisionSet::new(
         ship.keyed_parts()
@@ -431,17 +451,19 @@ pub(crate) fn movement_transformed_for(
         return (delta, command(delta), false);
     };
     let collides = |offset: (f64, f64)| {
-        moving.iter().any(|(part, kind)| {
-            let mut proposed = (*part).clone();
-            proposed.x += offset.0;
-            proposed.y += offset.1;
-            others.editor_overlap_blocked(&proposed, kind)
-        })
+        !free_mode
+            && moving.iter().any(|(part, kind)| {
+                let mut proposed = (*part).clone();
+                proposed.x += offset.0;
+                proposed.y += offset.1;
+                others.editor_overlap_blocked(&proposed, kind)
+            })
     };
-    if delta != (0.0, 0.0)
-        || pose.radians.rem_euclid(std::f64::consts::TAU).abs() > 1e-10
-        || pose.flip_x
-        || pose.flip_y
+    if snap_enabled
+        && (delta != (0.0, 0.0)
+            || pose.radians.rem_euclid(std::f64::consts::TAU).abs() > 1e-10
+            || pose.flip_x
+            || pose.flip_y)
     {
         let mut invalid = HashSet::new();
         for (_, offset, connection) in snaps_pose(ship, catalog, keys, pose, delta) {
@@ -454,7 +476,8 @@ pub(crate) fn movement_transformed_for(
                 continue;
             }
             let movement = command(offset);
-            if let Ok(moved) = movement.preview_with_catalog(ship, catalog)
+            if let Ok(moved) = preview(&movement)
+                // 新自动连接始终严格校验，不能继承手动 FreeEdit 的放宽。
                 && connection.preview_with_catalog(&moved, catalog).is_ok()
             {
                 return (
@@ -466,7 +489,9 @@ pub(crate) fn movement_transformed_for(
         }
     }
     // 没有合法吸附时，即使重叠也保留落点，不新增连接。
-    (delta, command(delta), !collides(delta))
+    let command = command(delta);
+    let valid = !collides(delta) && preview(&command).is_ok();
+    (delta, command, valid)
 }
 
 pub(crate) fn keyboard(
@@ -602,7 +627,7 @@ struct PastePreview {
 fn paste_preview(document: &EditorDocument, cursor: &EditorCursor) -> Option<PastePreview> {
     let fragment = cursor.paste.as_ref()?;
     let center = fragment.center();
-    let mut offset = if document.free_mode {
+    let mut offset = if !document.snap_enabled {
         (cursor.world.0 - center.0, cursor.world.1 - center.1)
     } else {
         (
@@ -619,7 +644,7 @@ fn paste_preview(document: &EditorDocument, cursor: &EditorCursor) -> Option<Pas
     let mut command = paste(offset);
     let mut temporary = document.ship.clone();
     let mut snapped = false;
-    if !document.free_mode && command.apply(&mut temporary).is_ok() {
+    if document.snap_enabled && command.apply(&mut temporary).is_ok() {
         let existing: HashSet<_> = document.ship.all_parts().map(|part| part.id).collect();
         let added: Vec<_> = temporary
             .keyed_parts()
@@ -635,15 +660,17 @@ fn paste_preview(document: &EditorDocument, cursor: &EditorCursor) -> Option<Pas
             if invalid_offsets.contains(&offset_key) {
                 continue;
             }
-            if fragment.parts().any(|part| {
-                let Some(kind) = document.catalog.get(&part.part_type) else {
-                    return false;
-                };
-                let mut part = part.clone();
-                part.x += proposed.0;
-                part.y += proposed.1;
-                collision_set.editor_overlap_blocked(&part, kind)
-            }) {
+            if !document.free_mode
+                && fragment.parts().any(|part| {
+                    let Some(kind) = document.catalog.get(&part.part_type) else {
+                        return false;
+                    };
+                    let mut part = part.clone();
+                    part.x += proposed.0;
+                    part.y += proposed.1;
+                    collision_set.editor_overlap_blocked(&part, kind)
+                })
+            {
                 invalid_offsets.insert(offset_key);
                 continue;
             }

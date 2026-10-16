@@ -174,3 +174,110 @@ fn palette_preview_follows_small_motion_without_grid_quantization_and_release_cl
     assert!(document.selected_keys().is_empty());
     assert!(!cursor.placing && !cursor.palette_drag);
 }
+
+#[test]
+fn placement_snap_and_free_geometry_are_independent_in_all_four_combinations() {
+    for free_mode in [false, true] {
+        for snap_enabled in [false, true] {
+            let mut document = document();
+            document.free_mode = free_mode;
+            document.snap_enabled = snap_enabled;
+            let before = document.ship.clone();
+            let mut cursor = dragged((1.2, 0.0));
+            let (ghost, connection, allowed) = preview(&document, &cursor).unwrap();
+            assert!(allowed, "free={free_mode}, snap={snap_enabled}");
+            assert_eq!(connection.is_some(), snap_enabled);
+            assert_eq!(
+                (ghost.x, ghost.y),
+                (if snap_enabled { 1.0 } else { 1.2 }, 0.0)
+            );
+            assert_eq!(document.ship, before);
+            assert!(finish_palette_drag(&mut document, &mut cursor, true));
+            assert_eq!(document.ship.part(ghost.id), Some(&ghost));
+            assert_eq!(document.ship.connections.len(), usize::from(snap_enabled));
+            assert_eq!(document.history.undo_len(), 1);
+            let after = document.ship.clone();
+            assert!(document.undo());
+            assert_eq!(document.ship, before);
+            assert!(!document.history.can_undo());
+            assert!(document.redo());
+            assert_eq!(document.ship, after);
+            assert_eq!(
+                (document.free_mode, document.snap_enabled),
+                (free_mode, snap_enabled)
+            );
+        }
+    }
+}
+
+#[test]
+fn placement_collision_policy_depends_only_on_free_mode() {
+    for free_mode in [false, true] {
+        for snap_enabled in [false, true] {
+            let mut document = document();
+            document.free_mode = free_mode;
+            document.snap_enabled = snap_enabled;
+            let before = document.ship.clone();
+            // 发动机没有连接点，精确重叠时吸附开关不改变碰撞结论。
+            let cursor = EditorCursor {
+                catalog_index: 1,
+                ..dragged((0.0, 0.0))
+            };
+            let (ghost, connection, allowed) = preview(&document, &cursor).unwrap();
+            assert_eq!(allowed, free_mode);
+            assert!(connection.is_none());
+            assert_eq!(place(&mut document, &cursor), free_mode);
+            if free_mode {
+                assert_eq!(document.ship.part(ghost.id), Some(&ghost));
+                assert_eq!(document.history.undo_len(), 1);
+                assert!(document.undo());
+            } else {
+                assert!(!document.history.can_undo());
+            }
+            assert_eq!(document.ship, before);
+        }
+    }
+}
+
+#[test]
+fn placement_quantity_rotation_and_mirror_contracts_survive_both_switches() {
+    for free_mode in [false, true] {
+        for snap_enabled in [false, true] {
+            let mut document = document();
+            document.free_mode = free_mode;
+            document.snap_enabled = snap_enabled;
+            let cursor = EditorCursor {
+                catalog_index: 2,
+                rotation: 3,
+                fine_rotation: 0.37,
+                flip_x: true,
+                flip_y: true,
+                ..dragged((8.13, 3.17))
+            };
+            let (ghost, connection, allowed) = preview(&document, &cursor).unwrap();
+            assert!(allowed && connection.is_none());
+            assert_eq!((ghost.angle, ghost.editor_angle), (0.0, 0));
+            assert!(ghost.flip_x && ghost.flip_y);
+            assert!(place(&mut document, &cursor));
+            assert_eq!(document.ship.part(ghost.id), Some(&ghost));
+            assert!(document.undo());
+            document.ship.parts.push(
+                document
+                    .catalog
+                    .get("engine")
+                    .unwrap()
+                    .instantiate(2, (5.0, 0.0)),
+            );
+            let before = document.ship.clone();
+            let cursor = EditorCursor {
+                catalog_index: 1,
+                ..dragged((10.0, 10.0))
+            };
+            assert!(!preview(&document, &cursor).unwrap().2);
+            assert!(!place(&mut document, &cursor));
+            assert_eq!(document.ship, before);
+            assert!(!document.history.can_undo());
+            assert!(document.history.can_redo());
+        }
+    }
+}

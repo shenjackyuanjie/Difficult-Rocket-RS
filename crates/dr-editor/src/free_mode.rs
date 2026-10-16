@@ -1,4 +1,4 @@
-//! 自由模式的画布连接工具：两次点击决定连接/断开，移动不推断拓扑。
+//! 自由几何的画布连接工具：两次点击决定手动连接/断开，自动吸附独立控制。
 use super::*;
 use dr_core::geometry::Vec2d;
 
@@ -30,10 +30,17 @@ pub(crate) fn set_enabled(
     cursor.cancel_placement();
     cursor.paste = None;
     drag.cancel();
-    document.status = if enabled {
-        "自由模式：依次点击两个连接点/边，建立或断开连接；移动不自动断连，Esc 取消".into()
+    let snapping = if document.snap_enabled {
+        "开启"
     } else {
-        "辅助模式：自动吸附连接；实体重叠必须小于 5%".into()
+        "关闭"
+    };
+    document.status = if enabled {
+        format!(
+            "自由模式：吸附{snapping}；依次点击连接点/边可手动连接或断开；移动保留已有连接，Esc 取消"
+        )
+    } else {
+        format!("辅助模式：吸附{snapping}；实体重叠必须小于 5%")
     };
 }
 

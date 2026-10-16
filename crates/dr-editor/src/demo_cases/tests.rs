@@ -26,6 +26,7 @@ fn populate(world: &mut World) {
     .unwrap();
     world.insert_resource(EditorDocument {
         free_mode: false,
+        snap_enabled: true,
         revision: 0,
         ship: Ship::default(),
         saved_ship: Ship::default(),

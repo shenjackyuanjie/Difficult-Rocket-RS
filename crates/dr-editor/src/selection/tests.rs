@@ -655,3 +655,287 @@ fn connected_component_rejects_only_reachable_duplicate_or_missing_references() 
     });
     assert!(connected_keys(&document.ship, &[key(1)]).is_err());
 }
+
+#[test]
+fn selection_drag_snaps_independently_and_keeps_internal_edges_in_all_four_combinations() {
+    for free_mode in [false, true] {
+        for snap_enabled in [false, true] {
+            let mut document = document();
+            document.free_mode = free_mode;
+            document.snap_enabled = snap_enabled;
+            let before = document.ship.clone();
+            let (delta, command, valid) = movement(&document, &[key(1), key(2)], (2.8, 0.0));
+            assert!(valid, "free={free_mode}, snap={snap_enabled}");
+            let expected = if snap_enabled { 3.0 } else { 2.8 };
+            assert!((delta.0 - expected).abs() < 1e-10 && delta.1 == 0.0);
+            assert_eq!(document.ship, before);
+            assert!(document.execute(command));
+            assert!((document.ship.part(1).unwrap().x - expected).abs() < 1e-10);
+            assert!((document.ship.part(2).unwrap().x - expected - 1.0).abs() < 1e-10);
+            assert!(document.ship.connections.contains(&before.connections[0]));
+            assert_eq!(
+                document.ship.connections.len(),
+                1 + usize::from(snap_enabled)
+            );
+            assert_eq!(document.history.undo_len(), 1);
+            let after = document.ship.clone();
+            assert!(document.undo());
+            assert_eq!(document.ship, before);
+            assert!(document.redo());
+            assert_eq!(document.ship, after);
+        }
+    }
+}
+
+#[test]
+fn copy_paste_uses_snap_preference_for_grid_and_new_edges_in_all_four_combinations() {
+    for free_mode in [false, true] {
+        for snap_enabled in [false, true] {
+            let mut document = document();
+            document.free_mode = free_mode;
+            document.snap_enabled = snap_enabled;
+            document.ship.parts[2].x = 5.2;
+            document.selection = [key(1), key(2)].into_iter().collect();
+            let before = document.ship.clone();
+            let mut cursor = EditorCursor {
+                valid: true,
+                world: (3.63, 0.0),
+                ..default()
+            };
+            press(&mut document, &mut cursor, KeyCode::KeyC, true);
+            press(&mut document, &mut cursor, KeyCode::KeyV, true);
+            let preview = paste_preview(&document, &cursor).unwrap();
+            assert!(preview.valid, "free={free_mode}, snap={snap_enabled}");
+            assert_eq!(preview.snapped, snap_enabled);
+            let expected = if snap_enabled { 3.2 } else { 3.13 };
+            assert!((preview.parts[0].x - expected).abs() < 1e-10);
+            assert!((preview.parts[1].x - expected - 1.0).abs() < 1e-10);
+            assert_eq!(document.ship, before);
+            assert!(commit_paste(&mut document, &mut cursor));
+            let pasted: Vec<_> = document
+                .ship
+                .all_parts()
+                .filter(|part| part.id > 3)
+                .collect();
+            assert_eq!(pasted.len(), 2);
+            for (actual, ghost) in pasted.iter().zip(&preview.parts) {
+                assert_eq!(
+                    (
+                        actual.x,
+                        actual.y,
+                        actual.angle,
+                        actual.flip_x,
+                        actual.flip_y
+                    ),
+                    (ghost.x, ghost.y, ghost.angle, ghost.flip_x, ghost.flip_y)
+                );
+            }
+            assert!(document.ship.connections.contains(&before.connections[0]));
+            let internal = Connection::Normal {
+                parent: pasted[0].id,
+                child: pasted[1].id,
+                parent_attach: 2,
+                child_attach: 1,
+            };
+            // 片段内部边始终恢复；吸附只决定是否新增对外连接并合入主分组。
+            if snap_enabled {
+                assert!(document.ship.disconnected.is_empty());
+                assert_eq!(document.ship.connections.len(), 3);
+                assert!(document.ship.connections.contains(&internal));
+                assert!(document.ship.connections.contains(&Connection::Normal {
+                    parent: 3,
+                    child: pasted[1].id,
+                    parent_attach: 1,
+                    child_attach: 2,
+                }));
+            } else {
+                assert_eq!(document.ship.connections, before.connections);
+                assert_eq!(document.ship.disconnected.len(), 1);
+                let group = &document.ship.disconnected[0];
+                assert_eq!(group.parts.len(), 2);
+                assert_eq!(group.parts[0].id, pasted[0].id);
+                assert_eq!(group.parts[1].id, pasted[1].id);
+                assert_eq!(group.connections, vec![internal]);
+            }
+            assert_eq!(
+                document
+                    .ship
+                    .groups()
+                    .map(|(_, _, edges)| edges.len())
+                    .sum::<usize>(),
+                2 + usize::from(snap_enabled),
+                "原有边与粘贴内部边均保留，吸附开启时再新增一条对外边"
+            );
+            assert_eq!(document.history.undo_len(), 1);
+            assert!(cursor.paste.is_none() && cursor.clipboard.is_some());
+            assert_eq!(document.selected_keys().len(), 2);
+            let after = document.ship.clone();
+            assert!(document.undo());
+            assert_eq!(document.ship, before);
+            assert!(document.redo());
+            assert_eq!(document.ship, after);
+        }
+    }
+}
+
+#[test]
+fn selection_and_paste_free_snap_only_relax_whole_body_collision() {
+    for free_mode in [false, true] {
+        for snap_enabled in [false, true] {
+            for paste in [false, true] {
+                let mut document = document();
+                document.free_mode = free_mode;
+                document.snap_enabled = snap_enabled;
+                let kind = document.catalog.get("pod").unwrap();
+                document.ship.parts = vec![
+                    kind.instantiate(1, (0.0, 0.0)),
+                    kind.instantiate(2, (0.0, 2.0)),
+                    kind.instantiate(3, (4.0, 0.0)),
+                    document
+                        .catalog
+                        .get("engine")
+                        .unwrap()
+                        .instantiate(4, (3.0, 0.0)),
+                ];
+                document.ship.connections.clear();
+                let before = document.ship.clone();
+                if paste {
+                    let mut cursor = EditorCursor {
+                        valid: true,
+                        world: (3.2, 0.0),
+                        paste: Some(ShipFragment::capture(&document.ship, &[key(1)]).unwrap()),
+                        ..default()
+                    };
+                    let preview = paste_preview(&document, &cursor).unwrap();
+                    assert_eq!(preview.valid, free_mode);
+                    assert_eq!(preview.snapped, free_mode && snap_enabled);
+                    assert_eq!(commit_paste(&mut document, &mut cursor), free_mode);
+                    if !free_mode {
+                        assert_eq!(document.ship, before);
+                        assert!(cursor.paste.is_some());
+                        assert!(!document.history.can_undo());
+                        continue;
+                    }
+                } else {
+                    let (delta, command, valid) =
+                        movement(&document, &[key(1), key(2)], (2.8, 0.0));
+                    assert_eq!(valid, free_mode);
+                    assert!(
+                        (delta.0 - if free_mode && snap_enabled { 3.0 } else { 2.8 }).abs() < 1e-10
+                    );
+                    // 普通拖动保留既有“碰撞警告但允许落点”合同，不改成拒绝提交。
+                    assert!(document.execute(command));
+                }
+                assert_eq!(
+                    document.ship.connections.len(),
+                    usize::from(free_mode && snap_enabled)
+                );
+                assert_eq!(document.history.undo_len(), 1);
+                let after = document.ship.clone();
+                assert!(document.undo());
+                assert_eq!(document.ship, before);
+                assert!(document.redo());
+                assert_eq!(document.ship, after);
+            }
+        }
+    }
+}
+
+#[test]
+fn free_automatic_drag_connections_still_reject_occupancy_ambiguity_and_pair_overlap() {
+    for scenario in ["source", "target", "ambiguous", "pair_overlap"] {
+        let mut document = document();
+        document.free_mode = true;
+        document.snap_enabled = true;
+        document.ship.parts[1].x = 5.0;
+        document.ship.parts[2].x = 10.0;
+        document.ship.connections.clear();
+        match scenario {
+            "source" => document.ship.connections.push(Connection::Normal {
+                parent: 2,
+                child: 3,
+                parent_attach: 1,
+                child_attach: 2,
+            }),
+            "target" => document.ship.connections.push(Connection::Normal {
+                parent: 1,
+                child: 3,
+                parent_attach: 2,
+                child_attach: 1,
+            }),
+            "ambiguous" => document.ship.parts.push(document.ship.parts[0].clone()),
+            _ => {}
+        }
+        let before = document.ship.clone();
+        let requested = (
+            if scenario == "pair_overlap" {
+                -4.8
+            } else {
+                -3.8
+            },
+            0.0,
+        );
+        let (delta, command, valid) = movement(&document, &[key(2)], requested);
+        assert!(valid, "{scenario}");
+        assert_eq!(delta, requested, "{scenario}");
+        assert_eq!(document.ship, before);
+        assert!(document.execute(command), "{scenario}");
+        assert_eq!(document.ship.connections, before.connections, "{scenario}");
+        assert_eq!(document.history.undo_len(), 1);
+        assert!(document.undo());
+        assert_eq!(document.ship, before);
+    }
+}
+
+#[test]
+fn finite_pose_rotation_permissions_and_mirrors_remain_strict_in_all_four_combinations() {
+    for free_mode in [false, true] {
+        for snap_enabled in [false, true] {
+            let mut document = document();
+            document.free_mode = free_mode;
+            document.snap_enabled = snap_enabled;
+            let before = document.ship.clone();
+            let pose = SelectionPose {
+                pivot: (0.5, 0.0),
+                radians: 0.37,
+                flip_x: true,
+                flip_y: true,
+            };
+            let (_, command, valid) =
+                movement_transformed(&document, &[key(1), key(2)], pose, (0.0, 3.0));
+            assert!(valid);
+            let expected = document
+                .edit_command(command.clone())
+                .preview_with_catalog(&document.ship, &document.catalog)
+                .unwrap();
+            assert!(document.execute(command));
+            assert_eq!(document.ship, expected);
+            assert_eq!(document.ship.connections, before.connections);
+            assert!(document.undo());
+            assert_eq!(document.ship, before);
+            for (pivot, delta) in [
+                ((f64::NAN, 0.0), (0.0, 0.0)),
+                ((0.0, 0.0), (f64::INFINITY, 0.0)),
+            ] {
+                let (_, command, valid) = movement_pose(&document, &[key(1)], pivot, 0, delta);
+                assert!(!valid);
+                assert!(!document.execute(command));
+                assert_eq!(document.ship, before);
+                assert!(!document.history.can_undo());
+                assert!(document.history.can_redo());
+            }
+            document.ship.parts[0] = document
+                .catalog
+                .get("tank")
+                .unwrap()
+                .instantiate(1, (0.0, 0.0));
+            let before = document.ship.clone();
+            let (_, command, valid) =
+                movement_pose(&document, &[key(1)], (0.0, 0.0), 1, (0.0, 0.0));
+            assert!(!valid);
+            assert!(!document.execute(command));
+            assert_eq!(document.ship, before);
+            assert!(!document.history.can_undo());
+        }
+    }
+}

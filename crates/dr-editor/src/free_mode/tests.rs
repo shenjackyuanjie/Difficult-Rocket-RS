@@ -55,8 +55,9 @@ fn two_far_points_connect_and_repeat_clicks_unlink_with_atomic_history_and_round
 }
 
 #[test]
-fn free_drag_rotation_and_mirror_keep_external_connections_and_do_not_snap() {
+fn free_drag_rotation_and_mirror_keep_external_connections_with_snapping_disabled() {
     let mut document = document();
+    document.snap_enabled = false;
     let mut cursor = EditorCursor::default();
     click(&mut document, &mut cursor, (-2.5, 0.0), 0.1);
     click(&mut document, &mut cursor, (2.5, 0.0), 0.1);
@@ -159,8 +160,9 @@ fn mode_switch_revision_change_and_same_point_cancel_without_mutating_document()
 }
 
 #[test]
-fn free_placement_and_paste_allow_overlap_but_never_auto_connect() {
+fn free_placement_and_paste_allow_overlap_with_snapping_disabled() {
     let mut document = document();
+    document.snap_enabled = false;
     let mut cursor = EditorCursor {
         placing: true,
         valid: true,
@@ -203,4 +205,41 @@ fn free_preview_markers_follow_the_same_fine_rotation_and_mirrors_as_the_ghost()
     }
     cursor.valid = false;
     assert!(preview_segments(&document, &cursor).is_empty());
+}
+
+#[test]
+fn manual_connections_and_free_mode_switching_preserve_independent_snap_preference() {
+    for snap_enabled in [false, true] {
+        let mut document = document();
+        document.snap_enabled = snap_enabled;
+        let mut cursor = EditorCursor::default();
+        let mut drag = DragState::default();
+        assert!(click(&mut document, &mut cursor, (-2.5, 0.0), 0.1));
+        assert!(click(&mut document, &mut cursor, (2.5, 0.0), 0.1));
+        let connected = document.ship.clone();
+        let history = document.history.undo_len();
+        for free_mode in [false, true, false, true] {
+            set_enabled(&mut document, &mut cursor, &mut drag, free_mode);
+            assert_eq!(
+                (document.free_mode, document.snap_enabled),
+                (free_mode, snap_enabled)
+            );
+            assert_eq!(document.ship, connected);
+            assert_eq!(document.history.undo_len(), history);
+            assert!(document.status.contains(if snap_enabled {
+                "吸附开启"
+            } else {
+                "吸附关闭"
+            }));
+        }
+        // 关闭吸附只是偏好变化，既有手动连接和撤销栈原样保留。
+        document.snap_enabled = false;
+        assert_eq!(document.ship, connected);
+        assert_eq!(document.history.undo_len(), history);
+        assert!(document.undo());
+        assert!(document.ship.connections.is_empty());
+        assert!(document.redo());
+        assert_eq!(document.ship, connected);
+        assert!(!document.snap_enabled);
+    }
 }

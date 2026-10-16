@@ -320,3 +320,159 @@ fn reducing_attachment_hints_keeps_one_candidate_for_each_different_target() {
     assert!(hints[1].contact.1.x > 0.0);
     assert!(!document.history.can_undo());
 }
+
+#[test]
+fn placement_hints_follow_snap_preference_in_all_four_combinations() {
+    for free_mode in [false, true] {
+        for snap_enabled in [false, true] {
+            let document = {
+                let mut document = document();
+                document.free_mode = free_mode;
+                document.snap_enabled = snap_enabled;
+                document
+            };
+            let before = document.ship.clone();
+            let cursor = EditorCursor {
+                placing: true,
+                valid: true,
+                world: (1.2, 0.0),
+                ..default()
+            };
+            let (ghost, connection, allowed) = placement::preview(&document, &cursor).unwrap();
+            assert!(allowed);
+            assert_eq!(connection.is_some(), snap_enabled);
+            let hints = nearby(&document, &ghost, None);
+            assert_eq!(hints.len(), usize::from(snap_enabled));
+            if let Some(hint) = hints.first() {
+                assert!(hint.snapped);
+                assert_eq!(hint.contact.0, hint.contact.1);
+            }
+            assert_eq!(document.ship, before);
+            assert!(!document.history.can_undo());
+        }
+    }
+}
+
+#[test]
+fn free_snap_hints_and_placement_only_relax_collision_with_other_parts() {
+    for free_mode in [false, true] {
+        let mut document = document();
+        document.free_mode = free_mode;
+        document.snap_enabled = true;
+        document.ship.parts.push(
+            document
+                .catalog
+                .get("engine")
+                .unwrap()
+                .instantiate(2, (1.0, 0.0)),
+        );
+        let before = document.ship.clone();
+        let cursor = EditorCursor {
+            placing: true,
+            valid: true,
+            world: (1.2, 0.0),
+            ..default()
+        };
+        let (ghost, connection, allowed) = placement::preview(&document, &cursor).unwrap();
+        assert_eq!(allowed, free_mode);
+        assert_eq!(connection.is_some(), free_mode);
+        assert_eq!(
+            nearby(&document, &ghost, None).len(),
+            usize::from(free_mode)
+        );
+        assert_eq!(document.ship, before);
+        assert_eq!(placement::place(&mut document, &cursor), free_mode);
+        assert_eq!(document.ship.connections.len(), usize::from(free_mode));
+        if free_mode {
+            assert_eq!(document.ship.part(ghost.id), Some(&ghost));
+            assert!(document.undo());
+        }
+        assert_eq!(document.ship, before);
+    }
+}
+
+#[test]
+fn free_snap_does_not_advertise_existing_pairs_source_occupancy_or_ambiguous_targets() {
+    for scenario in [
+        "existing_pair",
+        "source",
+        "target",
+        "ambiguous",
+        "pair_overlap",
+    ] {
+        let mut document = document();
+        document.free_mode = true;
+        document.snap_enabled = true;
+        let kind = document.catalog.get("pod").unwrap();
+        document.ship.parts.push(kind.instantiate(2, (5.0, 0.0)));
+        document.ship.parts.push(kind.instantiate(3, (10.0, 0.0)));
+        let mut source = kind.instantiate(2, (1.2, 0.0));
+        match scenario {
+            "existing_pair" => document.ship.connections.push(Connection::Normal {
+                parent: 1,
+                child: 2,
+                parent_attach: 2,
+                child_attach: 1,
+            }),
+            "source" => document.ship.connections.push(Connection::Normal {
+                parent: 2,
+                child: 3,
+                parent_attach: 1,
+                child_attach: 2,
+            }),
+            "target" => document.ship.connections.push(Connection::Normal {
+                parent: 1,
+                child: 3,
+                parent_attach: 2,
+                child_attach: 1,
+            }),
+            "ambiguous" => document.ship.parts.push(document.ship.parts[0].clone()),
+            "pair_overlap" => source.x = 0.2,
+            _ => unreachable!(),
+        }
+        let before = document.ship.clone();
+        assert!(
+            nearby(&document, &source, Some(PartKey::new(0, 2, 0))).is_empty(),
+            "{scenario}"
+        );
+        assert_eq!(document.ship, before);
+        assert!(!document.history.can_undo());
+    }
+}
+
+#[test]
+fn group_hints_match_actual_free_or_strict_snap_and_hide_when_snapping_is_disabled() {
+    for free_mode in [false, true] {
+        for snap_enabled in [false, true] {
+            let mut document = document();
+            document.free_mode = free_mode;
+            document.snap_enabled = snap_enabled;
+            let kind = document.catalog.get("pod").unwrap();
+            document.ship.parts = vec![
+                kind.instantiate(1, (0.0, 0.0)),
+                kind.instantiate(2, (0.0, 2.0)),
+                kind.instantiate(3, (4.0, 0.0)),
+            ];
+            let keys = [PartKey::new(0, 1, 0), PartKey::new(0, 2, 0)];
+            let (delta, command, allowed) =
+                crate::test_support::movement(&document, &keys, (2.8, 0.0));
+            assert!(allowed);
+            let drag = DragState {
+                id: Some(keys[0]),
+                members: keys.into_iter().collect(),
+                preview: delta,
+                ..default()
+            };
+            let hints = group_hints(&document, &drag, &command);
+            assert_eq!(hints.len(), usize::from(snap_enabled));
+            if let Some(hint) = hints.first() {
+                assert!(hint.snapped);
+                assert!(hint.contact.0.distance(hint.contact.1) < 1e-6);
+            }
+            document.snap_enabled = false;
+            // 即使仍持有上一帧的实际连接命令，也不绘制已关闭的自动吸附提示。
+            assert!(group_hints(&document, &drag, &command).is_empty());
+            assert!(!document.history.can_undo());
+        }
+    }
+}

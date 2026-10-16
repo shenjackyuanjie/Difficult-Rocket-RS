@@ -74,6 +74,7 @@ pub(crate) fn transform(document: &mut EditorDocument, id: PartKey, command: Edi
 }
 
 /// 连接提示与实际吸附共用占用、歧义和碰撞判断，不显示无法提交的候选。
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn candidate_allowed(
     ship: &Ship,
     catalog: &PartCatalog,
@@ -82,6 +83,7 @@ pub(crate) fn candidate_allowed(
     target: &Part,
     target_key: PartKey,
     candidate: &dr_core::SnapCandidate,
+    free_mode: bool,
 ) -> bool {
     let (Some(source_type), Some(target_type)) = (
         catalog.get(&proposed.part_type),
@@ -89,7 +91,7 @@ pub(crate) fn candidate_allowed(
     ) else {
         return false;
     };
-    dr_core::connections::available_scoped(
+    if !dr_core::connections::available_scoped(
         ship,
         catalog,
         proposed,
@@ -99,15 +101,67 @@ pub(crate) fn candidate_allowed(
         target_type,
         target_key,
         candidate,
-    ) && !collides(ship, catalog, proposed, source_key)
+    ) {
+        return false;
+    }
+    if !free_mode {
+        return !collides(ship, catalog, proposed, source_key);
+    }
+    // 自由几何只放开与其它部件的整体碰撞；新自动连接仍遵守连接对约束。
+    if dr_core::geometry::editor_overlap_blocked(proposed, source_type, target, target_type) {
+        return false;
+    }
+    let Some(source_key) = source_key else {
+        return true;
+    };
+    if source_key.group == target_key.group
+        && ship
+            .group(source_key.group)
+            .is_some_and(|(_, connections)| {
+                connections.iter().any(|connection| {
+                    connection.touches(source_key.id) && connection.touches(target_key.id)
+                })
+            })
+    {
+        return false;
+    }
+    // 自由拖动保留源部件的旧连接，因此也检查源端占用。
+    let reverse = dr_core::SnapCandidate {
+        source_index: candidate.target_index,
+        target_index: candidate.source_index,
+        ..*candidate
+    };
+    dr_core::connections::available_scoped(
+        ship,
+        catalog,
+        target,
+        target_type,
+        Some(target_key),
+        proposed,
+        source_type,
+        source_key,
+        &reverse,
+    )
 }
 
-/// 预览和落点提交共用的吸附计算，不改变文档。
+/// 辅助几何下的纯吸附入口，供直接回归复用。
+#[cfg(test)]
 pub(crate) fn snap(
     ship: &Ship,
     catalog: &PartCatalog,
     source: &mut Part,
     source_key: Option<PartKey>,
+) -> Option<EditorCommand> {
+    snap_with_mode(ship, catalog, source, source_key, false)
+}
+
+/// 预览和落点提交共用的吸附计算，不改变文档。
+fn snap_with_mode(
+    ship: &Ship,
+    catalog: &PartCatalog,
+    source: &mut Part,
+    source_key: Option<PartKey>,
+    free_mode: bool,
 ) -> Option<EditorCommand> {
     let source_type = catalog.get(&source.part_type)?;
     let mut best: Option<(EditorCommand, dr_core::SnapCandidate)> = None;
@@ -135,7 +189,7 @@ pub(crate) fn snap(
             proposed.x = candidate.position.x;
             proposed.y = candidate.position.y;
             if !candidate_allowed(
-                ship, catalog, &proposed, source_key, target, target_key, &candidate,
+                ship, catalog, &proposed, source_key, target, target_key, &candidate, free_mode,
             ) {
                 continue;
             }
@@ -191,10 +245,16 @@ pub(crate) fn preview(
     let allowed = kind
         .max_occurrences
         .is_none_or(|limit| document.ship.count_type(&kind.id) < limit as usize);
-    let connection = if document.free_mode {
-        None
+    let connection = if document.snap_enabled {
+        snap_with_mode(
+            &document.ship,
+            &document.catalog,
+            &mut part,
+            None,
+            document.free_mode,
+        )
     } else {
-        snap(&document.ship, &document.catalog, &mut part, None)
+        None
     };
     let allowed = allowed
         && (document.free_mode || !collides(&document.ship, &document.catalog, &part, None));

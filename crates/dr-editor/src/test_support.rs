@@ -8,6 +8,7 @@ pub(crate) fn document() -> EditorDocument {
             .unwrap();
     EditorDocument {
         free_mode: false,
+        snap_enabled: true,
         revision: 0,
         saved_ship: ship.clone(),
         ship,
