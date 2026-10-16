@@ -105,6 +105,19 @@ impl Plugin for EditorEguiPlugin {
     }
 }
 
+/// 停靠分级是左侧边栏，不独占画布、目录与快捷键；只有非停靠的属性窗口才是模态。
+pub(crate) fn modal_properties(inspector: Option<&properties::Inspector>) -> bool {
+    inspector.is_some_and(|inspector| inspector.is_open() && !inspector.docked())
+}
+
+pub fn properties_modal(inspector: Option<Res<properties::Inspector>>) -> bool {
+    modal_properties(inspector.as_deref())
+}
+
+pub fn panel_actions_available(inspector: Option<Res<properties::Inspector>>) -> bool {
+    !properties_modal(inspector)
+}
+
 /// 边栏按钮焦点不独占画布快捷键；只有属性草稿中的文本/模态独占输入。
 /// 直接检查事务状态，避免依赖 PostUpdate 才更新的上一帧焦点。
 pub fn canvas_input_available(
@@ -115,7 +128,7 @@ pub fn canvas_input_available(
     lines: Option<Res<connection_lines::Settings>>,
     menu: Option<Res<files::FileMenu>>,
 ) -> bool {
-    !inspector.is_some_and(|inspector| inspector.is_open())
+    !modal_properties(inspector.as_deref())
         && !topology.is_some_and(|state| state.open)
         && !pending.is_some_and(|state| state.is_blocked())
         && !help.is_some_and(|state| state.open || state.suppress_frame)
@@ -123,7 +136,7 @@ pub fn canvas_input_available(
         && !menu.is_some_and(|state| state.open)
 }
 
-/// 停靠分级打开/改尺寸时仅放行既有适配请求，仍不放行画布编辑快捷键。
+/// 停靠分级共享画布输入，并保留打开/改尺寸时的既有适配请求。
 pub fn canvas_or_fit_available(
     inspector: Option<Res<properties::Inspector>>,
     topology: Option<Res<topology_ui::ConnectionEditor>>,
@@ -186,14 +199,15 @@ pub fn prepare_input(
         pointer.blocked = true;
         return;
     }
+    let modal = modal_properties(Some(&inspector));
     if let Some(state) = topology.as_mut() {
-        if !inspector.is_open() && keys.just_pressed(KeyCode::F6) {
+        if !modal && keys.just_pressed(KeyCode::F6) {
             state.open = !state.open;
         }
         if state.open && keys.just_pressed(KeyCode::Escape) {
             state.open = false;
         }
-        if inspector.is_open() {
+        if modal {
             state.open = false;
         }
     }
@@ -201,14 +215,15 @@ pub fn prepare_input(
     if !inspector.is_open() && !topology_open && keys.just_pressed(KeyCode::F2) {
         properties::open(&mut inspector, &document);
     }
-    if inspector.is_open() || topology_open || line_open {
+    let modal = modal_properties(Some(&inspector));
+    if modal || topology_open || line_open {
         if let Some(touch) = touch.as_mut() {
             touch.navigation = None;
         }
         canvas_input::cancel_preview(&mut drag, &mut cursor, &mut camera_drag);
     }
     // 沿用现有 Bevy 工具栏的命中结果，而不是覆盖它。
-    pointer.blocked |= inspector.is_open() || topology_open || line_open;
+    pointer.blocked |= modal || topology_open || line_open;
 }
 
 fn configure_chinese_font(ctx: &egui::Context, paths: &EditorPaths) {
@@ -434,6 +449,8 @@ pub fn draw(
     hits.body = None;
     hits.scrolling = false;
     hits.sync_navigation(&inspector);
+    // 停靠草稿与画布并行编辑，每帧观察文本历史及外部修改的诊断，早退时也保持同步。
+    inspector.refresh(&document);
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
@@ -1183,11 +1200,12 @@ mod tests {
             .resource_mut::<panels::egui_panel::UiState>()
             .fit_requested = true;
         app.update();
-        assert_eq!(app.world().resource::<CanvasPasses>().editing, 1);
+        // 停靠分级不再阻断画布编辑；随后打开文件菜单仍同时阻断编辑与 fit。
+        assert_eq!(app.world().resource::<CanvasPasses>().editing, 2);
         assert_eq!(app.world().resource::<CanvasPasses>().fit, 2);
         app.world_mut().resource_mut::<files::FileMenu>().open = true;
         app.update();
-        assert_eq!(app.world().resource::<CanvasPasses>().editing, 1);
+        assert_eq!(app.world().resource::<CanvasPasses>().editing, 2);
         assert_eq!(
             app.world().resource::<CanvasPasses>().fit,
             2,

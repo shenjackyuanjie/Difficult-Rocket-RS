@@ -1,7 +1,7 @@
 //! 画布鼠标/键盘入口；触摸桥接共用既有事务。
 use crate::{
     CameraDrag, DragState, EditorCursor, EditorDocument, free_mode, mobile_input, panels,
-    placement, selection, view,
+    placement, properties, selection, view,
 };
 use bevy::prelude::*;
 use dr_core::{
@@ -27,6 +27,7 @@ pub(crate) fn cancel_preview(
 pub(crate) fn keyboard_commands(
     keys: Res<ButtonInput<KeyCode>>,
     mut document: ResMut<EditorDocument>,
+    mut inspector: ResMut<properties::Inspector>,
     mut cursor: ResMut<EditorCursor>,
     drag: Res<DragState>,
     palette: Res<panels::Palette>,
@@ -58,7 +59,9 @@ pub(crate) fn keyboard_commands(
             cursor.cancel_placement();
         }
         cursor.paste = None;
-        document.undo();
+        if !inspector.undo_draft() {
+            document.undo();
+        }
         return;
     }
     if control && keys.just_pressed(KeyCode::KeyY) {
@@ -66,7 +69,9 @@ pub(crate) fn keyboard_commands(
             cursor.cancel_placement();
         }
         cursor.paste = None;
-        document.redo();
+        if !inspector.redo_draft() {
+            document.redo();
+        }
         return;
     }
     if selection::keyboard(&mut document, &mut cursor, &keys, pointer.blocked) {

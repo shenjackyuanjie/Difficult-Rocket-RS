@@ -290,7 +290,7 @@ pub(crate) fn controls(
     {
         return;
     }
-    let editing = inspector.is_some_and(|state| state.is_open());
+    let editing = crate::egui_ui::modal_properties(inspector.as_deref());
     if !editing && keys.just_pressed(KeyCode::F3) {
         options.debug = !options.debug;
     }

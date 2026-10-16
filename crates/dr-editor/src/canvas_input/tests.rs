@@ -214,6 +214,7 @@ fn missed_release_event_still_finishes_drag_and_sidebar_release_cancels() {
 fn held_drag_rotates_preview_blocks_clipboard_shortcuts_and_cancels_atomically() {
     let mut app = mouse_app();
     app.init_resource::<panels::Palette>()
+        .init_resource::<properties::Inspector>()
         .add_systems(Update, keyboard_commands.after(mouse_editor));
     let before = app.world().resource::<EditorDocument>().ship.clone();
     pointer(&mut app, (0.0, 0.0));
@@ -634,4 +635,231 @@ fn other_ui_release_and_escape_over_palette_never_delete() {
         assert!(!document.history.can_undo());
         assert!(app.world().resource::<DragState>().id.is_none());
     }
+}
+
+fn staging_document() -> EditorDocument {
+    let mut document = crate::test_support::document();
+    document.ship = dr_core::ship_from_xml(
+        r#"<Ship><Parts><Part id="1" partType="pod"><Pod name="初始"><Staging currentStage="0"/></Pod></Part></Parts></Ship>"#,
+    ).unwrap();
+    document.saved_ship = document.ship.clone();
+    document
+}
+
+fn draft_keyboard_app() -> App {
+    let mut document = staging_document();
+    assert!(document.execute(EditorCommand::SetMetadata {
+        name: "文档历史".into(),
+        description: "画布编辑".into(),
+    }));
+    let mut inspector = properties::Inspector::default();
+    properties::open(&mut inspector, &document);
+    assert!(inspector.docked());
+    let mut app = App::new();
+    app.insert_resource(document)
+        .insert_resource(inspector)
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<EditorCursor>()
+        .init_resource::<DragState>()
+        .init_resource::<panels::Palette>()
+        .init_resource::<panels::UiPointer>()
+        .add_systems(
+            Update,
+            keyboard_commands.run_if(egui_ui::canvas_input_available),
+        );
+    app
+}
+
+fn draft_shortcut(app: &mut App, key: KeyCode) {
+    // 每次重新产生边沿，模拟松开再按下同一快捷键。
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.reset_all();
+        keys.press(KeyCode::ControlLeft);
+        keys.press(key);
+    }
+    app.update();
+}
+
+fn draft_name(app: &App) -> &str {
+    &app.world()
+        .resource::<properties::Inspector>()
+        .draft
+        .as_ref()
+        .unwrap()
+        .name
+}
+
+#[test]
+fn draft_shortcuts_consume_local_history_before_document_undo_and_redo() {
+    let mut app = draft_keyboard_app();
+    let before = app.world().resource::<EditorDocument>().ship.clone();
+    let revision = app.world().resource::<EditorDocument>().revision;
+    app.world_mut()
+        .resource_mut::<properties::Inspector>()
+        .draft
+        .as_mut()
+        .unwrap()
+        .name = "草稿修改".into();
+    // 两种历史入口都先清理未提交目录拖动和粘贴，而不把预览写入文档。
+    let fragment = dr_core::ShipFragment::capture(&before, &[PartKey::new(0, 1, 0)]).unwrap();
+    {
+        let mut cursor = app.world_mut().resource_mut::<EditorCursor>();
+        cursor.palette_drag = true;
+        cursor.placing = true;
+        cursor.paste = Some(fragment.clone());
+    }
+    draft_shortcut(&mut app, KeyCode::KeyZ);
+    assert_eq!(draft_name(&app), "初始");
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert_eq!(app.world().resource::<EditorDocument>().revision, revision);
+    let cursor = app.world().resource::<EditorCursor>();
+    assert!(!cursor.palette_drag && !cursor.placing && cursor.paste.is_none());
+
+    draft_shortcut(&mut app, KeyCode::KeyZ);
+    assert_eq!(draft_name(&app), "初始");
+    let undone = app.world().resource::<EditorDocument>().ship.clone();
+    let undone_revision = app.world().resource::<EditorDocument>().revision;
+    assert_ne!(undone, before);
+    assert_ne!(undone_revision, revision);
+    {
+        let mut cursor = app.world_mut().resource_mut::<EditorCursor>();
+        cursor.palette_drag = true;
+        cursor.placing = true;
+        cursor.paste = Some(fragment);
+    }
+    draft_shortcut(&mut app, KeyCode::KeyY);
+    assert_eq!(draft_name(&app), "草稿修改");
+    assert_eq!(app.world().resource::<EditorDocument>().ship, undone);
+    assert_eq!(
+        app.world().resource::<EditorDocument>().revision,
+        undone_revision
+    );
+    let cursor = app.world().resource::<EditorCursor>();
+    assert!(!cursor.palette_drag && !cursor.placing && cursor.paste.is_none());
+
+    draft_shortcut(&mut app, KeyCode::KeyY);
+    assert_eq!(draft_name(&app), "草稿修改");
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert_ne!(
+        app.world().resource::<EditorDocument>().revision,
+        undone_revision
+    );
+}
+
+#[test]
+fn draft_without_local_history_falls_back_to_document_undo() {
+    let mut app = draft_keyboard_app();
+    let before = app.world().resource::<EditorDocument>().ship.clone();
+    assert!(!app.world().resource::<properties::Inspector>().can_undo());
+    draft_shortcut(&mut app, KeyCode::KeyZ);
+    assert_ne!(app.world().resource::<EditorDocument>().ship, before);
+    assert_eq!(draft_name(&app), "初始");
+    assert!(!app.world().resource::<EditorDocument>().history.can_undo());
+}
+
+#[test]
+fn docked_staging_allows_canvas_and_fit_while_modal_properties_block_them() {
+    use bevy::ecs::system::RunSystemOnce;
+    let document = staging_document();
+    let mut inspector = properties::Inspector::default();
+    properties::open(&mut inspector, &document);
+    let mut world = World::new();
+    world.insert_resource(inspector);
+    world.init_resource::<panels::egui_panel::UiState>();
+    for fit in [false, true] {
+        world
+            .resource_mut::<panels::egui_panel::UiState>()
+            .fit_requested = fit;
+        assert!(
+            world
+                .run_system_once(egui_ui::canvas_input_available)
+                .unwrap()
+        );
+        assert!(
+            world
+                .run_system_once(egui_ui::canvas_or_fit_available)
+                .unwrap()
+        );
+        assert!(
+            world
+                .run_system_once(egui_ui::panel_actions_available)
+                .unwrap()
+        );
+        assert!(!world.run_system_once(egui_ui::properties_modal).unwrap());
+    }
+    // 同样的 Pod 草稿进入修复流程时恢复模态，不借适配请求绕过隔离。
+    let mut duplicate_ship = document.ship.clone();
+    duplicate_ship.parts.push(duplicate_ship.parts[0].clone());
+    world.resource_mut::<properties::Inspector>().repair =
+        Some(dr_core::DuplicateRepair::new(&duplicate_ship, PartKey::new(0, 1, 0)).unwrap());
+    assert!(
+        !world
+            .run_system_once(egui_ui::canvas_input_available)
+            .unwrap()
+    );
+    assert!(
+        !world
+            .run_system_once(egui_ui::canvas_or_fit_available)
+            .unwrap()
+    );
+    assert!(
+        !world
+            .run_system_once(egui_ui::panel_actions_available)
+            .unwrap()
+    );
+    {
+        let mut inspector = world.resource_mut::<properties::Inspector>();
+        inspector.repair = None;
+        inspector.draft.as_mut().unwrap().original.pod = None;
+    }
+    assert!(
+        !world
+            .run_system_once(egui_ui::canvas_input_available)
+            .unwrap()
+    );
+    assert!(
+        !world
+            .run_system_once(egui_ui::canvas_or_fit_available)
+            .unwrap()
+    );
+    assert!(world.run_system_once(egui_ui::properties_modal).unwrap());
+}
+
+#[test]
+fn prepare_input_keeps_docked_staging_canvas_previews_and_pointer_available() {
+    let document = staging_document();
+    let fragment =
+        dr_core::ShipFragment::capture(&document.ship, &[PartKey::new(0, 1, 0)]).unwrap();
+    let mut inspector = properties::Inspector::default();
+    properties::open(&mut inspector, &document);
+    let mut app = App::new();
+    app.insert_resource(document)
+        .insert_resource(inspector)
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<panels::UiPointer>()
+        .insert_resource(DragState {
+            id: Some(PartKey::new(0, 1, 0)),
+            rectangle: Some((2.0, 3.0)),
+            ..default()
+        })
+        .insert_resource(EditorCursor {
+            placing: true,
+            palette_drag: true,
+            paste: Some(fragment),
+            ..default()
+        })
+        .insert_resource(CameraDrag(Some(Vec2::new(4.0, 5.0))))
+        .add_systems(Update, egui_ui::prepare_input);
+    app.update();
+    let drag = app.world().resource::<DragState>();
+    assert_eq!(drag.id, Some(PartKey::new(0, 1, 0)));
+    assert_eq!(drag.rectangle, Some((2.0, 3.0)));
+    let cursor = app.world().resource::<EditorCursor>();
+    assert!(cursor.placing && cursor.palette_drag && cursor.paste.is_some());
+    assert_eq!(
+        app.world().resource::<CameraDrag>().0,
+        Some(Vec2::new(4.0, 5.0))
+    );
+    assert!(!app.world().resource::<panels::UiPointer>().blocked);
 }

@@ -188,7 +188,7 @@ fn main() -> anyhow::Result<()> {
                 properties::actions,
                 files::toolbar_actions,
                 egui_ui::prepare_input,
-                panels::panel_actions.run_if(properties::closed),
+                panels::panel_actions.run_if(egui_ui::panel_actions_available),
                 files::file_inputs,
                 properties::cancel_for_file_action,
                 placement::cancel_for_file_action,

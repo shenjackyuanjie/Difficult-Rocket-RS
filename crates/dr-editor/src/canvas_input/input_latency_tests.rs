@@ -39,6 +39,7 @@ fn app() -> App {
     .init_asset::<Image>()
     .init_resource::<panels::Palette>()
     .init_resource::<FrameChanges>()
+    .init_resource::<crate::properties::Inspector>()
     .add_systems(
         Update,
         (view::controls, camera_controls)
@@ -317,7 +318,7 @@ fn keyboard_edges_still_handle_selection_copy_paste_rotation_and_tab() {
 }
 
 #[test]
-fn docked_staging_fits_and_reveals_the_ship_without_leaking_editing_shortcuts() {
+fn docked_staging_keeps_canvas_shortcuts_but_not_data_edits() {
     let mut app = app();
     app.edit_schedule(Update, |schedule| *schedule = Schedule::new(Update));
     app.add_systems(
@@ -354,6 +355,7 @@ fn docked_staging_fits_and_reveals_the_ship_without_leaking_editing_shortcuts() 
     app.world_mut()
         .resource_mut::<view::ViewOptions>()
         .ship_visible = false;
+    // 停靠边栏共享画布快捷键；F4 切回可见，无选择的 R 不产生数据修改。
     key(&mut app, KeyCode::KeyR, ButtonState::Pressed);
     key(&mut app, KeyCode::F4, ButtonState::Pressed);
     app.update();
@@ -363,6 +365,14 @@ fn docked_staging_fits_and_reveals_the_ship_without_leaking_editing_shortcuts() 
             .fit_requested
     );
     assert!(app.world().resource::<view::ViewOptions>().ship_visible);
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(!app.world().resource::<EditorDocument>().history.can_undo());
+    // 没有适配请求时也可切换，证明不是模态窗口的强制显示掩盖了 F4。
+    key(&mut app, KeyCode::F4, ButtonState::Released);
+    app.update();
+    key(&mut app, KeyCode::F4, ButtonState::Pressed);
+    app.update();
+    assert!(!app.world().resource::<view::ViewOptions>().ship_visible);
     assert_eq!(app.world().resource::<EditorDocument>().ship, before);
     assert!(!app.world().resource::<EditorDocument>().history.can_undo());
     app.world_mut()
