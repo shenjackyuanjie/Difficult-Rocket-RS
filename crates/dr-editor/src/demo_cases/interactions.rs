@@ -68,6 +68,10 @@ pub(super) fn setup(ctx: &mut Context, scenario: Scenario) {
         }
         Scenario::Descendants => {
             ctx.options.follow_children = true;
+            // 自由模式与吸附是两个独立开关：本样例核对自由几何下不加新边、外部连接原样保留，
+            // 因此显式关闭吸附。吸附开启时的四组合行为由 placement/selection 单测与
+            // transform_smoke 的真实控件四组合覆盖。
+            ctx.document.snap_enabled = false;
         }
         Scenario::LineWidth(_) => {
             ctx.lines.open = true;

@@ -95,11 +95,11 @@ fn draft(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
             if let Scenario::InvalidFuel(value) = scenario {
                 draft.fuel = value.into();
             } else {
-                draft.active = !original.active;
-                assert!(
-                    ctx.document
-                        .execute(EditorCommand::SetActive(1, !original.active))
-                );
+                // 草稿把燃料改成 600，外部事务把同一字段改成 500：同一字段三方冲突，
+                // 应用旧草稿必须被拒绝，不能覆盖外部写入的新状态。
+                draft.fuel = "600".into();
+                assert!(ctx.document.execute(EditorCommand::SetFuel(1, 500.0)));
+                assert_ne!(ctx.document.ship.part(1), Some(&original));
                 state.after = Some(ctx.document.ship.clone());
             }
         }

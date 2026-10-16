@@ -370,7 +370,7 @@ pub(crate) const HISTORY: &[Case] = &[
     case!(
         "properties-stale",
         "属性草稿快照已过期",
-        "开草稿后部件已由另一事务修改：应用旧草稿必须拒绝，不能覆盖新状态。",
+        "开草稿后同一字段被另一事务改成不同值：应用旧草稿必须拒绝并保留草稿，不能覆盖新状态。",
         "文档事务 + 实际 egui 应用按钮",
         Scenario::StaleDraft
     ),
