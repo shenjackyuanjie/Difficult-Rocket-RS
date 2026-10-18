@@ -165,11 +165,12 @@ fn keyboard_place_during_palette_drag_clears_the_ghost_before_mouse_release() {
 }
 
 #[test]
-fn palette_preview_follows_small_motion_without_grid_quantization_and_release_clears_selection() {
+fn palette_preview_quantizes_small_motion_and_release_clears_selection() {
     let mut document = document();
     let mut cursor = dragged((4.13, 3.17));
     let (part, connection, allowed) = preview(&document, &cursor).unwrap();
-    assert_eq!((part.x, part.y), cursor.world);
+    // 常规模式落点按 0.5 量化：4.13 与 3.17 都不足半格，回落到 4.0 与 3.0。
+    assert_eq!((part.x, part.y), (4.0, 3.0));
     assert!(allowed && connection.is_none());
     assert!(finish_palette_drag(&mut document, &mut cursor, true));
     assert!(document.selected_keys().is_empty());
@@ -190,7 +191,7 @@ fn placement_snap_and_free_geometry_are_independent_in_all_four_combinations() {
             assert_eq!(connection.is_some(), snap_enabled);
             assert_eq!(
                 (ghost.x, ghost.y),
-                (if snap_enabled { 1.0 } else { 1.2 }, 0.0)
+                (if snap_enabled || !free_mode { 1.0 } else { 1.2 }, 0.0,)
             );
             assert_eq!(document.ship, before);
             assert!(finish_palette_drag(&mut document, &mut cursor, true));

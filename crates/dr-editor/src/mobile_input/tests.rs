@@ -77,10 +77,11 @@ fn single_touch_drag_preserves_grab_offset_and_release_position_in_one_undo_step
     assert!(app.world().resource::<DragState>().id.is_some());
     touch(&mut app, 1, TouchPhase::Moved, 738.0, 436.2);
     assert_eq!(app.world().resource::<EditorDocument>().ship, before);
-    touch(&mut app, 1, TouchPhase::Ended, 742.8, 431.4);
+    touch(&mut app, 1, TouchPhase::Ended, 762.0, 414.0);
     let document = app.world().resource::<EditorDocument>();
-    assert!((document.ship.parts[0].x - 0.18).abs() < 1e-4);
-    assert!((document.ship.parts[0].y - 0.21).abs() < 1e-4);
+    // 触摸位移 (0.5, 0.5) 正好落在半格上，提交后保持该位移。
+    assert!((document.ship.parts[0].x - 0.5).abs() < 1e-4);
+    assert!((document.ship.parts[0].y - 0.5).abs() < 1e-4);
     assert!(app.world().resource::<DragState>().id.is_none());
     app.update();
     let mut document = app.world_mut().resource_mut::<EditorDocument>();
@@ -384,10 +385,10 @@ fn dpi_scaling_does_not_double_scale_the_touch_canvas_position() {
         .unwrap()
         .resolution = WindowResolution::new(2880, 1800).with_scale_factor_override(2.0);
     touch(&mut app, 1, TouchPhase::Started, 720.0, 450.0);
-    touch(&mut app, 1, TouchPhase::Ended, 750.0, 438.0);
+    touch(&mut app, 1, TouchPhase::Ended, 750.0, 420.0);
     let document = app.world().resource::<EditorDocument>();
     assert!((document.ship.parts[0].x - 0.5).abs() < 1e-4);
-    assert!((document.ship.parts[0].y - 0.2).abs() < 1e-4);
+    assert!((document.ship.parts[0].y - 0.5).abs() < 1e-4);
 }
 
 #[test]

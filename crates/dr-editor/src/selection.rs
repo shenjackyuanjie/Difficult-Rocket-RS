@@ -32,9 +32,19 @@ impl DragState {
         self.flip_x = false;
         self.flip_y = false;
     }
-    /// 连续跟随指针，连接面吸附另行计算，不把拖动量化为半格。
-    pub(crate) fn follow(&mut self, logical: (f64, f64)) {
-        self.preview = (logical.0 + self.offset.0, logical.1 + self.offset.1);
+    /// 连续跟随指针；常规模式把位移逐轴量化到网格步长，连接面吸附另行计算。
+    /// 抓取偏移保留，原点不在网格上的部件按网格位移移动。
+    pub(crate) fn follow(&mut self, logical: (f64, f64), quantize: bool) {
+        let preview = (logical.0 + self.offset.0, logical.1 + self.offset.1);
+        self.preview = if quantize {
+            let delta = dr_core::geometry::quantize_point((
+                preview.0 - self.origin.0,
+                preview.1 - self.origin.1,
+            ));
+            (self.origin.0 + delta.0, self.origin.1 + delta.1)
+        } else {
+            preview
+        };
     }
 
     pub(crate) fn moved(&self) -> bool {
@@ -423,6 +433,12 @@ fn movement_transformed_with_modes(
     free_mode: bool,
     snap_enabled: bool,
 ) -> ((f64, f64), EditorCommand, bool) {
+    // 常规模式先量化整组平移，吸附候选和最终落点都以网格位移为准；自由模式保留连续位移。
+    let delta = if free_mode {
+        delta
+    } else {
+        dr_core::geometry::quantize_point(delta)
+    };
     let command = |offset| drag_command(keys, pose, offset);
     let preview = |command: &EditorCommand| {
         if free_mode {

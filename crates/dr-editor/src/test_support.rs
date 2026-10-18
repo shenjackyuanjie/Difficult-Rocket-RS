@@ -65,6 +65,13 @@ pub(crate) fn mouse_app() -> App {
     app
 }
 
+/// 屏幕像素位移经网格量化后的世界像素位移；y 轴由屏幕向下翻到世界向上。
+pub(crate) fn grid_pixels(delta: Vec2) -> Vec2 {
+    let (x, y) =
+        dr_core::geometry::quantize_point((f64::from(delta.x) / 60.0, f64::from(-delta.y) / 60.0));
+    Vec2::new((x * 60.0) as f32, (y * 60.0) as f32)
+}
+
 /// 将预览落点、断开旧连接和新吸附作为一个可撤销操作。
 pub(crate) fn move_with_snap(
     ship: &Ship,

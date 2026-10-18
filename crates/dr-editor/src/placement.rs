@@ -229,7 +229,13 @@ pub(crate) fn preview(
     cursor: &EditorCursor,
 ) -> Option<(Part, Option<EditorCommand>, bool)> {
     let kind = document.catalog.visible().nth(cursor.catalog_index)?;
-    let mut part = kind.instantiate(document.ship.next_part_id(), cursor.world);
+    // 常规模式的落点量化到网格，自由模式保留指针的连续坐标。
+    let position = if document.free_mode {
+        cursor.world
+    } else {
+        dr_core::geometry::quantize_point(cursor.world)
+    };
+    let mut part = kind.instantiate(document.ship.next_part_id(), position);
     part.editor_angle = if kind.disable_editor_rotation {
         0
     } else {

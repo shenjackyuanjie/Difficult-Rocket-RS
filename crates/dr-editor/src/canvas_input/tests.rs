@@ -92,7 +92,7 @@ fn cancel_preview_drops_pending_edits_but_keeps_reusable_cursor_settings() {
 }
 
 #[test]
-fn actual_mouse_drag_follows_sub_grid_motion_and_release_cleans_highlight_and_history() {
+fn actual_mouse_drag_quantizes_sub_grid_motion_and_release_cleans_highlight_and_history() {
     let mut app = mouse_app();
     let before = app.world().resource::<EditorDocument>().ship.clone();
     pointer(&mut app, (0.0, 0.0));
@@ -103,11 +103,12 @@ fn actual_mouse_drag_follows_sub_grid_motion_and_release_cleans_highlight_and_hi
     pointer(&mut app, (0.1, 0.13));
     app.update();
     let drag = app.world().resource::<DragState>();
-    assert!((drag.preview.0 - 0.1).abs() < 1e-5);
-    assert!((drag.preview.1 - 0.13).abs() < 1e-5);
+    // 不足半格的位移保持原地：预览每帧都落在网格上。
+    assert!(drag.preview.0.abs() < 1e-5);
+    assert!(drag.preview.1.abs() < 1e-5);
     assert_eq!(app.world().resource::<EditorDocument>().ship, before);
-    // 光标在松手帧继续移动；落点应包含这一帧末段位移。
-    pointer(&mut app, (0.18, 0.21));
+    // 光标在松手帧继续移动；落点应包含这一帧末段位移，并量化到半格。
+    pointer(&mut app, (0.3, 0.4));
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .release(MouseButton::Left);
@@ -118,14 +119,54 @@ fn actual_mouse_drag_follows_sub_grid_motion_and_release_cleans_highlight_and_hi
     );
     let document = app.world().resource::<EditorDocument>();
     assert!(document.selected_keys().is_empty());
-    assert!((document.ship.parts[0].x - 0.18).abs() < 1e-5);
-    assert!((document.ship.parts[0].y - 0.21).abs() < 1e-5);
+    assert!((document.ship.parts[0].x - 0.5).abs() < 1e-5);
+    assert!((document.ship.parts[0].y - 0.5).abs() < 1e-5);
     assert!(document.history.can_undo());
     app.update();
     assert!(app.world_mut().resource_mut::<EditorDocument>().undo());
     let document = app.world().resource::<EditorDocument>();
     assert_eq!(document.ship, before);
     assert!(!document.history.can_undo());
+}
+
+#[test]
+fn drag_quantizes_each_axis_and_commits_one_history_step_at_a_grid_point() {
+    let mut app = mouse_app();
+    let before = app.world().resource::<EditorDocument>().ship.clone();
+    pointer(&mut app, (0.0, 0.0));
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.update();
+    // 0.04 不足半格回落到 0，0.26 进位到 0.5：x、y 各按自身位移量化。
+    pointer(&mut app, (0.04, 0.26));
+    app.update();
+    let drag = app.world().resource::<DragState>();
+    assert!(drag.preview.0.abs() < 1e-9);
+    assert!((drag.preview.1 - 0.5).abs() < 1e-9);
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(!app.world().resource::<EditorDocument>().history.can_undo());
+    // 最终位移各自独立进位：(0.26, 0.74) → (0.5, 0.5)。
+    pointer(&mut app, (0.26, 0.74));
+    app.update();
+    let drag = app.world().resource::<DragState>();
+    assert!((drag.preview.0 - 0.5).abs() < 1e-9);
+    assert!((drag.preview.1 - 0.5).abs() < 1e-9);
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .release(MouseButton::Left);
+    app.update();
+    let document = app.world().resource::<EditorDocument>();
+    assert_eq!(document.history.undo_len(), 1);
+    let part = &document.ship.parts[0];
+    for (value, steps) in [(part.x, 1.0), (part.y, 1.0)] {
+        // 落点是网格点：坐标正好是步长的整数倍。
+        assert!((value / dr_core::geometry::EDITOR_GRID_STEP - steps).abs() < 1e-9);
+    }
+    app.update();
+    assert!(app.world_mut().resource_mut::<EditorDocument>().undo());
+    assert_eq!(app.world().resource::<EditorDocument>().ship, before);
+    assert!(!app.world().resource::<EditorDocument>().history.can_undo());
 }
 
 #[test]
@@ -193,7 +234,7 @@ fn missed_release_event_still_finishes_drag_and_sidebar_release_cancels() {
             .resource_mut::<ButtonInput<MouseButton>>()
             .press(MouseButton::Left);
         app.update();
-        pointer(&mut app, (0.1, 0.1));
+        pointer(&mut app, (0.6, 0.6));
         app.update();
         app.world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()

@@ -187,14 +187,15 @@ fn mouse_messages_reach_drag_visual_and_global_transform_in_one_update() {
     assert!(app.world().resource::<DragState>().id.is_some());
     let entity = visual(&mut app);
     for delta in [
+        // 不足半格：预览停在原位，不产生抖动。
         Vec2::new(0.5, 0.25),
-        Vec2::new(3.0, -2.0),
-        Vec2::new(-0.25, 0.5),
-        Vec2::new(8.0, 5.0),
+        Vec2::new(6.0, 4.0),
+        Vec2::new(-4.0, 10.0),
+        Vec2::new(48.0, 32.0),
     ] {
         point(&mut app, start + delta);
         app.update();
-        let expected = Vec2::new(delta.x, -delta.y);
+        let expected = crate::test_support::grid_pixels(delta);
         close(
             app.world()
                 .get::<Transform>(entity)

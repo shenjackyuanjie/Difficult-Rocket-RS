@@ -17,6 +17,27 @@ impl Vec2d {
 
 pub const SR1_TO_PIXELS: f64 = 60.0;
 
+/// 编辑器网格步长（SR1 逻辑格）：拖动位移与放置坐标按此步长量化。
+/// 取自 SimpleRockets PC 1.6.11 的真实拖拽实测（四档缩放下位移均为 0.5，
+/// 0.1 与 0.25 从未出现；证据见 target/grid-probe/README.md）。
+/// 实测值变化时只改这一处，其余逻辑全部引用该常量。
+pub const EDITOR_GRID_STEP: f64 = 0.5;
+
+/// 把单个坐标四舍五入到最近的网格点；正负对称，恰好半格时向远离零的方向进位。
+/// 先换算成格数再四舍五入，避免 0.35 这类十进制值在除法后落到半格下方；
+/// 再吸收步长的十万分之一量级的浮点噪声（远小于最高缩放下的一个屏幕像素），
+/// 让恰好半格的拖动稳定进位，而不是随相机换算的末位误差逐帧翻转。
+pub fn quantize_coordinate(value: f64) -> f64 {
+    let per_unit = 1.0 / EDITOR_GRID_STEP;
+    let steps = value * per_unit;
+    (steps + steps.signum() * 1e-5).round() / per_unit
+}
+
+/// 逐轴量化逻辑坐标：x、y 互不影响，可分别落在不同网格线上。
+pub fn quantize_point(point: (f64, f64)) -> (f64, f64) {
+    (quantize_coordinate(point.0), quantize_coordinate(point.1))
+}
+
 pub fn part_world_attach(part: &Part, attach: &AttachPoint) -> Vec2d {
     local_to_world(part, (attach.x, attach.y))
 }
@@ -671,5 +692,35 @@ mod tests {
         kind.height = 0;
         assert!(!intersects(&p(1, 0.0), &kind, &p(2, 0.0), &kind));
         assert!(!contains_point(&p(1, 0.0), &kind, Vec2d::default()));
+    }
+
+    #[test]
+    fn grid_step_rounds_half_up_per_axis_and_stays_symmetric() {
+        // 实测取整规则：最近一格，恰好半格向远离零方向进位。
+        for (value, expected) in [
+            (0.04, 0.0),
+            (0.24, 0.0),
+            (0.25, EDITOR_GRID_STEP),
+            (0.26, EDITOR_GRID_STEP),
+            (-0.24, 0.0),
+            (-0.25, -EDITOR_GRID_STEP),
+            (-0.26, -EDITOR_GRID_STEP),
+            (0.74, EDITOR_GRID_STEP),
+            (0.75, 1.0),
+            (1.26, 1.5),
+            (-1.26, -1.5),
+        ] {
+            let actual = quantize_coordinate(value);
+            assert!(
+                (actual - expected).abs() < 1e-9,
+                "{value} 量化到 {actual}，期望 {expected}"
+            );
+        }
+        // x、y 独立量化：一轴不足半格不动，不会带走另一轴。
+        let (x, y) = quantize_point((0.24, 0.26));
+        assert!(x.abs() < 1e-9);
+        assert!((y - EDITOR_GRID_STEP).abs() < 1e-9);
+        assert_eq!(quantize_coordinate(f64::INFINITY), f64::INFINITY);
+        assert!(quantize_coordinate(f64::NAN).is_nan());
     }
 }
