@@ -3,6 +3,7 @@ use crate::canvas_input::{keyboard_commands, mouse_editor};
 use crate::view::camera_controls;
 use bevy::ecs::system::SystemState;
 use bevy::input::mouse::MouseWheel;
+use bevy_egui::egui;
 
 fn world() -> World {
     let mut world = World::new();
@@ -36,6 +37,7 @@ fn populate(world: &mut World) {
         dirty: false,
         history: EditorHistory::default(),
         status: String::new(),
+        sfx: Vec::new(),
     });
     world.init_resource::<EditorCursor>();
     world.init_resource::<DragState>();
@@ -75,7 +77,7 @@ fn populate(world: &mut World) {
 }
 
 #[test]
-fn detailed_manifest_has_45_unique_explained_cases_and_unique_evidence() {
+fn detailed_manifest_has_51_unique_explained_cases_and_unique_evidence() {
     let mut ids = BTreeSet::new();
     for chapter in [
         "placement-cases",
@@ -87,6 +89,9 @@ fn detailed_manifest_has_45_unique_explained_cases_and_unique_evidence() {
         "history-cases",
         "topology-cases",
         "file-cases",
+        "narrow-layout",
+        "mobile-input",
+        "performance",
     ] {
         let list = cases(chapter);
         assert!(!list.is_empty());
@@ -104,7 +109,7 @@ fn detailed_manifest_has_45_unique_explained_cases_and_unique_evidence() {
         state.case_index = list.len();
         assert!(state.caption().is_none());
     }
-    assert_eq!(ids.len(), 45);
+    assert_eq!(ids.len(), 51);
     assert!(Run::new("transforms").caption().is_none());
 }
 
@@ -414,4 +419,234 @@ fn manual_duplicate_demo_rejects_new_attach_pairs_in_both_directions_via_canvas_
     assert_eq!(document.ship.connections.len(), 1);
     assert_eq!(document.history.undo_len(), 1);
     assert!(document.dirty);
+}
+fn populate_input(world: &mut World) {
+    world.init_resource::<panels::UiPointer>();
+    world.init_resource::<mobile_input::GestureInput>();
+    world.init_resource::<Messages<bevy::input::touch::TouchInput>>();
+    world.init_resource::<Messages<bevy::window::WindowFocused>>();
+}
+
+#[test]
+fn narrow_layout_helpers_measure_canvas_and_project_part_centers() {
+    let mut world = world();
+    populate_input(&mut world);
+    {
+        let mut document = world.resource_mut::<EditorDocument>();
+        let kind = document.catalog.get("fuselage-1").unwrap();
+        document.ship = Ship {
+            parts: vec![kind.instantiate(1, (0., 0.)), kind.instantiate(2, (2., 1.))],
+            ..default()
+        };
+    }
+    let mut ui = panels::egui_panel::UiState::default();
+    ui.pixels_per_point = 1.0;
+    ui.canvas_area = Some(egui::Rect::from_min_size(
+        egui::pos2(0., 0.),
+        egui::vec2(640., 304.),
+    ));
+    let window = Window {
+        resolution: (640, 360).into(),
+        ..default()
+    };
+    let canvas = layout::canvas_rect(&window, &ui).expect("画布应换算到窗口坐标");
+    assert_eq!((canvas.width(), canvas.height()), (640., 304.));
+    // 超出窗口的画布矩形不被当成真实布局。
+    ui.canvas_area = Some(egui::Rect::from_min_size(
+        egui::pos2(0., 0.),
+        egui::vec2(700., 304.),
+    ));
+    assert!(layout::canvas_rect(&window, &ui).is_none());
+    let center = layout::screen_point((0., 0.), Vec2::ZERO, 1., Vec2::new(640., 360.));
+    assert_eq!(center, Vec2::new(320., 180.));
+    let offset = layout::screen_point((2., 1.), Vec2::ZERO, 2., Vec2::new(640., 360.));
+    assert_eq!(offset, Vec2::new(380., 150.));
+    let document = world.resource::<EditorDocument>();
+    let centers: Vec<_> = document
+        .ship
+        .keyed_parts()
+        .map(|(_, part)| {
+            layout::screen_point((part.x, part.y), Vec2::ZERO, 1., Vec2::new(640., 360.))
+        })
+        .collect();
+    assert!(layout::centers_inside(document, &centers, canvas));
+    let shifted = centers
+        .iter()
+        .map(|point| *point + Vec2::splat(400.))
+        .collect::<Vec<_>>();
+    assert!(!layout::centers_inside(document, &shifted, canvas));
+}
+
+#[test]
+fn frame_stats_report_average_median_p95_and_max_of_real_samples() {
+    let mut samples = vec![16.0, 4.0, 8.0, 32.0, 2.0];
+    let (average, median, p95, max) = perf_drag::frame_stats(&mut samples);
+    assert_eq!(samples, vec![2.0, 4.0, 8.0, 16.0, 32.0]);
+    assert!((average - 12.4).abs() < 1e-9);
+    assert_eq!(median, 8.0);
+    assert_eq!(p95, 32.0);
+    assert_eq!(max, 32.0);
+}
+
+fn mobile_frame(mut state: ResMut<Run>, mut ctx: Context) {
+    if state.verified {
+        return;
+    }
+    ctx.mouse.clear();
+    ctx.keys.reset_all();
+    let case = &cases("mobile-input")[state.case_index];
+    if state.step == 0 {
+        setup(&mut state, &mut ctx, case);
+    } else if mobile::advance(&mut state, &mut ctx, case.scenario) {
+        state.verified = true;
+    }
+}
+
+fn replay_mobile(index: usize) -> App {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin))
+        .init_asset::<Image>()
+        .init_resource::<panels::Palette>()
+        .add_message::<MouseWheel>();
+    populate(app.world_mut());
+    populate_input(app.world_mut());
+    let mut state = Run::new("mobile-input");
+    state.case_index = index;
+    app.insert_resource(state)
+        .init_resource::<crate::properties::Inspector>()
+        .add_systems(
+            Update,
+            (
+                mobile_frame,
+                crate::mobile_input::input,
+                panels::pointer_over_ui,
+                mouse_editor,
+                keyboard_commands,
+            )
+                .chain(),
+        );
+    for _ in 0..400 {
+        app.update();
+        if app.world().resource::<Run>().verified {
+            return app;
+        }
+    }
+    panic!("输入提交演示未结束：{}", cases("mobile-input")[index].id);
+}
+
+#[test]
+fn touch_case_previews_on_press_and_commits_exactly_once_on_release() {
+    let app = replay_mobile(0);
+    let state = app.world().resource::<Run>();
+    assert_eq!(state.metrics["committed_on"], "touch-release");
+    assert_eq!(state.metrics["preview_committed"], false);
+    assert_eq!(state.metrics["press_commits"], false);
+    assert_eq!(state.metrics["release_commits"], 1);
+    assert_eq!(state.metrics["duplicate_commits"], 0);
+    assert_eq!(state.metrics["history_entries"], 1);
+    let document = app.world().resource::<EditorDocument>();
+    assert_eq!(document.ship.all_parts().count(), 5);
+    assert_eq!(document.history.undo_len(), 1);
+}
+
+#[test]
+fn mouse_case_commits_on_the_press_edge_without_a_second_commit() {
+    let app = replay_mobile(1);
+    let state = app.world().resource::<Run>();
+    assert_eq!(state.metrics["committed_on"], "mouse-press");
+    assert_eq!(state.metrics["release_pending"], true);
+    assert_eq!(state.metrics["duplicate_commits"], 0);
+    assert_eq!(state.metrics["history_entries"], 1);
+    let document = app.world().resource::<EditorDocument>();
+    assert_eq!(document.ship.all_parts().count(), 5);
+    assert_eq!(document.history.undo_len(), 1);
+}
+fn bulk_frame(mut state: ResMut<Run>, mut ctx: Context) {
+    if state.verified {
+        return;
+    }
+    ctx.mouse.clear();
+    ctx.keys.reset_all();
+    let case = &cases("performance")[0];
+    if state.step == 0 {
+        setup(&mut state, &mut ctx, case);
+    } else if perf_drag::advance(&mut state, &mut ctx, case.scenario) {
+        state.verified = true;
+    }
+}
+
+fn replay_bulk(count: usize) -> App {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin))
+        .init_asset::<Image>()
+        .init_resource::<panels::Palette>()
+        .add_message::<MouseWheel>();
+    populate(app.world_mut());
+    populate_input(app.world_mut());
+    {
+        let mut document = app.world_mut().resource_mut::<EditorDocument>();
+        let kind = document.catalog.get("fuselage-1").unwrap().clone();
+        document.ship = Ship {
+            parts: (0..count)
+                .map(|index| {
+                    let (column, row) = ((index % 40) as f64, (index / 40) as f64);
+                    kind.instantiate(index as i64 + 1, (column * 6. - 120., row * 6. - 60.))
+                })
+                .collect(),
+            ..default()
+        };
+    }
+    let state = Run::new("performance");
+    app.insert_resource(state)
+        .init_resource::<crate::properties::Inspector>()
+        .add_systems(
+            Update,
+            (bulk_frame, mouse_editor, keyboard_commands).chain(),
+        );
+    for _ in 0..400 {
+        app.update();
+        if app.world().resource::<Run>().verified {
+            return app;
+        }
+    }
+    panic!("1000 部件拖动演示未结束");
+}
+
+#[test]
+fn bulk_drag_replays_one_thousand_parts_with_real_frame_samples_and_intact_connections() {
+    let app = replay_bulk(1000);
+    let state = app.world().resource::<Run>();
+    assert_eq!(state.metrics["selected"], 1000);
+    assert_eq!(state.metrics["connections_unchanged"], true);
+    assert_eq!(state.metrics["all_selected_moved_together"], true);
+    assert_eq!(state.metrics["unselected_unchanged"], true);
+    assert_eq!(state.metrics["undo_restored"], true);
+    assert_eq!(state.metrics["redo_restored"], true);
+    assert!(state.metrics["frame_samples"].as_u64().unwrap() >= 32);
+    let average = state.metrics["frame_average_ms"].as_f64().unwrap();
+    assert!(average > 0.);
+    let document = app.world().resource::<EditorDocument>();
+    assert_eq!(document.history.undo_len(), 1);
+    assert_eq!(document.ship.all_parts().count(), 1000);
+}
+#[test]
+fn free_mode_press_probe_reports_when_the_center_hits_a_connection_point() {
+    let mut world = world();
+    {
+        let mut document = world.resource_mut::<EditorDocument>();
+        let kind = document.catalog.get("fuselage-1").unwrap().clone();
+        document.ship = Ship {
+            parts: vec![kind.instantiate(1, (0., 0.))],
+            ..default()
+        };
+        document.free_mode = true;
+    }
+    let document = world.resource::<EditorDocument>();
+    // 放大时连接点命中半径覆盖零件中心，按下会被当成选点。
+    assert!(!perf_drag::press_is_plain_click(document, (0., 0.), 10.0));
+    // 缩放到常规演示比例后中心不再是连接点。
+    assert!(perf_drag::press_is_plain_click(document, (0., 0.), 0.2));
+    let mut plain = world.resource_mut::<EditorDocument>();
+    plain.free_mode = false;
+    assert!(perf_drag::press_is_plain_click(&plain, (0., 0.), 10.0));
 }

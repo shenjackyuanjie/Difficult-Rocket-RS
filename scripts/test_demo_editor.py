@@ -58,6 +58,36 @@ def case_metrics(chapter_id, case_id):
         ratio, expected = GEOMETRY_CASE_RATIOS[case_id]
         metrics.update(overlap_ratio=ratio, expected_ratio=expected,
                        accepted=expected < demo.OVERLAP_THRESHOLD)
+    if chapter_id == "narrow-layout":
+        if case_id == "narrow-restored":
+            metrics.update(restored=True, drawer_closed=True, canvas_full_width=True,
+                           hull_inside_canvas=True, chapter_size=[1440, 900], window_after=[1440, 900],
+                           canvas_rect=[0, 0, 1440, 844])
+        else:
+            width, height = {"narrow-640x360": (640, 360), "narrow-390x844": (390, 844)}[case_id]
+            drawer_x = width - 296
+            metrics.update(presentation=False, requested_size=[width, height], resized=True,
+                           compact=True, drawer="parts", drawer_count=2,
+                           drawer_rect=[drawer_x, 0, width, height - 56],
+                           canvas_rect=[0, 0, drawer_x, height - 56],
+                           panel_overlaps_canvas=False, fit_applied=True, hull_inside_canvas=True,
+                           hull_parts=4, window_after=[width, height], toggle_44=[44, 44],
+                           toggle_touch_target=True)
+    if chapter_id == "mobile-input":
+        if case_id == "touch-preview-commit":
+            metrics.update(committed_on="touch-release", preview_committed=False, press_commits=False,
+                           release_commits=1, duplicate_commits=0, history_entries=1, undo_redo=True)
+        else:
+            metrics.update(committed_on="mouse-press", release_pending=True, duplicate_commits=0,
+                           history_entries=1, undo_redo=True)
+    if chapter_id == "performance":
+        metrics.update(part_count_after=metrics["part_count"], selected=1000, sample_parts=10679,
+                       drag_steps=32, frame_samples=32, frame_average_ms=12.0, frame_median_ms=11.0,
+                       frame_p95_ms=20.0, frame_max_ms=25.0,
+                       physical_display_latency_measured=False, connections_unchanged=True,
+                       external_connections_dropped=0,
+                       all_selected_moved_together=True, unselected_unchanged=True, xml_roundtrip=True,
+                       undo_restored=True, redo_restored=True)
     return metrics
 
 
@@ -101,7 +131,7 @@ class DemoTests(unittest.TestCase):
             for name in chapter["artifacts"]:
                 artifact = self.output / name
                 artifact.write_bytes(b"mock screenshot evidence")
-                if name.endswith("-cases.json"):
+                if name == chapter["id"] + ".json":
                     artifact.write_text(json.dumps({"completed": True, "chapter": chapter["id"], "cases": [
                         {"id": case_id, "status": "passed", "title": "样例", "expected": "预期", "input_path": "内部注入",
                          "screenshot": "case-" + case_id + ".png",
@@ -249,8 +279,8 @@ class DemoTests(unittest.TestCase):
 
     def test_modes_have_independent_complete_chapter_and_case_contracts(self):
         self.assertEqual(len(demo.CHAPTER_IDS), 11)
-        self.assertEqual(len(demo.DETAILED_CHAPTER_IDS), 20)
-        self.assertEqual(sum(map(len, demo.DETAILED_CASE_IDS.values())), 45)
+        self.assertEqual(len(demo.DETAILED_CHAPTER_IDS), 23)
+        self.assertEqual(sum(map(len, demo.DETAILED_CASE_IDS.values())), 51)
         self.assertEqual(demo.CHAPTER_IDS[1:3], ("connections", "rocket-workflow"))
         self.assertEqual(demo.DETAILED_CHAPTER_IDS[2:5], ("connections", "rocket-workflow", "geometry-cases"))
         self.assertEqual(tuple(chapter for chapter in demo.DETAILED_CHAPTER_IDS if chapter not in demo.DETAILED_CASE_IDS), demo.CHAPTER_IDS)
@@ -258,20 +288,21 @@ class DemoTests(unittest.TestCase):
         self.write_evidence(report)
         self.assertEqual(demo.validate_report(report, self.output, self.started_ns, "detailed"), report)
         report["chapters"] = complete_report()["chapters"]
-        with self.assertRaisesRegex(demo.DemoError, "完整 20"):
+        with self.assertRaisesRegex(demo.DemoError, "完整 23"):
             demo.validate_report(report, self.output, self.started_ns, "detailed")
 
     def test_python_contract_matches_rust_case_manifest(self):
         source = (demo.ROOT / "crates/dr-editor/src/demo_cases/manifest.rs").read_text(encoding="utf-8")
         manifests = {name: tuple(re.findall(r'case!\(\s*"([^"]+)"', body))
-                     for name, body in re.findall(r'pub\(crate\) const (\w+):.*?= &\[(.*?)\n\];', source, re.S)}
+                     for name, body in re.findall(r'pub\(crate\) const (\w+):.*?= &\[(.*?)\n?\];', source, re.S)}
         mapping = {"placement-cases": "PLACEMENT", "geometry-cases": "GEOMETRY", "free-cases": "FREE",
                    "group-cases": "GROUPS", "line-cases": "LINES", "interaction-cases": "INTERACTION",
-                   "history-cases": "HISTORY", "topology-cases": "TOPOLOGY", "file-cases": "FILES"}
+                   "history-cases": "HISTORY", "topology-cases": "TOPOLOGY", "file-cases": "FILES",
+                   "narrow-layout": "NARROW", "mobile-input": "MOBILE", "performance": "BULK"}
         for chapter, rust_name in mapping.items():
             self.assertEqual(demo.DETAILED_CASE_IDS[chapter], manifests[rust_name])
 
-    def test_legacy_19_chapters_45_cases_95_artifacts_remain_plus_1_3_9(self):
+    def test_legacy_19_chapters_45_cases_95_artifacts_remain_plus_new_chapters(self):
         source = (demo.ROOT / "crates/dr-editor/src/demo/chapters.rs").read_text(encoding="utf-8")
         entries = re.findall(r'id: "([^"]+)",.*?artifacts: &\[(.*?)\]', source, re.S)
         artifacts = {chapter: re.findall(r'"([^"]+)"', body) for chapter, body in entries}
@@ -280,12 +311,12 @@ class DemoTests(unittest.TestCase):
         for chapter, cases in demo.DETAILED_CASE_IDS.items():
             artifacts[chapter].extend("case-" + case_id + ".png" for case_id in cases)
         legacy_chapters = tuple(chapter for chapter in demo.DETAILED_CHAPTER_IDS if chapter != "rocket-workflow")
-        self.assertEqual(len(legacy_chapters), 19)
-        self.assertEqual(sum(map(len, demo.DETAILED_CASE_IDS.values())), 45)
-        self.assertEqual(sum(len(artifacts[chapter]) for chapter in legacy_chapters), 95)
-        self.assertEqual(len(artifacts), 20)
-        self.assertEqual(45 + len(demo.rocket_workflow.CASE_IDS), 48)
-        self.assertEqual(sum(map(len, artifacts.values())), 104)
+        self.assertEqual(len(legacy_chapters), 22)
+        self.assertEqual(sum(map(len, demo.DETAILED_CASE_IDS.values())), 51)
+        self.assertEqual(sum(len(artifacts[chapter]) for chapter in legacy_chapters), 105)
+        self.assertEqual(len(artifacts), 23)
+        self.assertEqual(51 + len(demo.rocket_workflow.CASE_IDS), 54)
+        self.assertEqual(sum(map(len, artifacts.values())), 114)
         self.assertIn("editor-staging-performance.json", artifacts["staging"])
         self.assertIn("64 级 / 1024 动作", source)
 

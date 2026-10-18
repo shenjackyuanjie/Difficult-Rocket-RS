@@ -9,7 +9,10 @@ mod geometry;
 mod gestures;
 pub(crate) use gestures::verify;
 mod interactions;
+mod layout;
 mod manifest;
+mod mobile;
+mod perf_drag;
 #[cfg(test)]
 mod tests;
 mod workflow;
@@ -37,6 +40,13 @@ pub(crate) struct Run {
     zero_path_checked: bool,
     read_until: Option<Instant>,
     results: Vec<serde_json::Value>,
+    /// 本章首个样例开始时的窗口逻辑尺寸；窄窗样例据此恢复，不假设固定分辨率。
+    window: Option<(f32, f32)>,
+    /// 录制窗口固定 1920x1080，窄窗章节据此跳过物理改窗并如实记录。
+    presentation: bool,
+    layout: layout::Probe,
+    mobile: mobile::Probe,
+    perf: perf_drag::Probe,
 }
 
 impl Run {
@@ -94,6 +104,16 @@ pub(crate) struct Context<'w, 's> {
     mouse: ResMut<'w, ButtonInput<MouseButton>>,
     keys: ResMut<'w, ButtonInput<KeyCode>>,
     file_actions: MessageWriter<'w, files::FileAction>,
+    /// 面板布局命中；窄窗样例据此断言抽屉、画布与实际按钮矩形。
+    ui: Option<ResMut<'w, panels::egui_panel::UiState>>,
+    /// 内部触摸注入；只在可用的真实应用里存在。
+    touch: Option<ResMut<'w, Messages<bevy::input::touch::TouchInput>>>,
+    /// 触摸适配层的真实状态；读取上一帧结果，不修改它。
+    gesture: Option<Res<'w, mobile_input::GestureInput>>,
+    /// 真实帧间隔；用于 1000 部件拖动的帧耗时统计。
+    time: Option<Res<'w, Time>>,
+    /// 主窗口实体；触摸消息必须带上真实的窗口归属。
+    primary: Query<'w, 's, Entity, With<bevy::window::PrimaryWindow>>,
 }
 
 impl Context<'_, '_> {
@@ -233,6 +253,12 @@ fn setup(state: &mut Run, ctx: &mut Context, case: &Case) {
     } else {
         state.catalog = Some(ctx.document.catalog.clone());
     }
+    // 章节首个样例开始时的真实窗口尺寸；窄窗样例结束时回到这里，不假设固定分辨率。
+    if state.window.is_none()
+        && let Ok(window) = ctx.windows.single_mut()
+    {
+        state.window = Some((window.width(), window.height()));
+    }
     *ctx.cursor = EditorCursor::default();
     *ctx.drag = DragState::default();
     *ctx.camera_drag = CameraDrag::default();
@@ -247,11 +273,20 @@ fn setup(state: &mut Run, ctx: &mut Context, case: &Case) {
     *ctx.topology = topology_ui::ConnectionEditor::default();
     *ctx.inspector = properties::Inspector::default();
     ctx.paths.ship = None;
-    ctx.document.ship = fixture(&ctx.document);
+    // 性能样例要保留章节载入的真实样本；其余样例仍用同一套小夹具。
+    if !matches!(case.scenario, Scenario::BulkDrag) {
+        ctx.document.ship = fixture(&ctx.document);
+    }
     ctx.document.free_mode = true;
     ctx.document.clear_selection();
     ctx.mouse.reset_all();
     ctx.keys.reset_all();
+    if let Some(ui) = ctx.ui.as_deref_mut() {
+        ui.close_drawer();
+    }
+    if let Some(touch) = ctx.touch.as_deref_mut() {
+        touch.clear();
+    }
     state.pointer = None;
     state.candidate = None;
     state.after = None;
@@ -261,6 +296,9 @@ fn setup(state: &mut Run, ctx: &mut Context, case: &Case) {
     interactions::setup(ctx, case.scenario);
     workflow::setup(ctx, case.scenario);
     gestures::setup(ctx, case.scenario);
+    layout::setup(state, ctx, case.scenario);
+    mobile::setup(state, ctx, case.scenario);
+    perf_drag::setup(state, ctx, case.scenario);
     ctx.document.saved_ship = ctx.document.ship.clone();
     ctx.document.history = EditorHistory::default();
     ctx.document.status.clear();
@@ -344,6 +382,9 @@ pub(crate) fn run(
         return;
     }
     if state.step == 0 {
+        state.presentation = showcase
+            .as_deref()
+            .is_some_and(|showcase| showcase.presentation);
         setup(&mut state, &mut ctx, case);
         demo::describe(&mut showcase, case.expected);
         return;
@@ -367,6 +408,13 @@ pub(crate) fn run(
         | Scenario::InvalidOpen
         | Scenario::SaveFailure
         | Scenario::UnsavedCancel => workflow::advance(&mut state, &mut ctx, case.scenario),
+        Scenario::NarrowWindow { .. } | Scenario::NarrowRestore => {
+            layout::advance(&mut state, &mut ctx, case.scenario)
+        }
+        Scenario::TouchPreviewCommit | Scenario::MousePressCommit => {
+            mobile::advance(&mut state, &mut ctx, case.scenario)
+        }
+        Scenario::BulkDrag => perf_drag::advance(&mut state, &mut ctx, case.scenario),
         _ => interactions::advance(&mut state, &mut ctx, case.scenario),
     };
     if done {

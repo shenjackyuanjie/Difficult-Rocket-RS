@@ -112,19 +112,19 @@ fn chapters_are_unique_and_evidence_is_relative() {
         }
     }
     let all = Mode::Detailed.chapters();
-    // 新章是增量：旧 19 章、45 用例、95 项证据继续单独锁定。
+    // 新章是增量：旧 19 章、45 用例、95 项证据继续可单独识别。
     let detailed: Vec<_> = all
         .iter()
         .copied()
         .filter(|chapter| chapter.id != "rocket-workflow")
         .collect();
-    assert_eq!(detailed.len(), 19);
+    assert_eq!(detailed.len(), 22);
     assert_eq!(
         detailed
             .iter()
             .map(|chapter| demo_cases::cases(chapter.id).len())
             .sum::<usize>(),
-        45
+        51
     );
     assert_eq!(
         detailed
@@ -132,7 +132,7 @@ fn chapters_are_unique_and_evidence_is_relative() {
             .map(|chapter| chapter.id)
             .collect::<BTreeSet<_>>()
             .len(),
-        19
+        22
     );
     assert_eq!(
         detailed
@@ -149,12 +149,12 @@ fn chapters_are_unique_and_evidence_is_relative() {
         .iter()
         .flat_map(|chapter| chapter.evidence())
         .collect();
-    assert_eq!(evidence.len(), 95);
-    assert_eq!(evidence.iter().collect::<BTreeSet<_>>().len(), 95);
-    assert_eq!(all.len(), 20);
+    assert_eq!(evidence.len(), 105);
+    assert_eq!(evidence.iter().collect::<BTreeSet<_>>().len(), 105);
+    assert_eq!(all.len(), 23);
     let all_evidence: Vec<_> = all.iter().flat_map(|chapter| chapter.evidence()).collect();
-    assert_eq!(all_evidence.len(), 104);
-    assert_eq!(all_evidence.iter().collect::<BTreeSet<_>>().len(), 104);
+    assert_eq!(all_evidence.len(), 114);
+    assert_eq!(all_evidence.iter().collect::<BTreeSet<_>>().len(), 114);
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn rocket_workflow_is_one_continuous_chapter_in_both_modes() {
         "rocket-manual-staging.xml",
         "rocket-workflow.json",
     ];
-    for (mode, count) in [(Mode::Brief, 11), (Mode::Detailed, 20)] {
+    for (mode, count) in [(Mode::Brief, 11), (Mode::Detailed, 23)] {
         let chapters = mode.chapters();
         assert_eq!(chapters.len(), count);
         let position = chapters
@@ -196,6 +196,35 @@ fn rocket_workflow_is_one_continuous_chapter_in_both_modes() {
         for name in chapters[position].artifacts {
             assert_eq!(std::path::Path::new(name).components().count(), 1);
         }
+    }
+}
+
+#[test]
+fn new_detailed_chapters_follow_their_topics_and_leave_brief_unchanged() {
+    let detailed: Vec<_> = Mode::Detailed
+        .chapters()
+        .iter()
+        .map(|chapter| chapter.id)
+        .collect();
+    let position = |id: &str| {
+        detailed
+            .iter()
+            .position(|candidate| *candidate == id)
+            .unwrap()
+    };
+    assert_eq!(detailed[position("mobile-input") - 1], "interaction-cases");
+    assert_eq!(detailed[position("performance") - 1], "mobile-input");
+    assert_eq!(detailed[position("narrow-layout") - 1], "browser");
+    assert_eq!(detailed[position("narrow-layout") + 1], "unsaved");
+    assert_eq!(detailed.len(), 23);
+    let brief: Vec<_> = Mode::Brief
+        .chapters()
+        .iter()
+        .map(|chapter| chapter.id)
+        .collect();
+    assert_eq!(brief.len(), 11);
+    for id in ["mobile-input", "performance", "narrow-layout"] {
+        assert!(!brief.contains(&id), "简略模式不应新增章节：{id}");
     }
 }
 

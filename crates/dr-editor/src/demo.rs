@@ -15,7 +15,8 @@ mod pacing;
 mod replay;
 pub(crate) mod rocket_workflow;
 
-use chapters::{Chapter, Mode, staging_fixture};
+pub(crate) use chapters::Mode;
+use chapters::{Chapter, staging_fixture};
 use evidence::{append_actions, append_timeline, unix_ms};
 use hints::{
     KeyHint, KeyHints, MouseHints, is_modifier, mouse_label, paint_input_hint, paint_key_hint,

@@ -1,8 +1,8 @@
 //! 章节清单、模式及分级夹具。
 use super::*;
 
-pub(super) struct Chapter {
-    pub(super) id: &'static str,
+pub(crate) struct Chapter {
+    pub(crate) id: &'static str,
     pub(super) title: &'static str,
     pub(super) description: &'static str,
     pub(super) artifacts: &'static [&'static str],
@@ -195,6 +195,34 @@ const DETAILED_CHAPTERS: &[(&str, Chapter)] = &[
         },
     ),
     (
+        "selection",
+        Chapter {
+            id: "mobile-input",
+            title: "触摸抬指提交与鼠标按下提交",
+            description: "内部 TouchInput 按下只建立预览，抬指一次提交；同一位置的鼠标按下立即提交；两者都只产生一条历史",
+            // 样例截图由 demo_cases::artifacts 自动追加，避免重复登记。
+            artifacts: &["mobile-input.json"],
+        },
+    ),
+    (
+        "selection",
+        Chapter {
+            id: "performance",
+            title: "1000 部件拖动性能",
+            description: "Ophioglossum 真实样本选中 1000 部件真实拖动 → 记录真实帧间隔统计 → 连接与部件数不变 → 提交、撤销与重做恢复",
+            artifacts: &["performance.json", "performance-drag.xml"],
+        },
+    ),
+    (
+        "browser",
+        Chapter {
+            id: "narrow-layout",
+            title: "窄窗与单侧抽屉布局",
+            description: "640×360 / 390×844 紧凑布局 → 真实入口打开单侧抽屉与 44px 触控按钮 → 适配后船体仍完整位于画布 → 恢复窗口尺寸与桌面布局",
+            artifacts: &["narrow-layout.json"],
+        },
+    ),
+    (
         "staging",
         Chapter {
             id: "history-cases",
@@ -236,7 +264,7 @@ const DETAILED_STAGING: Chapter = Chapter {
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum Mode {
+pub(crate) enum Mode {
     #[default]
     Brief,
     Detailed,
@@ -257,7 +285,7 @@ impl Mode {
         }
     }
 
-    pub(super) fn chapters(self) -> Vec<&'static Chapter> {
+    pub(crate) fn chapters(self) -> Vec<&'static Chapter> {
         let mut chapters = Vec::new();
         for chapter in CHAPTERS {
             chapters.push(if self == Self::Detailed && chapter.id == "staging" {

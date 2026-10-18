@@ -25,8 +25,9 @@ CHAPTER_IDS = (
 )
 DETAILED_CHAPTER_IDS = (
     "panels", "placement-cases", "connections", "rocket-workflow", "geometry-cases", "transforms",
-    "free-cases", "group-cases", "line-cases", "selection", "interaction-cases", "view", "staging",
-    "history-cases", "topology", "topology-cases", "repair", "browser", "unsaved", "file-cases",
+    "free-cases", "group-cases", "line-cases", "selection", "interaction-cases", "mobile-input",
+    "performance", "view", "staging", "history-cases", "topology", "topology-cases", "repair",
+    "browser", "narrow-layout", "unsaved", "file-cases",
 )
 DETAILED_CASE_IDS = {
     "placement-cases": ("palette-cancel", "quantity-limit", "disabled-rotation"),
@@ -42,6 +43,9 @@ DETAILED_CASE_IDS = {
                       "fuel-over-capacity", "properties-stale"),
     "topology-cases": ("topology-self", "topology-tree-cycle", "topology-graph-cycle", "topology-cross-group"),
     "file-cases": ("file-invalid-open", "file-save-failure", "file-modal-cancel"),
+    "narrow-layout": ("narrow-640x360", "narrow-390x844", "narrow-restored"),
+    "mobile-input": ("touch-preview-commit", "mouse-press-commit"),
+    "performance": ("bulk-drag-1000",),
 }
 # 仅这两个手势样例测量同帧视觉跟随；括号内为最少同帧核对与松手帧核对次数。
 GESTURE_CASE_CHECKS = {"drag-continuous": (10, 1), "pan-gesture": (12, 2)}
@@ -267,6 +271,12 @@ def validate_case_metrics(chapter_id, case_id, metrics):
         validate_gesture_metrics(case_id, metrics)
     if chapter_id == "geometry-cases":
         validate_geometry_metrics(case_id, metrics)
+    if chapter_id == "narrow-layout":
+        validate_narrow_metrics(case_id, metrics)
+    if chapter_id == "mobile-input":
+        validate_mobile_metrics(case_id, metrics)
+    if chapter_id == "performance":
+        validate_performance_metrics(case_id, metrics)
 
 
 def validate_gesture_metrics(case_id, metrics):
@@ -296,6 +306,121 @@ def validate_geometry_metrics(case_id, metrics):
         expected = metrics.get("expected_ratio")
         if not finite_number(expected) or metrics["accepted"] != (expected < OVERLAP_THRESHOLD):
             raise DemoError(f"几何样例 {case_id} 的 accepted 与严格 {OVERLAP_THRESHOLD:g} 判定不一致")
+
+
+def required_rect(metrics, field, case_id):
+    """四个有限坐标且必须有实际面积；只认真实布局矩形。"""
+    rect = metrics.get(field)
+    if not isinstance(rect, list) or len(rect) != 4 or not all(finite_number(value) for value in rect):
+        raise DemoError(f"样例 {case_id} 的 {field} 必须是四个有限坐标")
+    if rect[2] <= rect[0] or rect[3] <= rect[1]:
+        raise DemoError(f"样例 {case_id} 的 {field} 必须有实际面积")
+    return rect
+
+
+def required_size(metrics, field, case_id):
+    size = metrics.get(field)
+    if not isinstance(size, list) or len(size) != 2 or not all(finite_number(value) for value in size):
+        raise DemoError(f"样例 {case_id} 的 {field} 必须是两个有限尺寸")
+    return size
+
+
+def validate_narrow_metrics(case_id, metrics):
+    """窄窗样例：真实窗口尺寸、单侧抽屉、44px 入口与船体不被遮挡。"""
+    if metrics.get("presentation") is not None and type(metrics.get("presentation")) is not bool:
+        raise DemoError(f"窄窗样例 {case_id} 的 presentation 必须是布尔值")
+    if case_id == "narrow-restored":
+        chapter_size = required_size(metrics, "chapter_size", case_id)
+        restored = required_size(metrics, "window_after", case_id)
+        if restored != chapter_size:
+            raise DemoError(f"章末窗口没有恢复到章节起始尺寸：{restored} != {chapter_size}")
+        if metrics.get("restored") is not True or metrics.get("drawer_closed") is not True:
+            raise DemoError("章末必须记录窗口已恢复且抽屉已关闭")
+        if metrics.get("hull_inside_canvas") is not True:
+            raise DemoError("恢复桌面布局后船体必须完整位于画布")
+        canvas = required_rect(metrics, "canvas_rect", case_id)
+        if metrics.get("canvas_full_width") is not True or canvas[2] - canvas[0] < chapter_size[0] * 0.6:
+            raise DemoError("恢复后画布必须回到接近全宽")
+        return
+    expected = {"narrow-640x360": [640, 360], "narrow-390x844": [390, 844]}[case_id]
+    requested = required_size(metrics, "requested_size", case_id)
+    if requested != expected:
+        raise DemoError(f"窄窗样例 {case_id} 的请求尺寸应为 {expected}")
+    if type(metrics.get("resized")) is not bool or type(metrics.get("compact")) is not bool:
+        raise DemoError(f"窄窗样例 {case_id} 缺少真实的改窗与紧凑布局标记")
+    drawer = required_rect(metrics, "drawer_rect", case_id)
+    canvas = required_rect(metrics, "canvas_rect", case_id)
+    if metrics.get("panel_overlaps_canvas") is not False:
+        raise DemoError(f"窄窗样例 {case_id} 的抽屉与画布实际重叠")
+    if drawer[0] < canvas[2] - 0.5:
+        raise DemoError(f"窄窗样例 {case_id} 的抽屉必须停靠在画布之外的单侧")
+    if metrics.get("drawer") != "parts" or metrics.get("drawer_count") != 2:
+        raise DemoError(f"窄窗样例 {case_id} 只允许底栏与一个部件抽屉")
+    if metrics.get("fit_applied") is not True or metrics.get("hull_inside_canvas") is not True:
+        raise DemoError(f"窄窗样例 {case_id} 的适配后船体必须完整位于画布")
+    if not nonnegative_int(metrics.get("hull_parts")) or metrics["hull_parts"] < 1:
+        raise DemoError(f"窄窗样例 {case_id} 必须记录真实船体部件数")
+    if metrics["resized"]:
+        if required_size(metrics, "window_after", case_id) != expected:
+            raise DemoError(f"窄窗样例 {case_id} 的窗口逻辑尺寸没有生效")
+        if metrics.get("compact") is not True:
+            raise DemoError(f"窄窗样例 {case_id} 必须进入紧凑布局")
+        toggle = metrics.get("toggle_44")
+        if not isinstance(toggle, list) or len(toggle) != 2 or not all(finite_number(value) for value in toggle):
+            raise DemoError(f"窄窗样例 {case_id} 缺少真实入口尺寸")
+        if min(toggle) < 44.0 - 0.01 or metrics.get("toggle_touch_target") is not True:
+            raise DemoError(f"窄窗样例 {case_id} 的入口必须保持 44px")
+
+
+def validate_mobile_metrics(case_id, metrics):
+    """两种提交时机都必须恰好一次，并且只留一条历史。"""
+    if metrics.get("duplicate_commits") != 0:
+        raise DemoError(f"输入样例 {case_id} 出现了重复提交")
+    if metrics.get("history_entries") != 1 or metrics.get("undo_redo") is not True:
+        raise DemoError(f"输入样例 {case_id} 必须只产生一条可撤销重做的历史")
+    if case_id == "touch-preview-commit":
+        if metrics.get("committed_on") != "touch-release":
+            raise DemoError("触摸样例必须记录抬指提交")
+        if metrics.get("preview_committed") is not False or metrics.get("press_commits") is not False:
+            raise DemoError("触摸按下不得直接提交")
+        if metrics.get("release_commits") != 1:
+            raise DemoError("触摸抬指必须恰好提交一次")
+    else:
+        if metrics.get("committed_on") != "mouse-press" or metrics.get("release_pending") is not True:
+            raise DemoError("鼠标样例必须记录按下边沿提交且当时尚未释放")
+
+
+def validate_performance_metrics(case_id, metrics):
+    """1000 部件拖动：真实帧耗时样本、连接与文档完整性。"""
+    if metrics.get("selected") != 1000 or metrics.get("sample_parts", 0) < 1000:
+        raise DemoError(f"性能样例 {case_id} 必须真实选中 1000 个部件")
+    for field in ("drag_steps", "frame_samples"):
+        if not nonnegative_int(metrics.get(field)) or metrics[field] <= 0:
+            raise DemoError(f"性能样例 {case_id} 的 {field} 必须是正整数")
+    if metrics["frame_samples"] < metrics["drag_steps"]:
+        raise DemoError(f"性能样例 {case_id} 的真实帧耗时样本少于拖动步骤")
+    values = {}
+    for field in ("frame_average_ms", "frame_median_ms", "frame_p95_ms", "frame_max_ms"):
+        value = metrics.get(field)
+        if not finite_number(value) or value <= 0:
+            raise DemoError(f"性能样例 {case_id} 的 {field} 必须是正的有限数")
+        values[field] = value
+    if not (values["frame_median_ms"] <= values["frame_p95_ms"] <= values["frame_max_ms"]):
+        raise DemoError(f"性能样例 {case_id} 的帧耗时分位不单调")
+    if metrics.get("physical_display_latency_measured") is not False:
+        raise DemoError(f"性能样例 {case_id} 只统计内部帧耗时，不得声称测量物理显示延迟")
+    # 整组拖动按既有语义断开与未选部件的外部连接；如实核对断开的数量与布尔标记一致。
+    dropped = metrics.get("external_connections_dropped")
+    if not nonnegative_int(dropped):
+        raise DemoError(f"性能样例 {case_id} 必须报告外部连接断开数量")
+    if metrics.get("connections_unchanged") is not (dropped == 0):
+        raise DemoError(f"性能样例 {case_id} 的连接变化与 external_connections_dropped 不一致")
+    for field in ("all_selected_moved_together", "unselected_unchanged",
+                  "xml_roundtrip", "undo_restored", "redo_restored"):
+        if metrics.get(field) is not True:
+            raise DemoError(f"性能样例 {case_id} 缺少真实完整性证据：{field}")
+    if metrics.get("part_count") != metrics.get("part_count_after"):
+        raise DemoError(f"性能样例 {case_id} 提交后部件数发生变化")
 
 
 def validate_cases(chapter, output):

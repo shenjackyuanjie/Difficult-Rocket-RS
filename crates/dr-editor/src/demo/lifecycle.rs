@@ -27,6 +27,8 @@ pub(crate) fn begin(world: &mut World) {
     let sample = match chapter.id {
         "panels" | "unsaved" => Some("Test.xml"),
         "repair" => Some("Heronb.xml"),
+        // 1000 部件拖动需要原版大样本；只读加载，不写回样本。
+        "performance" => Some("Ophioglossum.xml"),
         _ => None,
     };
     let sample = sample.map(|name| {
@@ -44,6 +46,10 @@ pub(crate) fn begin(world: &mut World) {
     }
     document.revision = world.resource::<EditorDocument>().revision.wrapping_add(1);
     world.insert_resource(document);
+    world
+        .resource_mut::<EditorDocument>()
+        .sfx
+        .push(crate::audio::SfxEvent::Chapter);
     world.insert_resource(demo_cases::Run::new(chapter.id));
     if chapter.id == "rocket-workflow" {
         world.insert_resource(rocket_workflow::State::default());
@@ -144,6 +150,7 @@ pub(crate) fn finish(world: &mut World) {
         // 用户关闭窗口也产生 Success，只有本章所有新鲜证据齐全才接受。
         let chapter = showcase.chapter();
         let evidence = chapter.evidence();
+        let last_chapter = showcase.index + 1 == showcase.chapters.len();
         let fresh = evidence.iter().all(|name| {
             std::fs::metadata(format!("target/{name}")).is_ok_and(|metadata| {
                 metadata.len() > 0
@@ -158,6 +165,13 @@ pub(crate) fn finish(world: &mut World) {
         let output = showcase.output.clone();
         for name in &evidence {
             std::fs::copy(format!("target/{name}"), output.join(name)).expect("无法复制演示证据");
+        }
+        // 最后一章通过校验即视为演示完成，留出成果停留时间让完成音效播完。
+        if last_chapter {
+            world
+                .resource_mut::<EditorDocument>()
+                .sfx
+                .push(crate::audio::SfxEvent::Complete);
         }
         world.resource_mut::<Messages<AppExit>>().clear();
         let mut showcase = world.resource_mut::<Showcase>();

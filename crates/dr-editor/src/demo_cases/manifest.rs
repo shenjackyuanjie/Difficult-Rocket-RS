@@ -48,6 +48,19 @@ pub(super) enum Scenario {
     InvalidOpen,
     SaveFailure,
     UnsavedCancel,
+    /// 运行中真实切换窗口尺寸并核对紧凑布局。
+    NarrowWindow {
+        width: u16,
+        height: u16,
+    },
+    /// 恢复章节起始尺寸并核对桌面布局。
+    NarrowRestore,
+    /// TouchInput 按下只预览，抬指一次提交。
+    TouchPreviewCommit,
+    /// 同一位置的鼠标按下立即提交。
+    MousePressCommit,
+    /// 真实样本上选中 1000 部件连续拖动。
+    BulkDrag,
 }
 
 pub(crate) struct Case {
@@ -430,6 +443,59 @@ pub(crate) const INTERACTION: &[Case] = &[
     ),
 ];
 
+pub(crate) const NARROW: &[Case] = &[
+    case!(
+        "narrow-640x360",
+        "640×360 紧凑布局与单侧抽屉",
+        "真实改窗到 640×360：底栏四个入口保持 44px，只出现右侧部件抽屉，适配后船体仍完整位于画布。",
+        "运行中真实改窗 + 实际 egui 按钮点击",
+        Scenario::NarrowWindow {
+            width: 640,
+            height: 360
+        }
+    ),
+    case!(
+        "narrow-390x844",
+        "390×844 竖屏单列布局",
+        "真实改窗到 390×844：抽屉收窄到屏宽 70%，画布保留正面积，44px 入口不被裁切。",
+        "运行中真实改窗 + 实际 egui 按钮点击",
+        Scenario::NarrowWindow {
+            width: 390,
+            height: 844
+        }
+    ),
+    case!(
+        "narrow-restored",
+        "恢复桌面尺寸与全宽画布",
+        "抽屉真实关闭，窗口回到本章起始尺寸；画布恢复全宽，章末不留窄窗或打开的单侧抽屉。",
+        "运行中真实改窗 + 实际 egui 按钮点击",
+        Scenario::NarrowRestore
+    ),
+];
+pub(crate) const MOBILE: &[Case] = &[
+    case!(
+        "touch-preview-commit",
+        "触摸按下预览、抬指一次提交",
+        "按下只建立放置预览且不改文档；抬指恰好提交一个部件、一条历史，之后的静置帧不重复提交。",
+        "内部 TouchInput 注入 + 真实画布放置事务",
+        Scenario::TouchPreviewCommit
+    ),
+    case!(
+        "mouse-press-commit",
+        "鼠标按下立即提交",
+        "同一位置用鼠标按下即在按下帧提交一个部件；随后释放与静置帧都不会重复提交。",
+        "内部鼠标注入 + 真实画布放置事务",
+        Scenario::MousePressCommit
+    ),
+];
+pub(crate) const BULK: &[Case] = &[case!(
+    "bulk-drag-1000",
+    "1000 选中部件连续拖动",
+    "真实样本上选中 1000 部件连续拖动：每步记录真实帧间隔，连接与部件数保持不变，松手后一条历史可撤销重做。",
+    "内部画布鼠标 + 真实帧间隔采样",
+    Scenario::BulkDrag
+)];
+
 pub(crate) fn cases(chapter: &str) -> &'static [Case] {
     match chapter {
         "placement-cases" => PLACEMENT,
@@ -441,6 +507,9 @@ pub(crate) fn cases(chapter: &str) -> &'static [Case] {
         "topology-cases" => TOPOLOGY,
         "history-cases" => HISTORY,
         "file-cases" => FILES,
+        "narrow-layout" => NARROW,
+        "mobile-input" => MOBILE,
+        "performance" => BULK,
         _ => &[],
     }
 }
