@@ -98,6 +98,15 @@ CAPTIONS = {
                    "保存目的地设为临时目录：失败保留未保存状态与历史",
                    "未保存模态隔离输入：旋转和删除快捷键不穿透画布",
                    "点击取消：完整保留未保存文档；文件操作仅使用临时路径"),
+    "mobile-input": ("触摸按下只显示放置预览，抬指才提交一次并保留一条历史",
+                     "同一位置的鼠标按下立即提交；释放与静置帧都不重复提交",
+                     "两种输入都核对既有连接未改变、撤销重做一致"),
+    "performance": ("Ophioglossum 真实样本选中 1000 部件连续拖动",
+                    "拖动步骤读取真实帧耗时：平均、中位、95 分位与最大毫秒",
+                    "松手只产生一条历史；连接与部件数不变，撤销重做完整恢复"),
+    "narrow-layout": ("运行中真实切到 640×360：底栏保持 44px 入口与单侧部件抽屉",
+                      "390×844 竖屏：抽屉收窄到屏宽 70%，适配后船体仍完整位于画布",
+                      "章末恢复窗口尺寸并关闭抽屉；录制窗口不改尺寸，证据中如实标注"),
 }
 SHORT_TITLES = {
     "panels": "面板碰撞", "connections": "连接吸附", "rocket-workflow": "四级火箭",
@@ -107,6 +116,7 @@ SHORT_TITLES = {
     "placement-cases": "放置边界", "geometry-cases": "重叠边界", "free-cases": "手动连断",
     "group-cases": "整组变换", "line-cases": "连线边界", "interaction-cases": "连续交互",
     "topology-cases": "拓扑边界", "history-cases": "事务历史", "file-cases": "文件保护",
+    "mobile-input": "触摸提交", "performance": "千件拖动", "narrow-layout": "窄窗抽屉",
 }
 
 
@@ -230,6 +240,18 @@ def plan_clips(chapters, capture_start_unix_ms, raw_duration):
     return clips, cursor + OUTRO_SECONDS
 
 
+def chapter_count_text(mode):
+    """章节数量文案；中文数字与章节清单同源，不在多处写死。"""
+    count = len(demo.chapter_ids(mode))
+    digits = "零一二三四五六七八九"
+    if count <= 10:
+        return digits[count] + "章"
+    if count < 20:
+        return "十" + digits[count - 10] + "章"
+    rest = count - 20
+    return "二十" + (digits[rest] if rest else "") + "章"
+
+
 def caption_entries(clips, duration, mode="brief"):
     captions, _ = presentation_text(mode)
     entries = [(0.0, INTRO_SECONDS, "dr-rs 开发进度"),
@@ -240,7 +262,7 @@ def caption_entries(clips, duration, mode="brief"):
         for index, text in enumerate(lines):
             start = clip["video_start_seconds"] + part * index
             entries.append((start, start + part, text))
-    count_text = "十一章" if mode == "brief" else "二十章"
+    count_text = chapter_count_text(mode)
     entries.extend([(duration - OUTRO_SECONDS, duration, f"当前完成：{count_text}编辑器展示与报告检查通过；非完整游戏"),
                     (duration - OUTRO_SECONDS, duration, NOT_ACCEPTANCE)])
     return entries
@@ -252,7 +274,7 @@ def ass_escape(text):
 
 def write_subtitles(output, clips, duration, mode="brief"):
     _, titles = presentation_text(mode)
-    count_text = "十一章" if mode == "brief" else "二十章"
+    count_text = chapter_count_text(mode)
     entries = caption_entries(clips, duration, mode)
     # SRT 用单条两行首尾，避免播放器重叠条目。
     srt_entries = [(0.0, INTRO_SECONDS, "dr-rs 开发进度\n" + NOT_ACCEPTANCE)]
@@ -271,10 +293,16 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Subtitle,Microsoft YaHei,36,&H00FFFFFF,&H00FFFFFF,&H00202020,&H80000000,0,0,0,0,100,100,0,0,1,1,0,2,360,70,38,1
-Style: Chapter,Microsoft YaHei,36,&H00FFFFFF,&H00FFFFFF,&H00202020,&H80000000,0,0,0,0,100,100,0,0,1,1,0,4,36,0,0,1
-Style: Scope,Microsoft YaHei,36,&H00FFFFFF,&H00FFFFFF,&H00202020,&H80000000,0,0,0,0,100,100,0,0,1,1,0,2,125,125,38,1
-Style: Card,Microsoft YaHei,38,&H00FFFFFF,&H00FFFFFF,&H00202020,&H80000000,0,0,0,0,100,100,0,0,1,1,0,5,80,80,0,1
+Style: Subtitle,Microsoft YaHei,30,&H00F7F2FF,&H00F7F2FF,&H00141019,&H80000000,0,0,0,0,100,100,0,0,1,1,0,7,320,40,1004,1
+Style: ChapterNo,Microsoft YaHei,46,&H0005DBB3,&H0005DBB3,&H00141019,&H80000000,-1,0,0,0,100,100,0,0,1,0,0,7,40,0,990,1
+Style: ChapterTitle,Microsoft YaHei,26,&H00FFCBDD,&H00FFCBDD,&H00141019,&H80000000,0,0,0,0,100,100,0,0,1,1,0,7,118,0,1006,1
+Style: IntroTitle,Microsoft YaHei,88,&H0005DBB3,&H0005DBB3,&H00141019,&H80000000,-1,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
+Style: IntroSub,Microsoft YaHei,34,&H00FFCBDD,&H00FFCBDD,&H00141019,&H80000000,0,0,0,0,100,100,0,0,1,1,0,7,0,0,0,1
+Style: IntroNote,Microsoft YaHei,22,&H00AE909A,&H00AE909A,&H00141019,&H80000000,0,0,0,0,100,100,0,0,1,1,0,7,0,0,0,1
+Style: OutroTitle,Microsoft YaHei,54,&H00FFCBDD,&H00FFCBDD,&H00141019,&H80000000,-1,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
+Style: OutroLine,Microsoft YaHei,28,&H00F7F2FF,&H00F7F2FF,&H00141019,&H80000000,0,0,0,0,100,100,0,0,1,1,0,7,0,0,0,1
+Style: Scope,Microsoft YaHei,20,&H00AE909A,&H00AE909A,&H00141019,&H80000000,0,0,0,0,100,100,0,0,1,1,0,2,125,125,30,1
+Style: Rule,Microsoft YaHei,10,&H0005DBB3,&H0005DBB3,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -282,18 +310,34 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     dialogues = []
     def add(start, end, style, text):
         dialogues.append(f"Dialogue: 0,{timestamp(start, True)},{timestamp(end, True)},{style},,0,0,0,,{text}")
-    add(0, INTRO_SECONDS, "Card", ass_escape(f"dr-rs 开发进度\n{count_text}编辑器能力展示"))
+    # 片头：品牌标题、模式说明与范围提示，替代单块文字卡。
+    add(0, INTRO_SECONDS, "IntroTitle", "{\\pos(120,272)\\fad(520,420)}DR-rs")
+    add(0, INTRO_SECONDS, "IntroSub",
+        "{\\pos(124,404)\\fad(520,420)}" + ass_escape("SR1 船体编辑器 · 开发进度演示"))
+    add(0, INTRO_SECONDS, "IntroNote",
+        "{\\pos(126,462)\\fad(520,420)}" + ass_escape(f"{count_text} · 内部输入回放 · 非完整游戏"))
     add(0, INTRO_SECONDS, "Scope", ass_escape(NOT_ACCEPTANCE))
+    # 与界面强调色一致的细分隔线，穿起片头、章节与片尾。
+    add(0, duration, "Rule",
+        "{\\p1\\pos(0,1066)\\c&H05DBB3&\\alpha&H70&}m 0 0 l 1920 0 l 1920 1 l 0 1")
     for start, end, text in entries[2:-2]:
         add(start, end, "Subtitle", ass_escape(text))
     for index, clip in enumerate(clips, 1):
-        # 短章名水平置于底部独立字幕栏左侧；正文从x360起，不遮UI或章名。
-        title = f"{index:02} " + titles[clip["id"]]
-        add(clip["video_start_seconds"], clip["video_end_seconds"], "Chapter",
-            "{\\pos(36,1020)}" + ass_escape(title))
-    add(duration - OUTRO_SECONDS, duration, "Card", ass_escape(
-        f"当前完成\n{count_text}编辑器展示与报告检查通过\n这是开发进度展示，并非完整游戏"))
-    add(duration - OUTRO_SECONDS, duration, "Scope", ass_escape(NOT_ACCEPTANCE))
+        start, end = clip["video_start_seconds"], clip["video_end_seconds"]
+        # 底部条左侧：强调色序号与短名；右侧动作说明由 Subtitle 样式定位。
+        add(start, end, "ChapterNo", "{\\pos(40,992)\\fad(200,0)}" + f"{index:02}")
+        add(start, end, "ChapterTitle",
+            "{\\pos(118,1008)\\fad(200,0)}" + ass_escape(titles[clip["id"]]))
+    # 片尾：完成结论、能力清单与范围提示。
+    outro = duration - OUTRO_SECONDS
+    add(outro, duration, "OutroTitle", "{\\pos(120,318)\\fad(420,0)}" + ass_escape("演示完成"))
+    add(outro, duration, "OutroLine",
+        "{\\pos(124,414)}" + ass_escape(f"{count_text}编辑器展示与报告检查通过"))
+    add(outro, duration, "OutroLine",
+        "{\\pos(124,466)}" + ass_escape("部件目录 · 连接吸附 · 分级 · 拓扑 · 文件保护"))
+    add(outro, duration, "OutroLine",
+        "{\\pos(124,518)}" + ass_escape("这是开发进度展示，并非完整游戏"))
+    add(outro, duration, "Scope", ass_escape(NOT_ACCEPTANCE))
     (output / "progress.ass").write_text(header + "\n".join(dialogues) + "\n", encoding="utf-8")
 
 
@@ -425,6 +469,77 @@ def synthesize_effects(path, events, duration, sample_rate=48000):
             "external_resources": False, "sample_rate": sample_rate, "channels": 1,
             "duration_seconds": count / sample_rate, "tone_max_seconds": 0.075,
             "tone_amplitude": 0.018, "mixed_peak_limit": 0.04, "event_count": len(events)}
+
+
+ACTION_SFX = {"left": "click", "middle": "click", "right": "click", "key": "click", "scroll": "click"}
+
+
+def load_effect_wav(path):
+    """读取编辑器 --sfx-export 导出的单声道16-bit WAV，不重采样、不重新合成。"""
+    try:
+        with wave.open(str(path), "rb") as source:
+            channels = source.getnchannels()
+            width = source.getsampwidth()
+            rate = source.getframerate()
+            frames = source.readframes(source.getnframes())
+    except (OSError, wave.Error) as error:
+        raise VideoError(f"无法读取导出的音效 {path.name}：{error}") from error
+    if channels != 1 or width != 2 or rate <= 0:
+        raise VideoError(f"音效必须是单声道16-bit：{path.name}")
+    samples = array("h")
+    samples.frombytes(frames)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    return rate, samples
+
+
+def mix_exported_effects(path, events, clips, duration, sfx_dir, sample_rate=48000):
+    """按真实动作与章节起点混入编辑器导出的音效；与游戏内播放共用同一音源。"""
+    if not events:
+        raise VideoError("音效混音缺少真实事件")
+    voices = {}
+    for name in ("click", "chapter", "complete"):
+        file = Path(sfx_dir) / f"{name}.wav"
+        if not file.is_file():
+            raise VideoError(f"缺少音效文件：{name}.wav（先用 --sfx-export 导出）")
+        rate, samples = load_effect_wav(file)
+        if rate != sample_rate:
+            raise VideoError(f"音效采样率必须为{sample_rate}Hz：{name}.wav")
+        voices[name] = samples
+    count = round(duration * sample_rate)
+    mix = array("f", [0.0]) * count
+
+    def overlay(name, seconds, limit):
+        start = round(seconds * sample_rate)
+        end = round(min(duration, limit) * sample_rate)
+        if start < 0 or start >= count or end <= start:
+            return
+        frames = voices[name]
+        length = min(len(frames), count - start, end - start)
+        for offset in range(length):
+            mix[start + offset] += frames[offset] / 32768.0 * 0.35
+
+    for event in events:
+        overlay(ACTION_SFX[event["kind"]], event["video_seconds"], event["clip_end_seconds"])
+    for clip in clips:
+        overlay("chapter", clip["video_start_seconds"], clip["video_end_seconds"])
+    overlay("complete", duration - OUTRO_SECONDS, duration)
+    peak = max((abs(value) for value in mix), default=0.0)
+    if peak > 0.25:
+        scale = 0.25 / peak
+        mix = array("f", (value * scale for value in mix))
+    pcm = array("h", (round(max(-0.25, min(0.25, value)) * 32767) for value in mix))
+    if sys.byteorder != "little":
+        pcm.byteswap()
+    with wave.open(str(path), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(sample_rate)
+        output.writeframes(pcm.tobytes())
+    return {"source": "editor synthesized effects (--sfx-export)", "voice": False, "music": False,
+            "external_resources": False, "sample_rate": sample_rate, "channels": 1,
+            "duration_seconds": count / sample_rate, "mixed_peak_limit": 0.25,
+            "event_count": len(events), "chapter_count": len(clips), "sfx_dir": str(Path(sfx_dir))}
 
 
 def render_command(raw, output, crf, sound_effects=False):
@@ -826,14 +941,18 @@ def render(options, output, manifest, originals):
         actions = load_actions(actions_path)
         mapped = map_actions(actions, clips, manifest["capture_start_unix_ms"])
         sound_path = output / SOUND_NAME
-        sound = synthesize_effects(sound_path, mapped, duration)
+        sfx_dir = getattr(options, "sfx_dir", None)
+        if sfx_dir:
+            sound = mix_exported_effects(sound_path, mapped, clips, duration, sfx_dir)
+        else:
+            sound = synthesize_effects(sound_path, mapped, duration)
         sound.update({"enabled": True, "actions_sha256": sha256(actions_path),
                       "wav_sha256": sha256(sound_path), "events": mapped,
                       "scope": "真实内部replay事件提示音，不是录到的系统/游戏声音，不含配音"})
         manifest["sound_effects"] = sound
     manifest.setdefault("presentation", {}).update({
-        "chapter_title": "底部独立字幕栏左侧水平短章名，位置36,1020",
-        "subtitle_margin_left": 360, "subtitle_margin_right": 70})
+        "chapter_title": "底部字幕栏左侧：强调色序号(40,992)+水平短章名(118,1008)",
+        "subtitle_margin_left": 320, "subtitle_margin_right": 40})
     manifest["demo_mode"] = mode
     manifest["presentation"].update({"chapter_ids": list(demo.chapter_ids(mode)),
                                      "short_titles": presentation_text(mode)[1]})
@@ -879,6 +998,8 @@ def parse_args(argv=None):
                         help="超时秒数；brief 默认 600，detailed 默认 1800")
     parser.add_argument("--crf", type=int, choices=(18, 20), default=18)
     parser.add_argument("--sound-effects", action="store_true", help="按真实replay事件自合成低量提示音；默认无音轨，无配音")
+    parser.add_argument("--sfx-dir", type=Path,
+                        help="编辑器 --sfx-export 导出的音效目录；给出时按同一音源混音，替代内置合成")
     options = parser.parse_args(argv)
     if options.timeout is None:
         options.timeout = 600 if options.demo_mode == "brief" else 1800

@@ -169,9 +169,11 @@ class SubtitleAndFilterTests(unittest.TestCase):
                 self.assertIn(f"{video.timestamp(start)} --> {video.timestamp(end)}\n{text}", srt)
                 self.assertIn(f"{video.timestamp(start, True)},{video.timestamp(end, True)},"
                               f"Subtitle,,0,0,0,,{video.ass_escape(text)}", ass)
-            self.assertIn(f"{video.timestamp(clip['video_start_seconds'], True)},"
-                          f"{video.timestamp(clip['video_end_seconds'], True)},"
-                          r"Chapter,,0,0,0,,{\pos(36,1020)}03 四级火箭", ass)
+            start_ass = video.timestamp(clip["video_start_seconds"], True)
+            end_ass = video.timestamp(clip["video_end_seconds"], True)
+            prefix = start_ass + "," + end_ass
+            self.assertIn(prefix + r",ChapterNo,,0,0,0,,{\pos(40,992)\fad(200,0)}03", ass)
+            self.assertIn(prefix + r",ChapterTitle,,0,0,0,,{\pos(118,1008)\fad(200,0)}四级火箭", ass)
 
     def test_captions_match_actual_mouse_config_and_separate_debug_visibility(self):
         selection = video.CAPTIONS["selection"]
@@ -210,9 +212,10 @@ class SubtitleAndFilterTests(unittest.TestCase):
                 self.assertIn("非完整游戏" if text == srt else "并非完整游戏", text)
             self.assertIn("00:00:00,000 --> 00:00:04,000", srt)
             self.assertIn("PlayResX: 1920", ass)
-            self.assertIn("Microsoft YaHei,36", ass)
-            self.assertEqual(ass.count(",Chapter,,"), len(video.demo.CHAPTER_IDS))
-            self.assertIn(r"{\pos(36,1020)}", ass)
+            self.assertIn("Microsoft YaHei,30", ass)
+            self.assertEqual(ass.count(",ChapterNo,,"), len(video.demo.CHAPTER_IDS))
+            self.assertEqual(ass.count(",ChapterTitle,,"), len(video.demo.CHAPTER_IDS))
+            self.assertIn(r"{\pos(40,992)", ass)
 
     def test_selection_captions_describe_actual_operations(self):
         lines = video.CAPTIONS["selection"]
@@ -231,26 +234,35 @@ class SubtitleAndFilterTests(unittest.TestCase):
             output = Path(folder)
             video.write_subtitles(output, self.clips, self.duration)
             text = (output / "progress.ass").read_text(encoding="utf-8")
-            titles = [line for line in text.splitlines() if line.startswith("Dialogue:") and ",Chapter,," in line]
+            numbers = [line for line in text.splitlines()
+                       if line.startswith("Dialogue:") and ",ChapterNo,," in line]
+            titles = [line for line in text.splitlines()
+                      if line.startswith("Dialogue:") and ",ChapterTitle,," in line]
+            self.assertEqual(len(numbers), len(video.demo.CHAPTER_IDS))
             self.assertEqual(len(titles), len(video.demo.CHAPTER_IDS))
+            for line in numbers:
+                self.assertIn(r"{\pos(40,992)\fad(200,0)}", line)
+                self.assertNotIn(r"\N", line)
             for line in titles:
-                self.assertIn(r"{\pos(36,1020)}", line)
+                self.assertIn(r"{\pos(118,1008)\fad(200,0)}", line)
                 self.assertNotIn(r"\N", line)
             styles = {}
             for line in text.splitlines():
                 if line.startswith("Style: "):
                     fields = line[7:].split(",")
                     styles[fields[0]] = fields
-            self.assertEqual(styles["Chapter"][18], "4")  # 水平左对齐、垂直居中
-            self.assertEqual(styles["Subtitle"][19:22], ["360", "70", "38"])
-            self.assertEqual(styles["Scope"][19:22], ["125", "125", "38"])
-            # 按每字符一个字号保守估计，短章名不越入正文、正文不超字幕栏宽度。
+            # 序号与短名同属左下字幕栏；正文列从序号列之后开始，不压住章名。
+            self.assertEqual(styles["ChapterNo"][18], "7")
+            self.assertEqual(styles["ChapterTitle"][18], "7")
+            self.assertEqual(styles["Subtitle"][19:22], ["320", "40", "1004"])
+            # 按每字符一个字号保守估计，短章名不越入正文，正文不超字幕栏宽度。
             for title in video.SHORT_TITLES.values():
-                self.assertLess(36 + len("00 " + title) * 36, 360)
+                self.assertLess(118 + len(title) * 26, 320)
             for lines in video.CAPTIONS.values():
                 for caption in lines:
-                    self.assertLessEqual(len(caption) * 36, 1920 - 360 - 70)
-            self.assertGreater(1020 - 36, 960)
+                    self.assertLessEqual(320 + len(caption) * 30, 1920 - 40)
+            self.assertGreater(992, 960)
+            self.assertLessEqual(1008 + 26, 1080)
             self.assertLess(1020 + 36, 1080)
 
     def test_windows_filter_path(self):
@@ -973,7 +985,7 @@ class DemoModeTests(unittest.TestCase):
 
     def test_detailed_timeline_requires_twenty_chapters(self):
         rows = timeline("detailed")
-        self.assertEqual(len(rows), 40)
+        self.assertEqual(len(rows), 2 * len(video.demo.chapter_ids("detailed")))
         self.assertEqual([c["id"] for c in video.validate_timeline(rows, "detailed")],
                          list(video.demo.DETAILED_CHAPTER_IDS))
         for invalid in (rows[:-1], timeline(), rows + rows[-2:]):
@@ -985,7 +997,8 @@ class DemoModeTests(unittest.TestCase):
             path = Path(folder) / video.TIMELINE_NAME
             import json
             path.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
-            self.assertEqual(len(video.load_timeline(path, "detailed")), 20)
+            self.assertEqual(len(video.load_timeline(path, "detailed")),
+                             len(video.demo.chapter_ids("detailed")))
 
     def test_detailed_captions_titles_and_missing_case_chapter_fail(self):
         captions, titles = video.presentation_text("detailed")
@@ -1007,8 +1020,9 @@ class DemoModeTests(unittest.TestCase):
             video.write_subtitles(output, clips, duration, "detailed")
             srt = (output / "progress.srt").read_text(encoding="utf-8")
             ass = (output / "progress.ass").read_text(encoding="utf-8")
-            self.assertIn("二十章", srt)
-            self.assertIn("二十章", ass)
+            count_text = video.chapter_count_text("detailed")
+            self.assertIn(count_text, srt)
+            self.assertIn(count_text, ass)
             self.assertNotIn("十一章", srt + ass)
             for chapter_id in captions:
                 for text in captions[chapter_id]:
