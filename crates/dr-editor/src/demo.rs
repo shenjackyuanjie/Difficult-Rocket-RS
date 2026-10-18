@@ -145,9 +145,10 @@ impl Showcase {
     }
 }
 
-/// 详细演示不以旧专项的固定时长截断样例；显式超时由外部驱动管理。
+/// 详细演示与快速回归不以旧专项的固定时长截断样例；显式超时由外部驱动管理。
+/// 快速回归只校验流程与断言，慢机器上的帧率不应被误判成卡死。
 pub(crate) fn within_timeout(showcase: Option<&Showcase>, started: Instant, seconds: u64) -> bool {
-    showcase.is_some_and(|showcase| showcase.mode == Mode::Detailed)
+    showcase.is_some_and(|showcase| showcase.mode == Mode::Detailed || fast(showcase.step))
         || started.elapsed().as_secs() < seconds
 }
 
