@@ -18,6 +18,26 @@
 
 原生按钮使用 Bevy 0.20 的 ui_widgets / picking / Activate，无旧 Interaction 兼容层。依赖版本以 Cargo.lock 为准。DRRS 的具体 API 合同与差异见[核心覆盖核对](drrs-core-coverage.md)。
 
+## 2026-10-18 部件网格步长：对齐原版 0.5
+
+**原版实测**：用真实 Win32 输入驱动 SimpleRockets PC 1.6.11 编辑器，24 个有效样本、四档缩放（41/62/84/98 px/单位）下拖动位移始终是 **0.5 逻辑单位**；0.1 与 0.25 在拖动中从未出现，恰好半格向远离零方向进位，x / y 独立量化。证据在 `target/grid-probe/`（完整报告、65 张截图、37 份存档快照与可复用遥控脚本），该目录不入库。
+
+实现取舍：
+
+- `EDITOR_GRID_STEP = 0.5` 位于 dr-core 的 geometry，拖动、放置与整组平移都引用它；改实测值只改这一处。
+- 量化的是**位移增量**而不是绝对坐标：已加载的 0.75、连接几何产生的 0.25 偏移不会被拉回网格，避免改写约 28% 的原版部件坐标。
+- 连接吸附优先于网格；自由模式（本项目增强开关）保留连续位移；旋转、镜像与 15° / 1° 精调不受影响。
+- 演示夹具随量化调整：31° 辅助拒绝样例改为向部件 1 平移半格（量化后真实重叠 20.9%），选择章的小幅拖动样例改用 0.26 / 0.74 跨过半格。
+
+| 检查 | 本次实际结果 |
+| --- | --- |
+| Rust | `cargo test --workspace --release --locked`：**550 项**（core 119 / editor 431）通过 |
+| Python | 全量 **203 项**通过 |
+| 格式 / Release | fmt check、严格 clippy、workspace Release build 通过 |
+| detailed 演示 | DX12 40ms，23 章全部 `passed`、退出 0；[报告](../target/demo-grid4-20261018/demo-report.json) |
+| brief 演示 | DX12 40ms，11 章全部通过、退出 0；[报告](../target/demo-grid-brief-20261018/demo-report.json) |
+
+未做：按新步长重录两版成片、Vulkan 复跑、系统键鼠/输入法专项。
 ## 2026-10-18 演示展示、音效与新章节：当前构建
 
 本轮聚焦“看得见、听得到”的演示质量，不是新增游戏玩法。构建身份：Release 二进制 SHA-256 `aaa78ac83e31114e4617ac1209ec6dce036893ec27dde08f25e74f74d5a11f54`；演示与视频使用同一 EXE。
