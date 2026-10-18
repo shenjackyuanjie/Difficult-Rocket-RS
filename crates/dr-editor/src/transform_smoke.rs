@@ -15,6 +15,12 @@ pub(crate) struct State {
     pointer: Option<Vec2>,
     group_fixture: Option<Ship>,
     group_after: Option<Ship>,
+    /// 开关对比拖动前的船体快照。
+    drag_before: Option<Ship>,
+    /// 关闭吸附时的真实拖动位移，用于演示连续拖动。
+    drag_off: Option<f64>,
+    /// 开启吸附后的真实拖动位移，用于演示网格量化。
+    drag_on: Option<f64>,
     delay: u8,
     tools_search_phase: Option<u8>,
     part_search: PartSearch,
@@ -1272,12 +1278,92 @@ pub(crate) fn run(
                 "独立开关切换应保留撤销历史"
             );
             assert_eq!(document.history.redo_len(), 0, "独立开关切换应保留重做历史");
+            // 继续用真实图标切换，对比同一距离在吸附关/开时的落点差异。
+            if !config_control(&mut state, &ui, &mut input, ui.snap_enabled) {
+                return;
+            }
+        }
+        116 => {
+            assert!(!document.snap_enabled, "真实吸附图标点击应关闭吸附");
+            if !config_control(&mut state, &ui, &mut input, ui.free_mode) {
+                return;
+            }
+        }
+        117 => {
+            assert!(!document.free_mode && !document.snap_enabled);
+            state.drag_before = Some(document.ship.clone());
+            let part = document.ship.part(4).unwrap();
+            pointer(&mut state, &mut window, (part.x, part.y));
+            mouse.press(MouseButton::Left);
+            describe(
+                &mut showcase,
+                "关闭吸附与自由模式：拖动连续跟随指针，落点不吸到网格",
+            );
+        }
+        118 => {
+            let part = document.ship.part(4).unwrap();
+            pointer(&mut state, &mut window, (part.x + 0.3, part.y));
+            mouse.release(MouseButton::Left);
+        }
+        119 => {
+            let before = state.drag_before.as_ref().unwrap().part(4).unwrap();
+            let now = document.ship.part(4).unwrap();
+            let delta = now.x - before.x;
+            assert!(
+                (delta - 0.3).abs() < 1e-5,
+                "关闭吸附后拖动应连续跟随：{delta}"
+            );
+            state.drag_off = Some(delta);
+            keys.press(KeyCode::ControlLeft);
+            keys.press(KeyCode::KeyZ);
+        }
+        120 => {
+            assert_eq!(state.drag_before.as_ref(), Some(&document.ship));
+            if !config_control(&mut state, &ui, &mut input, ui.snap_enabled) {
+                return;
+            }
+        }
+        121 => {
+            assert!(document.snap_enabled && !document.free_mode);
+            let part = document.ship.part(4).unwrap();
+            pointer(&mut state, &mut window, (part.x, part.y));
+            mouse.press(MouseButton::Left);
+            describe(
+                &mut showcase,
+                "开启吸附：同一距离的拖动量化到 0.5 网格，半格向远离零进位",
+            );
+        }
+        122 => {
+            let part = document.ship.part(4).unwrap();
+            pointer(&mut state, &mut window, (part.x + 0.3, part.y));
+            mouse.release(MouseButton::Left);
+        }
+        123 => {
+            let before = state.drag_before.as_ref().unwrap().part(4).unwrap();
+            let now = document.ship.part(4).unwrap();
+            let delta = now.x - before.x;
+            assert!(
+                (delta - 0.5).abs() < 1e-5,
+                "开启吸附后拖动应量化到半格：{delta}"
+            );
+            state.drag_on = Some(delta);
+            keys.press(KeyCode::ControlLeft);
+            keys.press(KeyCode::KeyZ);
+        }
+        124 => {
+            assert_eq!(state.drag_before.as_ref(), Some(&document.ship));
+            if !config_control(&mut state, &ui, &mut input, ui.free_mode) {
+                return;
+            }
+        }
+        125 => {
+            assert!(document.free_mode && document.snap_enabled);
             save_ship("target/transforms-smoke.xml", &document.ship).unwrap();
             assert_eq!(
                 load_ship("target/transforms-smoke.xml").unwrap(),
                 document.ship
             );
-            let report = serde_json::json!({"completed": true, "assisted_overlap_ratio": state.overlap, "manual_connection_distance": state.manual_distance, "rotation_steps_degrees": [90,15,1], "drag_preview_degrees": 122, "drag_mirrors": ["x","y"], "free_mode_real_icon": true, "snap_free_mode_independent_real_icons": true, "follow_children_default_enabled": true, "precision_real_buttons": true, "free_drag_preserved_connection": true, "free_overlapping_placement_without_auto_connection": true, "manual_connect_and_disconnect": true, "multiselect_mirrors_and_rotation": true, "tree_subtree_transforms":true,"connected_component_transforms":true,"rectangle_group_transforms":true,"follow_all_descendants_transforms":true,"connection_line_real_controls":true,"connection_line_width_px":lines.width,"connection_line_patterns":["solid","dashed","dotted"],"connection_line_effects":["still","flow","pulse"],"connection_line_settings_preserve_history":true,"undo_redo": true, "xml_roundtrip": true, "input_mode": "内部真实 UI/画布输入注入，不是系统键鼠或输入法验收"});
+            let report = serde_json::json!({"completed": true, "assisted_overlap_ratio": state.overlap, "manual_connection_distance": state.manual_distance, "rotation_steps_degrees": [90,15,1], "drag_preview_degrees": 122, "drag_mirrors": ["x","y"], "free_mode_real_icon": true, "snap_free_mode_independent_real_icons": true, "follow_children_default_enabled": true, "precision_real_buttons": true, "free_drag_preserved_connection": true, "free_overlapping_placement_without_auto_connection": true, "manual_connect_and_disconnect": true, "multiselect_mirrors_and_rotation": true, "tree_subtree_transforms":true,"connected_component_transforms":true,"rectangle_group_transforms":true,"follow_all_descendants_transforms":true,"connection_line_real_controls":true,"connection_line_width_px":lines.width,"connection_line_patterns":["solid","dashed","dotted"],"connection_line_effects":["still","flow","pulse"],"connection_line_settings_preserve_history":true,"undo_redo": true, "xml_roundtrip": true, "snap_off_drag_delta": state.drag_off, "snap_on_drag_delta": state.drag_on, "grid_step": dr_core::geometry::EDITOR_GRID_STEP, "input_mode": "内部真实 UI/画布输入注入，不是系统键鼠或输入法验收"});
             std::fs::write(
                 "target/transforms-smoke.json",
                 serde_json::to_vec_pretty(&report).unwrap(),

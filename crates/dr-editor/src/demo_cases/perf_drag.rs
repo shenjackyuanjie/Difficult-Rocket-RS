@@ -215,8 +215,8 @@ fn expected(state: &Run, index: usize) -> (f64, f64) {
         .and_then(|ship| state.perf.anchor.and_then(|key| ship.part_at(key)))
         .map(|part| (part.x, part.y))
         .expect("性能样例缺少锚点部件");
-    // 预览与提交都按生产网格量化位移。
-    let offset = dr_core::geometry::quantize_point(Probe::offset(index));
+    // 本章关闭吸附，拖动为连续位移（网格拖动由开启吸附的章节演示）。
+    let offset = Probe::offset(index);
     (origin.0 + offset.0, origin.1 + offset.1)
 }
 

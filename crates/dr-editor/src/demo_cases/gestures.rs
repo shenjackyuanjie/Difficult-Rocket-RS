@@ -130,8 +130,8 @@ pub(super) fn setup(ctx: &mut Context, scenario: Scenario) {
     }
 }
 
-/// 回放期望落点走与生产相同的网格量化；自由模式样例不使用该路径。
-fn grid(point: (f64, f64)) -> (f64, f64) {
+/// 本样例保持默认吸附，回放期望落点走与生产相同的网格量化。
+fn path_point(point: (f64, f64)) -> (f64, f64) {
     dr_core::geometry::quantize_point(point)
 }
 
@@ -148,7 +148,7 @@ fn drag(state: &mut Run, ctx: &mut Context) -> bool {
         let index = usize::from(state.step - 1);
         if index > 0 {
             assert_eq!(ctx.drag.id, Some(key(1)));
-            near(ctx.drag.preview, grid(DRAG_PATH[index - 1]));
+            near(ctx.drag.preview, path_point(DRAG_PATH[index - 1]));
             unchanged(state, &ctx.document);
         }
         let delta = DRAG_PATH[index];
@@ -167,7 +167,7 @@ fn drag(state: &mut Run, ctx: &mut Context) -> bool {
             1 => {
                 assert!(ctx.drag.id.is_none());
                 let part = ctx.document.ship.part(1).unwrap();
-                near((part.x, part.y), grid(*DRAG_PATH.last().unwrap()));
+                near((part.x, part.y), path_point(*DRAG_PATH.last().unwrap()));
                 assert_eq!(ctx.document.history.undo_len(), 1);
                 assert!(ctx.document.dirty);
                 assert!(state.gesture.checks >= DRAG_PATH.len());
@@ -482,7 +482,7 @@ pub(crate) fn verify(
     let expected = match target {
         Target::Part => {
             // 部件位移按网格量化：屏幕像素先换算成逻辑格，再落回世界像素。
-            let (x, y) = grid((f64::from(delta.x) / 60.0, f64::from(-delta.y) / 60.0));
+            let (x, y) = path_point((f64::from(delta.x) / 60.0, f64::from(-delta.y) / 60.0));
             Vec2::new((x * 60.0) as f32, (y * 60.0) as f32)
         }
         Target::Camera(_) => Vec2::new(-delta.x, delta.y),

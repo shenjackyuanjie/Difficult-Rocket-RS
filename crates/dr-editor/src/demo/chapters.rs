@@ -41,7 +41,7 @@ pub(super) const CHAPTERS: &[Chapter] = &[
     Chapter {
         id: "transforms",
         title: "旋转镜像、自由连接与连线设置",
-        description: "非直角吸附 → 组合镜像 → 自由双点连/断 → 连线样式 → 树/连通/框选/后代整组变换",
+        description: "非直角吸附 → 组合镜像 → 自由双点连/断 → 连线样式 → 树/连通/框选/后代整组变换 → 吸附开关对比：关闭连续跟随、开启量化到 0.5",
         artifacts: &[
             "editor-angled-connection.png",
             "editor-combined-transform.png",
