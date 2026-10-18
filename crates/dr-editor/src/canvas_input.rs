@@ -343,8 +343,9 @@ pub(crate) fn mouse_editor(
     if drag.id.is_some()
         && (mouse.pressed(MouseButton::Left) || mouse.just_released(MouseButton::Left))
     {
-        // 保留抓取偏移；常规模式按网格步长量化位移，自由模式保留连续跟随。
-        drag.follow(logical, !document.free_mode);
+        // 保留抓取偏移；吸附开启且非自由模式时按网格步长量化位移，
+        // 关闭吸附或自由模式都保留连续跟随。
+        drag.follow(logical, document.snap_enabled && !document.free_mode);
     }
     if drag.id.is_some() {
         let selected: Vec<_> = drag.keys().into_iter().collect();

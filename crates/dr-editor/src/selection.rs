@@ -433,8 +433,9 @@ fn movement_transformed_with_modes(
     free_mode: bool,
     snap_enabled: bool,
 ) -> ((f64, f64), EditorCommand, bool) {
-    // 常规模式先量化整组平移，吸附候选和最终落点都以网格位移为准；自由模式保留连续位移。
-    let delta = if free_mode {
+    // 吸附开启且非自由模式时先量化整组平移，吸附候选和最终落点都以网格位移为准；
+    // 关闭吸附或自由模式都保留连续位移。
+    let delta = if free_mode || !snap_enabled {
         delta
     } else {
         dr_core::geometry::quantize_point(delta)

@@ -229,8 +229,8 @@ pub(crate) fn preview(
     cursor: &EditorCursor,
 ) -> Option<(Part, Option<EditorCommand>, bool)> {
     let kind = document.catalog.visible().nth(cursor.catalog_index)?;
-    // 常规模式的落点量化到网格，自由模式保留指针的连续坐标。
-    let position = if document.free_mode {
+    // 吸附开启且非自由模式时落点量化到网格；关闭吸附或自由模式都保留连续坐标。
+    let position = if document.free_mode || !document.snap_enabled {
         cursor.world
     } else {
         dr_core::geometry::quantize_point(cursor.world)

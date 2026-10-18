@@ -191,7 +191,10 @@ fn placement_snap_and_free_geometry_are_independent_in_all_four_combinations() {
             assert_eq!(connection.is_some(), snap_enabled);
             assert_eq!(
                 (ghost.x, ghost.y),
-                (if snap_enabled || !free_mode { 1.0 } else { 1.2 }, 0.0,)
+                (if snap_enabled { 1.0 } else { 1.2 }, 0.0),
+                "free={free_mode} snap={snap_enabled} ghost=({}, {})",
+                ghost.x,
+                ghost.y
             );
             assert_eq!(document.ship, before);
             assert!(finish_palette_drag(&mut document, &mut cursor, true));

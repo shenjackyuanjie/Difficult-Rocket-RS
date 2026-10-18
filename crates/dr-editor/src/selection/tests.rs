@@ -666,8 +666,8 @@ fn selection_drag_snaps_independently_and_keeps_internal_edges_in_all_four_combi
             let before = document.ship.clone();
             let (delta, command, valid) = movement(&document, &[key(1), key(2)], (2.8, 0.0));
             assert!(valid, "free={free_mode}, snap={snap_enabled}");
-            // 非自由模式把 2.8 的位移量化到 3.0；自由模式保留原值，吸附命中同样落在 3.0。
-            let expected = if free_mode && !snap_enabled { 2.8 } else { 3.0 };
+            // 吸附开启时 2.8 的位移量化到 3.0（或由吸附给出）；关闭吸附保留连续位移 2.8。
+            let expected = if snap_enabled { 3.0 } else { 2.8 };
             assert!(
                 (delta.0 - expected).abs() < 1e-10 && delta.1 == 0.0,
                 "free={free_mode} snap={snap_enabled} delta={delta:?} expected={expected}"
@@ -824,10 +824,7 @@ fn selection_and_paste_free_snap_only_relax_whole_body_collision() {
                     let (delta, command, valid) =
                         movement(&document, &[key(1), key(2)], (2.8, 0.0));
                     assert_eq!(valid, free_mode);
-                    assert!(
-                        (delta.0 - if free_mode && !snap_enabled { 2.8 } else { 3.0 }).abs()
-                            < 1e-10
-                    );
+                    assert!((delta.0 - if snap_enabled { 3.0 } else { 2.8 }).abs() < 1e-10);
                     // 普通拖动保留既有“碰撞警告但允许落点”合同，不改成拒绝提交。
                     assert!(document.execute(command));
                 }
