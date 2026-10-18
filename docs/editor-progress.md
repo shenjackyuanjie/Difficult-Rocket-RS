@@ -14,10 +14,34 @@
 | 界面 | 56px 图标底栏，Menu / Staging / Help 三枚原生入口与 egui 图标同高同 48px 间距排成一条连续工具栏；Parts / Ships / Tools 彼此互斥，但打开属性 / 分级不再收起它们，停靠分级可与右侧部件 / 工具或左侧船体抽屉共存；子节点跟随（默认开启）、吸附、自由模式是三个互不联动的图标开关；帮助窗口默认居中且可拖动，底部图例用真实渲染色 |
 | 小屏 | 最小 320×320，单侧抽屉、44px 触控入口，按实际画布适配；物理触屏与平台发布另行验证 |
 | 分级 | 从所选 Pod 的同组 Normal 连接树显式生成基础草稿；卡片与动作真实拖放，跨卡移动标记 moved；停靠分级并入主编辑——画布拖动 / 框选 / 放置与 F3/F4 不受它限制；Ctrl+Z / Ctrl+Y 先回退草稿本地历史、耗尽后回落文档历史；Apply 按字段三方合并，外部改同一字段才拒绝并保留草稿 |
-| 演示 / 工具 | brief 11 章；detailed 20 章/48 例/104 证据；火箭章升级为 14 件 / 13 条连接 / 四个物理推进级的双固体助推火箭（SRB 为叶子、自带固体燃料 Tank，顶部不挂罐），自动生成 8 张卡、手动六次真实拖放；另有分级多状态截图驱动（`--staging-shots`）输出 6 张状态图与 JSON 证据；视频工具支持 brief / detailed 两种成片 |
+| 演示 / 工具 | brief 11 章；detailed 23 章/51 例/114 项证据（新增触摸提交、千件拖动、窄窗三态）；界面与成片共用程序合成音效；火箭章升级为 14 件 / 13 条连接 / 四个物理推进级的双固体助推火箭（SRB 为叶子、自带固体燃料 Tank，顶部不挂罐），自动生成 8 张卡、手动六次真实拖放；另有分级多状态截图驱动（`--staging-shots`）输出 6 张状态图与 JSON 证据；视频工具支持 brief / detailed 两种成片 |
 
 原生按钮使用 Bevy 0.20 的 ui_widgets / picking / Activate，无旧 Interaction 兼容层。依赖版本以 Cargo.lock 为准。DRRS 的具体 API 合同与差异见[核心覆盖核对](drrs-core-coverage.md)。
 
+## 2026-10-18 演示展示、音效与新章节：当前构建
+
+本轮聚焦“看得见、听得到”的演示质量，不是新增游戏玩法。构建身份：Release 二进制 SHA-256 `aaa78ac83e31114e4617ac1209ec6dce036893ec27dde08f25e74f74d5a11f54`；演示与视频使用同一 EXE。
+
+| 检查 | 本次实际结果 / 本地证据 |
+| --- | --- |
+| Rust | `cargo test --workspace --release --locked`：**548 项**（core 118 / editor 430）通过 |
+| Python | 全量 **203 项**通过（`TEMP/TMP=target/test-temp`） |
+| 格式 / Release | `cargo fmt --all --check`、严格 `clippy -D warnings`、workspace Release build 通过 |
+| detailed 演示 | DX12 40ms，**23 章 / 51 例 / 114 个唯一非空产物**，全部章节 `passed`、退出 0；[报告](../target/demo-final-20261018/demo-report.json) |
+| brief 演示 | DX12 40ms，**11 章**全部通过、退出 0；[报告](../target/demo-brief-final-20261018/demo-report.json) |
+| 简略成片 | `dr-rs-progress-1080p.mp4` 363.8s（SHA-256 `b746bf8f…`），H.264 1080p + 48kHz 单声道 AAC，音效由真实回放事件驱动；[manifest](../target/video-brief-final-20261018/video-manifest.json) |
+| 详细成片 | `dr-rs-progress-detailed-1080p.mp4` 661.7s，含 407 条真实动作音效；[manifest](../target/video-detailed-new-20261018/video-manifest.json) |
+| 音效导出 | `--sfx-export` 产出 8 个 WAV（click/place/connect/reject/undo/redo/chapter/complete），与视频混音共用同一音源；[目录](../target/sfx-export) |
+
+本轮改动：
+
+- 展示层：顶部章节条（序号 / 章名 / 进度 / 章首说明）、指针柔光与点击涟漪、输入提示胶囊、窄窗让出画布、完成页汇总卡；非录制模式保留底部说明卡，录制模式由成片字幕承担解说。
+- 成片：片头品牌页、底部字幕栏改为“青柠序号 + 短名 + 动作说明”，片尾列出能力清单与范围提示；章节数量文案由章节清单直接推导。
+- 音效：八种程序化合成音效（48kHz 单声道 16-bit，峰值 -24 dBFS，双端淡入淡出，同帧同类去重），覆盖 UI 点击、放置、连接、拒绝、撤销重做与章节切换；无音频设备时静默降级。
+- detailed 新增三章：`mobile-input`（触摸按下只预览、抬指一次提交；鼠标按下即提交）、`performance`（真实 Ophioglossum 样本选中 1000 部件拖动，记录真实帧耗时并核对撤销重做与 XML 往返）、`narrow-layout`（运行中切 640×360 / 390×844，单侧抽屉与 44px 入口不压船体，章末恢复尺寸）。
+- 清理：dr-core 删除无引用 API（`Vec2d::rotate`、`find_snap`、`EditorState`、`drag_part`、`Ship::remove_part`、`Ship::disconnect_part`）及两个只测已删辅助的用例；dr-editor 删除一个完全重复的贴图路径测试与一个只测私有编号推算的测试。输入边沿、事务、XML、失败数据保护、5% 几何边界与分级断言全部保留。
+
+未做：Vulkan detailed 复跑、三窄窗专项脚本、系统键鼠 / 输入法 / 物理触屏专项、重新打包便携 ZIP。录制模式下 `narrow-layout` 不改物理窗口（录制脚本要求客户区恒定 1920×1080），JSON 中如实标注 `presentation=true`、`resized=false`。
 ## 2026-10-16 最近冻结基线：正式修复后的 DX12 闭环
 
 **这是新一轮用户要求之前的验收基线，不代表后续在改工作区或新增功能已经通过。** 上一轮三级火箭的数据、交互及 DX12 缺件 / 错图问题已在正式修复构建中闭环；完整复刻与下列新增要求继续进行。

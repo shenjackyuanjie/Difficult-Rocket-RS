@@ -21,6 +21,8 @@ Windows 便携 ZIP 的生成与使用见[操作指南](docs/editor-usage.md#wind
 - 辅助吸附与自由连接；连接树/图、连接线显示设置、歧义重复编号的显式修复。
 - 船体目录、四组独立折叠的部件列表；分级停靠编辑、部件缩略图与船上目标联动，属性草稿和未保存确认。
 - 灰黑底与青柠强调的统一原生/egui 风格；鼠标按下触发、触摸抬指单次提交，窄屏自动收起侧栏。
+- 界面音效：点击、放置、连接、拒绝、撤销重做与章节切换由程序合成（48 kHz 单声道，无外部音频资源），`--no-sfx` 可关闭。
+- 演示：简略 11 章 / 详细 23 章（51 例 / 114 项证据），顶部章节条、指针涟漪与成片字幕共用同一套文案。
 - 严格 XML 读写、原子保存、按分组实例编辑。未知扩展字段和歧义引用明确拒绝，不猜测或静默丢失数据。
 
 鼠标左键选择/拖动，中键默认框选，滚轮缩放；`F` 适配整船，`F1` 打开完整帮助。更多操作见[操作指南](docs/editor-usage.md)，触摸与设备边界见[触控说明](docs/mobile-support.md)。
@@ -30,7 +32,7 @@ Windows 便携 ZIP 的生成与使用见[操作指南](docs/editor-usage.md#wind
 | 文档 | 内容 |
 | --- | --- |
 | [操作指南](docs/editor-usage.md) | 快捷键、目录、连接、文件与 Windows 便携包 |
-| [验证指南](docs/validation.md) | Rust/Python/Release、窗口演示、窄窗、系统输入与视频命令 |
+| [验证指南](docs/validation.md) | Rust/Python/Release、窗口演示、音效、窄窗、系统输入与视频命令 |
 | [当前进度](docs/editor-progress.md) | 当前能力、未完成事项与最近实际验收 |
 | [历史验收](docs/validation-history.md) | 按日期冻结的通过、失败及本地证据，不代表当前构建 |
 | [核心覆盖核对](docs/drrs-core-coverage.md) | dr-core API 与 DRRS 的兼容决策和缺口 |
@@ -42,6 +44,7 @@ Windows 便携 ZIP 的生成与使用见[操作指南](docs/editor-usage.md#wind
 
 - `crates/dr-core`：SR1 模型、XML、几何、连接/拓扑与编辑事务；不依赖 Bevy 或 GPU。
 - `crates/dr-editor/src/main.rs`：资源、插件与系统接线；`document` 管理文档/保存点，`window` 管理启动与截图策略。
+- `crates/dr-editor/src/audio.rs`：合成音效表、WAV 编码与播放插件；`--sfx-export` 把同一批 WAV 导出给视频混音。
 - 编辑流程：`canvas_input` / `mobile_input` 处理输入，`selection` / `placement` 共用核心事务，`view` / `render` 负责导航与显示。
 - 界面：`files`、`panels`、`properties`、`topology_ui`；`native_buttons` / `egui_ui` 复用原生控件与共享样式。
 - 验收：各模块旁的测试、仅测试编译的 `test_support`、`demo` / `*_smoke` 及 `scripts`；不把测试夹具放进普通运行路径。

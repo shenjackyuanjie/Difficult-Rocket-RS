@@ -34,7 +34,7 @@ cargo run -p dr-core --example verify_history --release --locked -- ../Difficult
 ```powershell
 $env:WGPU_BACKEND = 'dx12' # 仅本次进程；普通编辑器默认后端不改
 
-# 完整详细回归：20 章、48 例、104 个证据，40ms 节拍，完成自动退出
+# 完整详细回归：23 章、51 例、114 项证据，40ms 节拍，完成自动退出
 uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --editor-bin target/release/dr-editor.exe --mode detailed --fast --output target/demo-detailed-new
 
 # 详细观看：450ms 节奏基准，完成自动退出
@@ -61,8 +61,11 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --edi
 | 原版重号修复 | Heronb 真实歧义分配及独立删除 |
 | 船体目录 | 临时千船体目录、坏 XML、虚拟滚动与末项打开 |
 | 未保存确认 | 主窗口模态取消、隔离及放弃 |
+| 触摸提交（详细） | 按下只预览、抬指一次提交；鼠标按下即提交，两者各留一条历史 |
+| 千件拖动（详细） | 真实 Ophioglossum 样本选中 1000 部件拖动，记录真实帧耗时并核对撤销重做与 XML 往返 |
+| 窄窗布局（详细） | 运行中切到 640×360 / 390×844，单侧抽屉与 44px 入口不压船体，章末恢复尺寸 |
 
-详细模式保留放置（3）、精确重叠（6）、自由连接（7）、整组变换（6）、连线（5）、交互回放（4）、历史/属性（7）、拓扑（4）、文件（3）九组原有 45 例，另加连续三级火箭的搭建、自动分级、手动拖放 3 例，共 48 例。每例核对内存文档/历史和真实 metrics，不宣称穷举。严格 5% 的几何例用精确事务参数；对接类型夹具显式设置 `dock=true`，不改原资源。详细分级为 64 级/1,024 动作，简略为 8 级/48 动作；驱动核对真实规模及末项修改。详细分级报告另记录实际停靠/船体/目标矩形与组/ID，检查面板不覆盖船体、修改目标完整可见，不能只用布尔字段宣称通过。
+详细模式保留放置（3）、精确重叠（6）、自由连接（7）、整组变换（6）、连线（5）、交互回放（4）、历史/属性（7）、拓扑（4）、文件（3）九组原有 45 例，另加连续三级火箭的搭建、自动分级、手动拖放 3 例，以及触摸/鼠标提交 2 例、千件拖动 1 例、窄窗三态 3 例，共 51 例。每例核对内存文档/历史和真实 metrics，不宣称穷举。严格 5% 的几何例用精确事务参数；对接类型夹具显式设置 `dock=true`，不改原资源。详细分级为 64 级/1,024 动作，简略为 8 级/48 动作；驱动核对真实规模及末项修改。详细分级报告另记录实际停靠/船体/目标矩形与组/ID，检查面板不覆盖船体、修改目标完整可见，不能只用布尔字段宣称通过。
 
 - 成功报告 `demo-report.json` 在全模式完成后才原子发布；模式、章节顺序、状态、耗时、路径及新鲜非空产物均须通过。
 - `demo-timeline.jsonl` 记录章首/章尾时间；`demo-actions.jsonl` 仅记录实际重播后的按下/滚轮，供音效同步，不记录移动/松开。
@@ -103,6 +106,7 @@ target/release/dr-editor.exe --smoke-test --smoke-window-size 1440x900 --staging
 | `--selection-smoke-test` / `--scoped-smoke-test` | 多选/剪贴板、分组实例与历史/XML |
 | `--topology-smoke-test` / `--view-smoke-test` | 树图与视图；普通专项含 960×640 检查 |
 | `--properties-smoke-test` / `--egui-smoke-test` | 同一属性自测，含 TextEdit/IME 内部注入，不代表系统输入法 |
+| `--no-sfx` / `--sfx-export <目录>` | 关闭音效；把八种合成音效导出为 WAV，供视频混音复用同一音源 |
 | `--staging-smoke-test` / `--browser-smoke-test` | 64 级/1,024 动作；临时 1,000 文件目录 |
 | `--repair-smoke-test` | 加 `--ship .../Heronb.xml`；真实重号引用修复 |
 | `--interaction-smoke-test` | 内部回放的同帧视觉跟随，不是物理显示延迟 |
@@ -123,12 +127,14 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/check_native_input.p
 
 ## 录制无配音 1080p 视频
 
-需要 Windows、FFmpeg/ffprobe 与系统微软雅黑。复用演示章节与时间线，不是截图轮播；默认静音，`--sound-effects` 可合成真实按下/滚轮的轻量音效，不含配音或音乐。`--demo-mode` 决定成片对应哪一套章节：简略 11 章输出 `dr-rs-progress-1080p.mp4`，详细 20 章输出 `dr-rs-progress-detailed-1080p.mp4`，两者各自使用全新目录、互不覆盖，报告与 manifest 都带模式，跨模式复用会被拒绝。
+需要 Windows、FFmpeg/ffprobe 与系统微软雅黑。复用演示章节与时间线，不是截图轮播；默认静音，`--sound-effects` 可合成真实按下/滚轮的轻量音效，不含配音或音乐。`--demo-mode` 决定成片对应哪一套章节：简略 11 章输出 `dr-rs-progress-1080p.mp4`，详细 23 章输出 `dr-rs-progress-detailed-1080p.mp4`，两者各自使用全新目录、互不覆盖，报告与 manifest 都带模式，跨模式复用会被拒绝。
 
 ```powershell
 uv run --no-project --python 3.12 python -B -X utf8 scripts/render_demo_video.py --no-build --demo-mode brief --output target/video-brief-new
 uv run --no-project --python 3.12 python -B -X utf8 scripts/render_demo_video.py --no-build --demo-mode detailed --output target/video-detailed-new
 uv run --no-project --python 3.12 python -B -X utf8 scripts/render_demo_video.py --no-build --sound-effects --output target/video-sound-new
+# 与编辑器播放同一音源：先 --sfx-export 导出，再按目录混音
+uv run --no-project --python 3.12 python -B -X utf8 scripts/render_demo_video.py --no-build --demo-mode detailed --sound-effects --sfx-dir target/sfx-export --output target/video-detailed-sfx
 uv run --no-project --python 3.12 python -B -X utf8 scripts/render_demo_video.py --render-only target/video-detailed-new --demo-mode detailed
 ```
 

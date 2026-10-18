@@ -478,3 +478,23 @@ DX12 的[装配原图](../target/demo-ui-staging-render-probe-20261016/editor-ro
 - **视频首次录制被遮挡**：两次录制都在九点遮挡检查处失败；实机探针确认为桌面上 Windows 任务切换浮层（class `MultitaskingViewFrame`，标题“任务切换”）覆盖了 1920×1080 演示区域，关闭该浮层后两版成片一次录成。gdigrab 需要真实可见无遮挡的 owned 客户区，这不是代码缺陷。
 
 以上均为内部 Bevy/egui 注入与真实控件矩形，不等于系统键鼠、输入法或 input-to-photon 测量；物理触屏与原生输入专项按要求仍未执行。上一节冻结基线的 487 / 189 项与九件三级火箭属于 `b6db201` / EXE `08b3fcc6…`，与本轮的 533 / 203 及 14 件双固体助推火箭不能相互代替。
+
+## 2026-10-18 演示展示、音效与 detailed 新章节
+
+本轮只改演示呈现与运行期音效，不新增游戏玩法。二进制 SHA-256 `aaa78ac83e31114e4617ac1209ec6dce036893ec27dde08f25e74f74d5a11f54`。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| Rust | 548 项通过（core 118 / editor 430） |
+| Python | 203 项通过 |
+| 格式 / Clippy / Build | fmt check、`clippy -D warnings`、workspace Release build 通过 |
+| detailed | 23 章 / 51 例 / 114 个唯一非空产物，全部通过、退出 0 |
+| brief | 11 章全部通过、退出 0 |
+| 成片 | 简略 378.7s、详细 661.7s，均 H.264 1080p + 48kHz 单声道 AAC，音效由真实回放事件驱动 |
+
+新增 detailed 章节：`mobile-input`、`performance`、`narrow-layout`；brief 仍为 11 章。录制模式下 `narrow-layout` 不改物理窗口（录制要求客户区固定 1920×1080），JSON 如实记录 `presentation=true`、`resized=false`。
+
+清理：删除 dr-core 无引用 API 与两个琐碎测试、dr-editor 两个重复或无独立语义的测试；输入边沿、事务、XML、失败数据保护、5% 几何边界与分级断言保留。
+
+未运行：Vulkan detailed、三窄窗专项脚本、系统键鼠/输入法/物理触屏专项、便携包重打包。
+
