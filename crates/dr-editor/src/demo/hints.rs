@@ -235,25 +235,40 @@ pub(super) fn paint_input_hint(
             "demo-key-hint"
         }),
     ));
-    let color = egui::Color32::from_rgb(239, 226, 255).gamma_multiply(opacity);
-    let galley = painter.layout_no_wrap(hint.text.clone(), egui::FontId::proportional(24.), color);
+    // 鼠标与按键提示分层错开，避免章节条展开时压住说明文字。
+    let text = if mouse {
+        format!("● {}", hint.text)
+    } else {
+        format!("⌨ {}", hint.text)
+    };
+    let color = egui::Color32::from_rgb(240, 232, 255).gamma_multiply(opacity);
+    let galley = painter.layout_no_wrap(text, egui::FontId::proportional(21.), color);
     let center = egui::pos2(
         ctx.content_rect().center().x,
         if below_help {
             ctx.content_rect().bottom()
                 - 12.
-                - (galley.size().y + 16.) / 2.
+                - (galley.size().y + 18.) / 2.
                 - if mouse { 50. } else { 0. }
         } else {
-            ctx.content_rect().top() + if mouse { 122. } else { 72. }
+            ctx.content_rect().top() + if mouse { 148. } else { 112. }
         },
     );
-    let rect = egui::Rect::from_center_size(center, galley.size() + egui::vec2(28., 16.));
+    let rect = egui::Rect::from_center_size(center, galley.size() + egui::vec2(30., 18.));
     painter.rect_filled(
         rect,
-        7.,
-        egui::Color32::from_rgb(25, 23, 34).gamma_multiply(opacity),
+        9.,
+        egui::Color32::from_rgb(22, 20, 29).gamma_multiply(opacity),
     );
-    painter.galley(rect.min + egui::vec2(14., 8.), galley, color);
+    painter.rect_stroke(
+        rect,
+        9.,
+        egui::Stroke::new(
+            1.,
+            egui::Color32::from_rgb(96, 78, 132).gamma_multiply(opacity),
+        ),
+        egui::StrokeKind::Inside,
+    );
+    painter.galley(rect.min + egui::vec2(15., 9.), galley, color);
     ctx.request_repaint();
 }

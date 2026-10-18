@@ -274,7 +274,7 @@ fn key_hint_painter_does_not_block_underlying_input_and_stops_after_expiry() {
         });
         // 无头测试不上传 GPU 字体图集，确认丢弃纹理增量。
         output.textures_delta.clear();
-        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::epaint::Shape::Text(text) if text.galley.text() == "Ctrl+Z")));
+        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::epaint::Shape::Text(text) if text.galley.text().ends_with("Ctrl+Z"))));
     }
     assert!(clicked, "提示所在位置的下层按钮必须仍收到点击");
     ctx.begin_pass(raw());
