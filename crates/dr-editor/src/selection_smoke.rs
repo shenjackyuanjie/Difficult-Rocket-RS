@@ -198,13 +198,14 @@ pub(crate) fn run(
         6 => {
             assert_eq!(drag.members.len(), 2);
             if !state.small_motion {
-                point(0.1, 0.13);
+                point(0.26, 0.74);
                 state.small_motion = true;
                 state.pointer = pointer;
                 return;
             }
-            assert!((drag.delta().0 - 0.1).abs() < 1e-5);
-            assert!((drag.delta().1 - 0.13).abs() < 1e-5);
+            // 拖动位移按 0.5 量化：0.26 与 0.74 各自进位到半格。
+            assert!((drag.delta().0 - 0.5).abs() < 1e-5);
+            assert!((drag.delta().1 - 0.5).abs() < 1e-5);
             point(1.0, 1.0);
         }
         7 => {

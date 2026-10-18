@@ -69,10 +69,10 @@ impl Probe {
         self.retries = 0;
     }
 
-    /// 沿小范围闭合轨迹移动，避免把选区拖出真实船体范围。
+    /// 沿闭合轨迹移动；幅度跨过至少两个网格步长，量化后仍能产生真实位移。
     fn offset(index: usize) -> (f64, f64) {
         let t = index as f64;
-        ((t * 0.35).sin() * 0.08, (t * 0.22).cos() * 0.05 - 0.05)
+        ((t * 0.35).sin() * 0.8, (t * 0.22).cos() * 0.5 - 0.5)
     }
 }
 
@@ -191,6 +191,22 @@ pub(super) fn setup(state: &mut Run, ctx: &mut Context, scenario: Scenario) {
     }
 }
 
+/// 窗口演示从仓库根运行，证据写到工作目录下的 target。
+#[cfg(not(test))]
+fn evidence_path(name: &str) -> std::path::PathBuf {
+    std::path::Path::new("target").join(name)
+}
+
+/// 单元测试的工作目录是包目录；证据仍写到仓库根 target，与窗口演示共用同一位置，
+/// 打包后的程序不受编译机路径影响。
+#[cfg(test)]
+fn evidence_path(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("target")
+        .join(name)
+}
+
 fn expected(state: &Run, index: usize) -> (f64, f64) {
     let origin = state
         .perf
@@ -199,7 +215,8 @@ fn expected(state: &Run, index: usize) -> (f64, f64) {
         .and_then(|ship| state.perf.anchor.and_then(|key| ship.part_at(key)))
         .map(|part| (part.x, part.y))
         .expect("性能样例缺少锚点部件");
-    let offset = Probe::offset(index);
+    // 预览与提交都按生产网格量化位移。
+    let offset = dr_core::geometry::quantize_point(Probe::offset(index));
     (origin.0 + offset.0, origin.1 + offset.1)
 }
 
@@ -268,13 +285,14 @@ fn finish_metrics(state: &mut Run, ctx: &Context, delta: (f64, f64)) {
     state.metrics["frame_max_ms"] = max.into();
     state.metrics["frame_time_source"] = "拖动步骤读取的真实相邻帧耗时 Time::delta_secs()".into();
     state.metrics["physical_display_latency_measured"] = false.into();
+    state.metrics["grid_step"] = dr_core::geometry::EDITOR_GRID_STEP.into();
     state.metrics["rigid_delta"] = serde_json::json!([delta.0, delta.1]);
     state.metrics["all_selected_moved_together"] = true.into();
     state.metrics["unselected_unchanged"] = true.into();
     state.metrics["entity_count_unchanged"] = true.into();
-    let path = "target/performance-drag.xml";
-    dr_core::save_ship(path, &ctx.document.ship).expect("无法写性能样例 XML 证据");
-    let reloaded = dr_core::load_ship(path).expect("无法回读性能样例 XML 证据");
+    let path = evidence_path("performance-drag.xml");
+    dr_core::save_ship(&path, &ctx.document.ship).expect("无法写性能样例 XML 证据");
+    let reloaded = dr_core::load_ship(&path).expect("无法回读性能样例 XML 证据");
     assert_eq!(reloaded.all_parts().count(), original.all_parts().count());
     // 整组拖动会按既有语义断开外部连接；XML 往返核对的是提交后的真实连接。
     assert_eq!(reloaded.connections, ctx.document.ship.connections);

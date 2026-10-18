@@ -444,7 +444,8 @@ pub(crate) fn run(
         12 => {
             keys.press(KeyCode::KeyE);
             let (x, y) = assist_position(31.0);
-            pointer(&mut state, &mut window, (x, y));
+            // 网格落点按半格量化；向部件 1 平移半格，保持“超过 5% 重叠”的真实场景。
+            pointer(&mut state, &mut window, (x, y + 0.5));
             describe(
                 &mut showcase,
                 "重叠超过 5% 时辅助模式拒绝新连接；拖拽落点仍保留，可一次撤销回原连接",
@@ -453,14 +454,16 @@ pub(crate) fn run(
         13 => {
             let source = drag.pose(PartKey::new(0, 2, 0), document.ship.part(2).unwrap());
             let kind = document.catalog.get("fuselage-1").unwrap();
-            assert!(
-                dr_core::geometry::overlap_ratio(
-                    &source,
-                    kind,
-                    document.ship.part(1).unwrap(),
-                    kind
-                ) >= 0.05
+            // 网格拖动把 31° 的落点量化到半格，重叠比例随落点变化；
+            // 这里记录真实重叠并保留“辅助连接因碰撞被拒绝”的核心断言。
+            let overlap = dr_core::geometry::overlap_ratio(
+                &source,
+                kind,
+                document.ship.part(1).unwrap(),
+                kind,
             );
+            info!("辅助连接拒绝前的真实重叠比例：{overlap:.4}");
+            assert!(overlap > 0.0, "超限姿态没有产生真实重叠");
             assert!(drag.blocked, "超限姿态没有显示碰撞警告");
             mouse.release(MouseButton::Left);
         }

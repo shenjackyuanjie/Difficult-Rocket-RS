@@ -130,6 +130,11 @@ pub(super) fn setup(ctx: &mut Context, scenario: Scenario) {
     }
 }
 
+/// 回放期望落点走与生产相同的网格量化；自由模式样例不使用该路径。
+fn grid(point: (f64, f64)) -> (f64, f64) {
+    dr_core::geometry::quantize_point(point)
+}
+
 fn near(actual: (f64, f64), expected: (f64, f64)) {
     assert!(
         (actual.0 - expected.0).hypot(actual.1 - expected.1) < 1e-5,
@@ -143,7 +148,7 @@ fn drag(state: &mut Run, ctx: &mut Context) -> bool {
         let index = usize::from(state.step - 1);
         if index > 0 {
             assert_eq!(ctx.drag.id, Some(key(1)));
-            near(ctx.drag.preview, DRAG_PATH[index - 1]);
+            near(ctx.drag.preview, grid(DRAG_PATH[index - 1]));
             unchanged(state, &ctx.document);
         }
         let delta = DRAG_PATH[index];
@@ -162,7 +167,7 @@ fn drag(state: &mut Run, ctx: &mut Context) -> bool {
             1 => {
                 assert!(ctx.drag.id.is_none());
                 let part = ctx.document.ship.part(1).unwrap();
-                near((part.x, part.y), *DRAG_PATH.last().unwrap());
+                near((part.x, part.y), grid(*DRAG_PATH.last().unwrap()));
                 assert_eq!(ctx.document.history.undo_len(), 1);
                 assert!(ctx.document.dirty);
                 assert!(state.gesture.checks >= DRAG_PATH.len());
@@ -179,7 +184,8 @@ fn drag(state: &mut Run, ctx: &mut Context) -> bool {
                 assert_eq!(state.after.as_ref(), Some(&ctx.document.ship));
                 assert_eq!(ctx.document.history.undo_len(), 1);
                 state.metrics = serde_json::json!({"path_points":DRAG_PATH.len(),
-                    "grab_offset": [GRAB.0, GRAB.1], "subpixel_and_reverse":true,
+                    "grab_offset": [GRAB.0, GRAB.1], "grid_step": dr_core::geometry::EDITOR_GRID_STEP,
+                    "subpixel_path":true, "reverse_motion":true,
                     "release_last_delta":true, "atomic_history":true, "undo_redo":true});
                 return true;
             }
@@ -433,7 +439,8 @@ pub(super) fn report(state: &mut Run) {
 }
 
 /// 在当前 Transform 传播之后、演示隔离光标之前核对真实视觉实体。
-/// 期望值来自本帧实际光标，而非计划中的目标或 drag.preview；因此也覆盖慢速插值帧。
+/// 期望值来自本帧实际光标并按生产网格量化，而非计划中的目标或 drag.preview；
+/// 因此也覆盖慢速插值帧与网格台阶。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn verify(
     mut state: ResMut<Run>,
@@ -473,7 +480,11 @@ pub(crate) fn verify(
         Target::Camera(_) => cameras.single().unwrap().translation().truncate(),
     };
     let expected = match target {
-        Target::Part => Vec2::new(delta.x, -delta.y),
+        Target::Part => {
+            // 部件位移按网格量化：屏幕像素先换算成逻辑格，再落回世界像素。
+            let (x, y) = grid((f64::from(delta.x) / 60.0, f64::from(-delta.y) / 60.0));
+            Vec2::new((x * 60.0) as f32, (y * 60.0) as f32)
+        }
         Target::Camera(_) => Vec2::new(-delta.x, delta.y),
     };
     let error = actual.distance(expected);
