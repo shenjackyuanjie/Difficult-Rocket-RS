@@ -7,7 +7,7 @@
 //!
 //! 另外，原生按钮只认鼠标主键：中键与右键的指针输入在 picking 的输入边界就被丢弃，
 //! 既不会激活按钮，也不会打断左键按住的状态。触摸走独立的 GestureInput 抬指路径。
-use crate::{files, help, mobile_input, properties};
+use crate::{audio, files, help, mobile_input, properties};
 use bevy::picking::hover::Hovered;
 use bevy::picking::input::PointerInputSettings;
 use bevy::picking::pointer::{PointerAction, PointerButton, PointerId, PointerInput};
@@ -128,10 +128,15 @@ pub(crate) fn press_triggered() -> impl Bundle {
 /// 这里只看设备无关的 Activate 事件：picking 跑在 PreUpdate，而 GestureInput 在 Update 才更新，
 /// 在这一层读 override 只会看到上一帧状态，从而丢掉手指抬起后的第一次真实鼠标按下。
 /// 触摸接管期间是否采信，交给消费者在本帧输入更新之后判断。
-fn observe_activation(event: On<Activate>, mut activated: MessageWriter<Activated>) {
+fn observe_activation(
+    event: On<Activate>,
+    mut activated: MessageWriter<Activated>,
+    mut sfx: Option<MessageWriter<audio::SfxEvent>>,
+) {
     activated.write(Activated {
         entity: event.entity,
     });
+    audio::emit(&mut sfx, audio::SfxEvent::Click);
 }
 
 /// 只让鼠标主键驱动原生按钮：中键与右键的按下、抬起在输入边界就被丢弃。

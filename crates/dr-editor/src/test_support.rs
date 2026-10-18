@@ -18,6 +18,7 @@ pub(crate) fn document() -> EditorDocument {
         dirty: false,
         history: EditorHistory::default(),
         status: String::new(),
+        sfx: Vec::new(),
     }
 }
 

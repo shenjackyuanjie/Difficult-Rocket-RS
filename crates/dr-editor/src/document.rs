@@ -1,4 +1,5 @@
 //! 编辑文档、保存点与历史事务；不依赖窗口输入。
+use crate::audio;
 use bevy::prelude::*;
 use dr_core::{
     EditorCommand, EditorHistory, PartCatalog, PartKey, PartKind, Ship, load_catalog, load_ship,
@@ -20,6 +21,8 @@ pub(crate) struct EditorDocument {
     pub history: EditorHistory,
     pub(crate) saved_ship: Ship,
     pub(crate) status: String,
+    /// 事务结果待播音效；SfxPlugin 每帧取走，文档本身不依赖播放后端。
+    pub(crate) sfx: Vec<audio::SfxEvent>,
 }
 
 impl EditorDocument {
@@ -56,6 +59,7 @@ impl EditorDocument {
     pub(crate) fn undo(&mut self) -> bool {
         let changed = self.history.undo(&mut self.ship);
         if changed {
+            self.sfx.push(audio::SfxEvent::Undo);
             self.clear_selection();
         }
         self.refresh();
@@ -64,6 +68,7 @@ impl EditorDocument {
     pub(crate) fn redo(&mut self) -> bool {
         let changed = self.history.redo(&mut self.ship);
         if changed {
+            self.sfx.push(audio::SfxEvent::Redo);
             self.clear_selection();
         }
         self.refresh();
@@ -71,12 +76,16 @@ impl EditorDocument {
     }
     pub(crate) fn execute(&mut self, command: EditorCommand) -> bool {
         let command = self.edit_command(command);
+        let sfx = audio::command_sfx(&command);
         let before: Vec<_> = self.ship.keyed_parts().map(|(key, _)| key).collect();
         match self
             .history
             .execute_with_catalog(&mut self.ship, &self.catalog, command)
         {
             Ok(()) => {
+                if let Some(sfx) = sfx {
+                    self.sfx.push(sfx);
+                }
                 if !before
                     .into_iter()
                     .eq(self.ship.keyed_parts().map(|(key, _)| key))
@@ -88,6 +97,7 @@ impl EditorDocument {
                 true
             }
             Err(error) => {
+                self.sfx.push(audio::SfxEvent::Reject);
                 self.status = error.to_string();
                 false
             }
@@ -124,6 +134,7 @@ pub(crate) fn load_document(
         selection: default(),
         dirty: false,
         history: EditorHistory::with_limit(256),
+        sfx: Vec::new(),
     })
 }
 

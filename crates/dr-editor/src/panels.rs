@@ -267,6 +267,7 @@ pub(crate) fn panel_actions(
     mut files: MessageWriter<files::FileAction>,
     pending: Option<Res<files::PendingFileAction>>,
     help: Option<Res<help::HelpState>>,
+    mut sfx: Option<MessageWriter<audio::SfxEvent>>,
 ) {
     if help.is_some_and(|state| state.open || state.suppress_frame)
         || pending.is_some_and(|state| state.is_blocked())
@@ -275,6 +276,7 @@ pub(crate) fn panel_actions(
         return;
     }
     for action in buttons.read() {
+        audio::emit(&mut sfx, audio::SfxEvent::Click);
         match action {
             PanelButton::Part(index) | PanelButton::DragPart(index) => {
                 if document.catalog.visible().nth(*index).is_some() {

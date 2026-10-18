@@ -1,4 +1,5 @@
 mod attachment_hints;
+mod audio;
 mod canvas_input;
 mod connection_lines;
 mod connection_smoke;
@@ -71,6 +72,11 @@ fn main() -> anyhow::Result<()> {
         .expect("资源路径无效")
         .to_string_lossy()
         .into_owned();
+    // 离线导出与是否播放无关：视频混音脚本复用同一份合成音源。
+    if let Some(dir) = audio::export_dir(&args) {
+        let count = audio::export_all(&dir)?;
+        println!("已导出 {count} 个合成音效到 {}", dir.display());
+    }
     let showcase = demo::Showcase::from_args(&args)?;
     let presentation = showcase.is_some() && args.iter().any(|arg| arg == "--demo-presentation");
     let automated = showcase.is_some() || args.iter().any(|arg| arg == "--smoke-test");
@@ -139,6 +145,7 @@ fn main() -> anyhow::Result<()> {
     )
     .add_plugins(sprite_shader::SpriteShaderPlugin)
     .add_plugins(native_buttons::NativeButtonsPlugin)
+    .add_plugins(audio::SfxPlugin::from_args(&args))
     .init_gizmo_group::<connection_lines::LineGizmos>()
     .add_plugins(egui_ui::EditorEguiPlugin)
     .add_message::<files::FileAction>()

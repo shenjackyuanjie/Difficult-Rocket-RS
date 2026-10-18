@@ -64,6 +64,7 @@ pub(crate) fn transform(document: &mut EditorDocument, id: PartKey, command: Edi
         &candidate.parts[0],
         Some(id),
     ) {
+        document.sfx.push(audio::SfxEvent::Reject);
         document.status = "变换后的部件与其他部件重叠".into();
         return;
     }
@@ -266,6 +267,7 @@ pub(crate) fn place(document: &mut EditorDocument, cursor: &EditorCursor) -> boo
         return false;
     };
     if !allowed {
+        document.sfx.push(audio::SfxEvent::Reject);
         document.status = "无法放置：实体重叠达到 5% 或已达到数量上限".into();
         return false;
     }
