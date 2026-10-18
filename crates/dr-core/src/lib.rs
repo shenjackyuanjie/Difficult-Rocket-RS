@@ -15,10 +15,10 @@ pub mod staging;
 pub use staging::{StagingError, generate_basic_staging};
 
 pub use edit::{
-    CommandError, ConnectionRole, DuplicateRepair, EditorCommand, EditorHistory, EditorState,
-    LinkKind, ReferenceSite, SelectionPose, SelectionTransform, ShipFragment,
+    CommandError, ConnectionRole, DuplicateRepair, EditorCommand, EditorHistory, LinkKind,
+    ReferenceSite, SelectionPose, SelectionTransform, ShipFragment,
 };
-pub use geometry::{SnapCandidate, Vec2d, find_snap, intersects, part_world_attach};
+pub use geometry::{SnapCandidate, Vec2d, intersects, part_world_attach};
 pub use io::{
     CoreError, catalog_from_xml, catalog_to_xml, load_catalog, load_ship, save_catalog, save_ship,
     ship_from_xml, ship_to_xml,

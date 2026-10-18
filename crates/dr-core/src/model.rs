@@ -561,12 +561,6 @@ impl Ship {
             .iter()
             .chain(self.disconnected.iter().flat_map(|g| g.connections.iter()))
     }
-    pub fn disconnect_part(&mut self, id: PartId) {
-        if let Some(key) = self.unique_key(id) {
-            let _ = crate::edit::scoped::disconnect(self, key);
-        }
-    }
-
     /// 返回所有部件、连接和分级引用中可用的下一个正整数 ID；
     /// 历史悬空引用保留原编号，新部件不会顶替它们。
     pub fn next_part_id(&self) -> PartId {
@@ -603,12 +597,6 @@ impl Ship {
     pub fn part_mut(&mut self, id: PartId) -> Option<&mut Part> {
         let key = self.unique_key(id)?;
         self.part_at_mut(key)
-    }
-    pub fn remove_part(&mut self, id: PartId) -> Option<Part> {
-        let key = self.unique_key(id)?;
-        let part = self.part_at(key)?.clone();
-        crate::edit::scoped::delete(self, key).ok()?;
-        Some(part)
     }
     pub fn count_type(&self, type_id: &str) -> usize {
         self.parts

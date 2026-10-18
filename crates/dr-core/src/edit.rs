@@ -454,23 +454,6 @@ impl EditorCommand {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct EditorState {
-    pub ship: Ship,
-    pub selected: Option<PartKey>,
-    pub dirty: bool,
-}
-
-impl EditorState {
-    pub fn new(ship: Ship) -> Self {
-        Self {
-            ship,
-            selected: None,
-            dirty: false,
-        }
-    }
-}
-
 #[cfg(test)]
 mod repair_tests;
 #[cfg(test)]

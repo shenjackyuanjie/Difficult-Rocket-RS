@@ -88,8 +88,6 @@ fn duplicate_global_ids_require_scope_and_failure_preserves_redo() {
     }
     assert!(ship.part(2).is_none());
     assert!(ship.part_mut(2).is_none());
-    assert!(ship.remove_part(2).is_none());
-    ship.disconnect_part(2);
     assert_eq!(ship, original);
 }
 

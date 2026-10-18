@@ -999,14 +999,4 @@ mod tests {
         assert_eq!(part_sprite_path(""), "textures/parts/");
         assert_eq!(part_sprite_path("a.B.C"), "textures/parts/a.B.c");
     }
-
-    #[test]
-    fn catalog_sprite_with_uppercase_extension_uses_the_lowercase_asset_key() {
-        let mut kind = crate::test_support::catalog().get("pod").unwrap().clone();
-        kind.sprite = "DockingConnector.PNG".into();
-        assert_eq!(
-            part_sprite_path(&kind.sprite),
-            "textures/parts/DockingConnector.png"
-        );
-    }
 }

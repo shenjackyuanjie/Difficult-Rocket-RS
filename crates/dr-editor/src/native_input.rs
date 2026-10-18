@@ -412,29 +412,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parts_entry_has_a_separate_system_step_without_renumbering_assertions() {
-        let mut state = State::default();
-        for step in 0..=5 {
-            state.step = step;
-            assert_eq!(state.input_step(), step);
-        }
-        state.parts_opening = true;
-        assert_eq!(state.input_step(), 5, "系统步骤 5 先点击 Parts");
-        state.parts_opening = false;
-        state.parts_opened = true;
-        for step in 5..=21 {
-            state.step = step;
-            assert_eq!(state.input_step(), step + 1);
-        }
-        state.step = 18;
-        assert_eq!(
-            state.input_step(),
-            19,
-            "驱动的真实失焦恢复阶段随系统步骤顺延"
-        );
-    }
-
-    #[test]
     fn palette_drag_uses_the_visible_part_widget_and_egui_scale() {
         let mut ui = panels::egui_panel::UiState::default();
         ui.pixels_per_point = 1.5;

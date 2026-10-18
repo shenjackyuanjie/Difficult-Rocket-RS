@@ -13,23 +13,6 @@ impl Vec2d {
     pub fn distance(self, other: Self) -> f64 {
         ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt()
     }
-    pub fn rotate(self, turns: i32) -> Self {
-        match turns.rem_euclid(4) {
-            1 => Self {
-                x: -self.y,
-                y: self.x,
-            },
-            2 => Self {
-                x: -self.x,
-                y: -self.y,
-            },
-            3 => Self {
-                x: self.y,
-                y: -self.x,
-            },
-            _ => self,
-        }
-    }
 }
 
 pub const SR1_TO_PIXELS: f64 = 60.0;
@@ -68,18 +51,6 @@ pub struct SnapCandidate {
     pub position: Vec2d,
     pub distance: f64,
     pub dock: bool,
-}
-
-pub fn find_snap(
-    source: &Part,
-    source_type: &PartType,
-    target: &Part,
-    target_type: &PartType,
-    threshold: f64,
-) -> Option<SnapCandidate> {
-    crate::connections::candidates(source, source_type, target, target_type, threshold)
-        .into_iter()
-        .next()
 }
 
 pub fn intersects(a: &Part, at: &PartType, b: &Part, bt: &PartType) -> bool {
@@ -582,43 +553,6 @@ mod tests {
             Vec2d { x: 1.1, y: 0.2 },
             Vec2d { x: 0.9, y: -0.2 }
         ));
-    }
-    #[test]
-    fn quarter_turn() {
-        assert_eq!(
-            Vec2d { x: 1.0, y: 2.0 }.rotate(1),
-            Vec2d { x: -2.0, y: 1.0 }
-        );
-    }
-    #[test]
-    fn snap() {
-        let a = t(vec![AttachPoint {
-            location: String::new(),
-            flip_y: false,
-            x: 1.0,
-            y: 0.0,
-            dock: false,
-            fuel_line: false,
-            flip_x: false,
-            group: None,
-            order: None,
-            break_angle: None,
-            break_force: None,
-        }]);
-        let b = t(vec![AttachPoint {
-            location: String::new(),
-            flip_y: false,
-            x: -1.0,
-            y: 0.0,
-            dock: false,
-            fuel_line: false,
-            flip_x: false,
-            group: None,
-            order: None,
-            break_angle: None,
-            break_force: None,
-        }]);
-        assert!(find_snap(&p(1, 0.0), &a, &p(2, 1.01), &b, 0.1).is_some());
     }
     #[test]
     fn overlap_respects_flag() {

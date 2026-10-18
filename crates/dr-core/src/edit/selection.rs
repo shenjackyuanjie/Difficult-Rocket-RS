@@ -190,26 +190,6 @@ pub(super) fn transform(
     install(ship, proposed, free)
 }
 
-/// 刚体拖拽预览；碰撞是警告而非撤销，旋转权限与有限数值仍严格校验。
-pub fn drag_part(
-    original: &Part,
-    catalog: Option<&PartCatalog>,
-    pivot: (f64, f64),
-    turns: u8,
-    delta: (f64, f64),
-) -> Result<Part, CommandError> {
-    pose_part(
-        original,
-        catalog,
-        SelectionPose {
-            pivot,
-            radians: (turns % 4) as f64 * std::f64::consts::FRAC_PI_2,
-            ..Default::default()
-        },
-        delta,
-    )
-}
-
 pub fn pose_part(
     original: &Part,
     catalog: Option<&PartCatalog>,
