@@ -11,6 +11,7 @@ pub mod edit;
 pub mod geometry;
 pub mod io;
 pub mod model;
+pub mod sr1;
 pub mod staging;
 pub use staging::{StagingError, generate_basic_staging};
 
