@@ -5,8 +5,10 @@
 
 pub mod catalog;
 pub mod parts;
+pub mod runtime;
 pub mod scalars;
 pub mod ship;
+pub mod solar;
 pub mod staging;
 pub mod xml;
 
