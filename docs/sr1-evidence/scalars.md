@@ -217,3 +217,7 @@ cargo test -p dr-core sr1::scalars::tests
 4. 写出模型支持完整 Rust `String`，不模拟游戏 `0xC8` 临时缓冲区的截断和错误处理；扩展范围差分使用 2048 字节缓冲区，不能拿它证明游戏大数缓冲区支路。
 5. 非有限测试覆盖列出的 8 种位模式；任意 NaN payload、f32 signaling NaN 提升时的跨硬件 quieting 行为未全域验证。
 6. 本模块只负责标量。fuel、throttle、几何等字段的裁剪、计算顺序和窄化位置由对应本体数据模块据 PC 证据处理。
+
+## 本轮统一验收
+
+Lead 已完成的构建、跨模块回归、真实资源和独立 Rust/CRT 差分结果，见[本体数据语义层验证记录](../sr1-data-restoration.md#验证与后续)。本文的队友交接验证与该统一结果分列。

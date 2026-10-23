@@ -25,6 +25,7 @@ Windows 便携 ZIP 的生成与使用见[操作指南](docs/editor-usage.md#wind
 - 界面音效：点击、放置、连接、拒绝、撤销重做与章节切换由程序合成（48 kHz 单声道，无外部音频资源），`--no-sfx` 可关闭。
 - 演示：简略 11 章 / 详细 23 章（51 例 / 114 项证据），顶部章节条、指针涟漪与成片字幕共用同一套文案。
 - 严格 XML 读写、原子保存、按分组实例编辑。未知扩展字段和歧义引用明确拒绝，不猜测或静默丢失数据。
+- 独立的 `dr_core::sr1` 本体数据语义层：原生数值/布尔、部件目录与状态、连接/分级、Runtime/星系/挑战数据，附PC证据与离线测试；尚未替换编辑器严格入口。
 
 鼠标左键选择/拖动，中键默认框选，滚轮缩放；`F` 适配整船，`F1` 打开完整帮助。更多操作见[操作指南](docs/editor-usage.md)，触摸与设备边界见[触控说明](docs/mobile-support.md)。
 
@@ -37,6 +38,7 @@ Windows 便携 ZIP 的生成与使用见[操作指南](docs/editor-usage.md#wind
 | [当前进度](docs/editor-progress.md) | 当前能力、未完成事项与最近实际验收 |
 | [历史验收](docs/validation-history.md) | 按日期冻结的通过、失败及本地证据，不代表当前构建 |
 | [核心覆盖核对](docs/drrs-core-coverage.md) | dr-core API 与 DRRS 的兼容决策和缺口 |
+| [SR1 本体数据还原](docs/sr1-data-restoration.md) | 独立语义层、使用接口、PC证据和验证边界 |
 | [演示评审建议](docs/demo-review-suggestions.md) | 已采纳项与尚未实施的回放候选 |
 
 `target/` 中的截图、报告与日志是未入库的本地验收产物；历史链接可能已失效，不用旧结果代替本次运行。

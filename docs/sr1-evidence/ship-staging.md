@@ -119,3 +119,7 @@ git diff --check -- crates/dr-core/src/sr1/ship.rs crates/dr-core/src/sr1/stagin
 cargo test -p dr-core sr1::staging::tests
 cargo test -p dr-core sr1::ship::tests
 ```
+
+## 本轮统一验收
+
+Lead 已完成的构建、跨模块回归、真实资源和独立 Rust/CRT 差分结果，见[本体数据语义层验证记录](../sr1-data-restoration.md#验证与后续)。本文的队友交接验证与该统一结果分列。

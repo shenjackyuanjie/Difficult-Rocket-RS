@@ -1,0 +1,11 @@
+<SolarSystem name="Fixture Solar System">
+  <Planet name="Sun" radius="1000" gravity="1" launchEnabled="false">
+    <Terrain/>
+    <Children>
+      <Planet name="Earth" radius="100" gravity="9.8">
+        <Orbit a="10000" e="0.1" w="0.25" v="0.5" prograde="true"/>
+        <Terrain/>
+      </Planet>
+    </Children>
+  </Planet>
+</SolarSystem>

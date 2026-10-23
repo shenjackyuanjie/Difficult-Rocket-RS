@@ -1,0 +1,28 @@
+<PartTypes>
+  <PartType id="pod-1" name="Fixture Pod" type="pod" mass="1" width="4" height="3">
+    <AttachPoints><AttachPoint location="TopCenter"/><AttachPoint location="BottomCenter"/></AttachPoints>
+  </PartType>
+  <PartType id="fueltank-1" name="Fixture Tank" type="tank" mass="2" width="4" height="4">
+    <Tank fuel="10" dryMass="0.5"/>
+    <AttachPoints><AttachPoint location="TopCenter"/><AttachPoint location="BottomCenter"/></AttachPoints>
+  </PartType>
+  <PartType id="engine-1" name="Fixture Engine" type="engine" mass="1" width="4" height="2">
+    <Engine power="1" consumption="2" size="0.5" turn="3"/>
+    <Tank fuel="4" dryMass="0.1"/>
+    <AttachPoints><AttachPoint location="TopCenter"/><AttachPoint location="BottomCenter"/></AttachPoints>
+  </PartType>
+  <PartType id="lander-1" name="Fixture Lander" type="lander" mass="0.5" width="1" height="5">
+    <Lander minLength="1" maxLength="3"/>
+    <AttachPoints><AttachPoint location="LeftCenter"/><AttachPoint location="RightCenter"/></AttachPoints>
+  </PartType>
+  <PartType id="parachute-1" name="Fixture Parachute" type="parachute" mass="0.25" width="4" height="1">
+    <AttachPoints><AttachPoint location="BottomCenter"/></AttachPoints>
+  </PartType>
+  <PartType id="solar-1" name="Fixture Solar" type="solar" mass="1" width="1" height="4">
+    <Solar chargeRate="2"/>
+    <AttachPoints><AttachPoint location="LeftCenter"/><AttachPoint location="RightCenter"/></AttachPoints>
+  </PartType>
+  <PartType id="strut-1" name="Fixture Strut" type="strut" mass="1" width="2" height="2">
+    <AttachPoints><AttachPoint location="TopCenter"/><AttachPoint location="BottomCenter"/></AttachPoints>
+  </PartType>
+</PartTypes>

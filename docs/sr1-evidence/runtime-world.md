@@ -150,3 +150,7 @@ cargo test -p dr-core sr1::solar::tests
 - 原生 Save 三处运行 flag 的业务含义与生命周期。已实现给定三个 flag 后的精确 eligibility，不会从 XML 臆造标志。
 - 挑战胜负/计分、耗油与 maxSpeed 遥测对象构造；实现字段恢复与显式快照输出，不编造算法。
 - 通用混合内容 XML、排版/注释的词法往返；现有严格编辑合同保持原样。
+
+## 本轮统一验收
+
+Lead 已完成的构建、跨模块回归、真实资源和独立 Rust/CRT 差分结果，见[本体数据语义层验证记录](../sr1-data-restoration.md#验证与后续)。本文的队友交接验证与该统一结果分列。
