@@ -4,7 +4,10 @@
 //! 原生行为按逐项证据实现；不等同于完整物理模拟，也不承诺原 XML 词法保真。
 
 pub mod catalog;
+pub mod parts;
 pub mod scalars;
+pub mod ship;
+pub mod staging;
 pub mod xml;
 
 /// 本体数据的 XML 传输或已明确的数据前置条件错误。
