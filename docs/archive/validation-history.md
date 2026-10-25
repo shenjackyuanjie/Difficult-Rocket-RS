@@ -1,6 +1,8 @@
 # 历史验收记录
 
-本文件按阶段冻结历史事实，**不是当前构建的验收结论**。旧界面、依赖、测试计数、窗口尺寸及“最新/本轮”等说法仅在对应日期和程序内成立。当前状态见[编辑器进度](editor-progress.md)，复现方法见[验证指南](validation.md)。
+[项目首页](../../README.md) · [操作指南](../guides/editor.md) · [验证指南](../validation/README.md)
+
+本文件按阶段冻结历史事实，**不是当前构建的验收结论**。旧界面、依赖、测试计数、窗口尺寸及“最新/本轮”等说法仅在对应日期和程序内成立。当前状态见[编辑器进度](../../README.md#当前状态)，复现方法见[验证指南](../validation/README.md)。
 
 `target/` 证据不随 Git 发布，部分旧日志/报告/ZIP 已不在工作区；保留历史路径，不补造产物，也不把较早通过覆盖后续失败。2026-10-16 按用户要求清理了 `target/` 下的历史演示与窄窗产物（保留两版成片、本轮四组验收证据、构建目录，以及根目录下的 `validation-*` 日志），因此本文 2026-10-16 之前引用到的 `demo-*` / `narrow-*` 链接可能已失效；记录本身未改写。
 
@@ -188,28 +190,28 @@
 
 - 空闲和背景平移不再制造文档或相机投影的伪变更，快捷键按实际按下边沿处理；部件与相机的释放帧保留最后一段位移。连通分量计算改为分组编号计数和邻接遍历，并按文档版本与拖拽成员缓存侧栏删除提示，避免每个预览帧重复扫描全船。
 - 同一对部件的新连接按无向端点去重，方向、连接点和 Normal/Dock 类型均不能绕过；失败在写回文档前拒绝，不污染历史。新放置编号同时避开连接和分级的悬空引用，候选提示与提交保持一致；历史 XML 不因载入被自动清理。
-- 10,679 部件、单件拖动 89 帧的同规模窗口对照，平均应用帧耗时由 386.853 ms 降到 30.231 ms，中位数由 384.073 ms 降到 24.645 ms，P95 由 415.559 ms 降到 50.177 ms，重建实体均为 0。证据为[优化前帧耗时](../target/foreground-6r0hd5md/performance.json)与[优化后帧耗时](../target/foreground-yrtb_aau/performance.json)；这是应用帧耗时，不是 input-to-photon 测量。
+- 10,679 部件、单件拖动 89 帧的同规模窗口对照，平均应用帧耗时由 386.853 ms 降到 30.231 ms，中位数由 384.073 ms 降到 24.645 ms，P95 由 415.559 ms 降到 50.177 ms，重建实体均为 0。证据为[优化前帧耗时](../../target/foreground-6r0hd5md/performance.json)与[优化后帧耗时](../../target/foreground-yrtb_aau/performance.json)；这是应用帧耗时，不是 input-to-photon 测量。
 - 实际完成交互、连接及选择窗口专项；交互专项通过 291 次前台校验。额外系统键鼠驱动三次受到失焦干扰，按约定停止自动重试，未把它记录为完整通过；输入法和系统文字输入专项仍按要求跳过。
 - 新增详细模式的四个交互样例：非中心/反向/亚像素连续拖动、两种按键配置与两档缩放的背景平移、多连接面只显示最近合法一对、换点及反向换点重复连接拒绝。视觉期望来自实际本帧光标与抓取锚点，渲染实值来自传播后的 GlobalTransform；连接提示另精确核对实际提交的连接点，保留生产错误状态。原点反向点击已有边仍是主动断开，不能混称为拒绝。
 - 本轮交互二审完成时实际执行 `cargo test --workspace --release`：303 项通过（101 核心、202 编辑器）；当时的全目标 release Clippy 零警告、release 构建、格式检查及差异检查通过，Python 脚本全套 unittest 实际运行 114 项通过。这是后续零长路径与触控适配之前的验收基线，新增改动另行验收；Rust 测试 TEMP/TMP 使用 `target/test-temp`。
-- 最新完整详细快速回放退出码为 0，19 章、45 个新增边界样例全部通过，95 个唯一证据与 38 条章节时间线齐全；原版 [Test.xml](../../Difficult-Rocket/assets/ships/Test.xml) / [Heronb.xml](../../Difficult-Rocket/assets/ships/Heronb.xml) SHA256 未改变。[快速演示报告](../target/demo-interaction-fast-20261012/demo-report.json)与[交互逐例证据](../target/demo-interaction-fast-20261012/interaction-cases.json)记录拖动 19 次、平移 18 次同帧校验，释放帧分别为 1/2，最大世界像素误差为 0.000067408/0。随后正常 450 ms 详细回放也退出码为 0，[观看演示报告](../target/demo-interaction-watch-20261012/demo-report.json)与[观看交互逐例证据](../target/demo-interaction-watch-20261012/interaction-cases.json)记录拖动 118 次、平移 149 次同帧校验，释放帧仍为 1/2，最大误差仍为 0.000067408/0。两次均为零长路径及触控适配之前的旧构建记录，新改动以新目录回放为准。
+- 最新完整详细快速回放退出码为 0，19 章、45 个新增边界样例全部通过，95 个唯一证据与 38 条章节时间线齐全；原版 [Test.xml](../../../Difficult-Rocket/assets/ships/Test.xml) / [Heronb.xml](../../../Difficult-Rocket/assets/ships/Heronb.xml) SHA256 未改变。[快速演示报告](../../target/demo-interaction-fast-20261012/demo-report.json)与[交互逐例证据](../../target/demo-interaction-fast-20261012/interaction-cases.json)记录拖动 19 次、平移 18 次同帧校验，释放帧分别为 1/2，最大世界像素误差为 0.000067408/0。随后正常 450 ms 详细回放也退出码为 0，[观看演示报告](../../target/demo-interaction-watch-20261012/demo-report.json)与[观看交互逐例证据](../../target/demo-interaction-watch-20261012/interaction-cases.json)记录拖动 118 次、平移 149 次同帧校验，释放帧仍为 1/2，最大误差仍为 0.000067408/0。两次均为零长路径及触控适配之前的旧构建记录，新改动以新目录回放为准。
 - 用户要求的修改已按核心、性能、提示和演示四个功能块分别提交，未推送。DeepSeek 二审建议按实际价值取舍，后续演示证据完善与验收记录继续独立提交；本轮仍使用内部 Bevy/egui 回放，不冒充系统键鼠或物理显示延迟测量，未渲染视频，也不代表以下全项目缺口消除。
 
 ## 2026-10-12 Windows 小型试用包
 
-- 已生成并独立验收 [Windows x64 试用 ZIP](../target/dist/dr-editor-win64-20261012-4ef8aa7.zip)，压缩后 28.46 MiB，包含 release 程序、必需贴图、中文字体、程序与字体许可、源码快照和 Solar / R / Co13 / Gzj / Test / Heronb 六艘范例船。该包使用触控适配前的构建，后续源码修改不覆盖已交付 ZIP。
-- 实际核验 ZIP CRC、清单内 50 个文件的 SHA-256，并解压到仓库外形态的中文与空格目录；从不同当前目录调用启动脚本，免 Rust / Python 的编辑器冒烟退出码为 0。[独立启动截图](../target/portable-validation-20261012/中文%20空格目录/dr-editor-win64/target/editor-smoke.png)已人工查看。ZIP 的 SHA-256 为 `a7623769d4a523ce15480f8af079ed1cbb0c2868473a60725ef5e5908a93d045`，附[校验文件](../target/dist/dr-editor-win64-20261012-4ef8aa7.zip.sha256)。
+- 已生成并独立验收 [Windows x64 试用 ZIP](../../target/dist/dr-editor-win64-20261012-4ef8aa7.zip)，压缩后 28.46 MiB，包含 release 程序、必需贴图、中文字体、程序与字体许可、源码快照和 Solar / R / Co13 / Gzj / Test / Heronb 六艘范例船。该包使用触控适配前的构建，后续源码修改不覆盖已交付 ZIP。
+- 实际核验 ZIP CRC、清单内 50 个文件的 SHA-256，并解压到仓库外形态的中文与空格目录；从不同当前目录调用启动脚本，免 Rust / Python 的编辑器冒烟退出码为 0。[独立启动截图](../../target/portable-validation-20261012/中文 空格目录/dr-editor-win64/target/editor-smoke.png)已人工查看。ZIP 的 SHA-256 为 `a7623769d4a523ce15480f8af079ed1cbb0c2868473a60725ef5e5908a93d045`，附[校验文件](../../target/dist/dr-editor-win64-20261012-4ef8aa7.zip.sha256)。
 - 打包脚本与回归已作为 `13550b7` 提交；逐例指标严格类型与有限数值校验已作为 `fa97971` 提交。加入这些改动后，全量 Python unittest 实际运行 120 项并通过，其中演示驱动 43 项、打包脚本 3 项；这些结果不代替后续 Rust / 窗口验收。
 
 ## 2026-10-12 统一触控与小屏适配收尾
 
 - 鼠标、键盘和 Bevy TouchInput 在同一编辑模式使用；独立触摸指针锁定 UI / 画布起点归属，单指拖动 / 空白平移，放置及粘贴抬指提交。第二指取消未提交编辑并切入中点导航，全部抬指解锁，第三指封锁当前手势。兼容鼠标尾锁只来自触摸接管，纯鼠标失焦后的新 Shift+Left 边沿正常消费。
-- 文件顶栏与常用编辑按钮换行，最小窗口 320×320；窄屏默认关单侧目录抽屉，主要按钮可触达。帮助、连接编辑、线设置和未保存确认限宽 / 滚动；适配视野使用真实剩余画布，窗口视图自测也按真实画布与 DPI 核对位置、比例及贴图角点。操作与平台边界见[适配说明](./mobile-support.md)。
-- 最终集成工作树实际执行 workspace Release 测试 351 项（core 101 / editor 250）、格式检查、严格全目标 Release Clippy、Release build，均通过；收尾再次执行 Python 全套 127 项并通过。对应日志：[Rust](../target/validation-mobile-workspace-canvas-corrected.log)、[Clippy](../target/validation-mobile-clippy-canvas-corrected.log)、[构建](../target/validation-mobile-build-canvas-corrected.log)、[Python](../target/validation-mobile-python-closeout.log)。
-- 最新构建在进程级 `WGPU_BACKEND=dx12` 下，详细快速 40ms 与观看 450ms 两档均完整通过，仍为 19 章 / 45 例 / 95 证据，源样本 SHA256 不变。分别见[快速报告](../target/demo-mobile-fast-20261012-canvas-final/demo-report.json)、[观看报告](../target/demo-mobile-watch-20261012-canvas-final/demo-report.json)。真实零长四点路径在两档均为安全跳过：长度 0、方向样本 0、提交顶点 0；[快速零长证据](../target/demo-mobile-fast-20261012-canvas-final/line-cases.json)、[观看零长证据](../target/demo-mobile-watch-20261012-canvas-final/line-cases.json)。
-- [窄窗验收工具](../scripts/validate_narrow_windows.py#L38-L98) 从初始 Bevy 尺寸启动自建进程，仅只读测量 Win32 客户区，并交叉检查 Bevy JSON 与原始 PNG。较早构建[三尺寸完整报告](../target/mobile-narrow-20261012-owned-window/report.json)已通过；最新补充复验[Vulkan 报告](../target/mobile-narrow-20261012-vulkan-final/report.json)中 390×844 通过、640×360 运行中变为 390×844 后截图超时；[DX12 报告](../target/mobile-narrow-20261012-canvas-final/report.json)中首例变为 1440×900 后超时。最新三尺寸全量未通过，不用历史结果替代；尺寸变化来源和默认 Vulkan 详细回放时序作为后续独立核查项，本轮按用户要求收尾、不再扩大诊断。
-- 修改按独立块提交：零长路径验证 `37489c0`、统一触控 / 小屏布局 `c19426a`、初始窄窗与三重验收 `534a785`；最终文档另作一个提交。未推送、未重写历史；[二审建议](./demo-review-suggestions.md)保留七个未实施 corner 提案，基线规模不扩张。
-- 本轮未制作 Android / iOS 安装包，未测物理触屏、移动真机或输入到显示的物理延迟；输入法专项按约定跳过。既有[Windows ZIP](../target/dist/dr-editor-win64-20261012-4ef8aa7.zip)保持适配前快照，不覆盖、不宣称包含本轮改动。
+- 文件顶栏与常用编辑按钮换行，最小窗口 320×320；窄屏默认关单侧目录抽屉，主要按钮可触达。帮助、连接编辑、线设置和未保存确认限宽 / 滚动；适配视野使用真实剩余画布，窗口视图自测也按真实画布与 DPI 核对位置、比例及贴图角点。操作与平台边界见[适配说明](../guides/editor.md#触摸与小屏)。
+- 最终集成工作树实际执行 workspace Release 测试 351 项（core 101 / editor 250）、格式检查、严格全目标 Release Clippy、Release build，均通过；收尾再次执行 Python 全套 127 项并通过。对应日志：[Rust](../../target/validation-mobile-workspace-canvas-corrected.log)、[Clippy](../../target/validation-mobile-clippy-canvas-corrected.log)、[构建](../../target/validation-mobile-build-canvas-corrected.log)、[Python](../../target/validation-mobile-python-closeout.log)。
+- 最新构建在进程级 `WGPU_BACKEND=dx12` 下，详细快速 40ms 与观看 450ms 两档均完整通过，仍为 19 章 / 45 例 / 95 证据，源样本 SHA256 不变。分别见[快速报告](../../target/demo-mobile-fast-20261012-canvas-final/demo-report.json)、[观看报告](../../target/demo-mobile-watch-20261012-canvas-final/demo-report.json)。真实零长四点路径在两档均为安全跳过：长度 0、方向样本 0、提交顶点 0；[快速零长证据](../../target/demo-mobile-fast-20261012-canvas-final/line-cases.json)、[观看零长证据](../../target/demo-mobile-watch-20261012-canvas-final/line-cases.json)。
+- [窄窗验收工具](../../scripts/validate_narrow_windows.py#L38-L98) 从初始 Bevy 尺寸启动自建进程，仅只读测量 Win32 客户区，并交叉检查 Bevy JSON 与原始 PNG。较早构建[三尺寸完整报告](../../target/mobile-narrow-20261012-owned-window/report.json)已通过；最新补充复验[Vulkan 报告](../../target/mobile-narrow-20261012-vulkan-final/report.json)中 390×844 通过、640×360 运行中变为 390×844 后截图超时；[DX12 报告](../../target/mobile-narrow-20261012-canvas-final/report.json)中首例变为 1440×900 后超时。最新三尺寸全量未通过，不用历史结果替代；尺寸变化来源和默认 Vulkan 详细回放时序作为后续独立核查项，本轮按用户要求收尾、不再扩大诊断。
+- 修改按独立块提交：零长路径验证 `37489c0`、统一触控 / 小屏布局 `c19426a`、初始窄窗与三重验收 `534a785`；最终文档另作一个提交。未推送、未重写历史；[二审建议](../development/demo-contract.md)保留七个未实施 corner 提案，基线规模不扩张。
+- 本轮未制作 Android / iOS 安装包，未测物理触屏、移动真机或输入到显示的物理延迟；输入法专项按约定跳过。既有[Windows ZIP](../../target/dist/dr-editor-win64-20261012-4ef8aa7.zip)保持适配前快照，不覆盖、不宣称包含本轮改动。
 
 ## 2026-10-13 依赖升级与原生按钮迁移
 
@@ -217,64 +219,64 @@
 - Bevy 0.19.1 → 0.20.0，bevy_egui 0.42.0 → 0.43.1；显式启用 `bevy_ui_widgets` 与 `ui_picking`。所有原生按钮使用 `ui_widgets::Button` / `ActivateOnPress`，`Hovered` / `Pressed` 只负责状态反馈，`Activate` 桥接为 Update 中有序消费的消息。删除旧 `Interaction`、自定义 Button 标记和弃用别名，不保留老版本兼容层。
 - 鼠标只允许主键驱动原生按钮；中键、右键在 picking 输入生成之后过滤，移动和滚动保留，按住及抬起不重复触发。触摸 picking 关闭，真实触点仍由 `GestureInput` 锁定起点、抬指一次提交；取消、双指接管与兼容鼠标尾随不补发旧激活。新增真实 WindowEvent → 官方 picking → widget 回归及文件、帮助、属性消费者回归。
 - 窗口驱动改动已另作 `c37c036`：每次运行保留唯一进程名、字节一致的 EXE 副本与 SHA-256 身份记录；窄窗持续核对本次 PID / HWND / 标题，正常退出的窗口先销毁不误报所有权丢失，真实所有权变化仍立即失败。编辑器同时记录尺寸变化和截图请求状态，不把超时、崩溃或数据断言归为焦点干扰。
-- 本阶段实际执行 `cargo test --workspace --release --locked`：366 项通过（core 104 / editor 262）；`cargo fmt --all --check`、严格全目标 Release Clippy 与 `cargo build --workspace --release --locked` 通过；全量 Python unittest 148 项通过。Rust 首轮默认临时目录拒绝访问，69 项通过 / 35 项失败；使用 `TEMP/TMP=target/test-temp` 后全量复验通过，未改测试断言。[首轮失败](../target/validation-bevy020-rust-20261013.log)、[复验](../target/validation-bevy020-rust-temp-20261013.log)、[Clippy](../target/validation-bevy020-clippy-20261013.log)、[构建](../target/validation-bevy020-build-20261013.log)、[Python](../target/validation-bevy020-python-20261013.log)。
-- 本阶段串行运行 DX12 详细 40ms 回放，19 章 / 45 例 / 95 证据全部通过，退出码 0；[报告](../target/demo-bevy020-fast-20261013/demo-report.json)及[零长 / 连线证据](../target/demo-bevy020-fast-20261013/line-cases.json)保留。同一 Release 程序的 390×844、640×360、320×640 窄窗全部通过 Bevy / Win32 客户区 / PNG 三重核对，退出码均为 0，见[报告](../target/narrow-bevy020-dx12-20261013/report.json)。程序 SHA-256 为 `8be2ffc057979d5e870e5546034246413e0c1fe4675b6e9864d70959f1fd6366`；本阶段尚未运行 450ms 观看回放，不拿 0.19 的历史结果替代。
-- 真实 XML 再验：`verify_catalog` 27 类部件 / 793 个元素与属性通过；`verify_ships` 185 个船体 / 125,856 个部件往返通过，仍拒绝 Alliance、Amect-MAIIa TEST、AmectVII、Ss、X Type 2 五个既有异常输入，实际退出码 1，不标为零错误通过。目录和 190 个船体文件共 191 份 XML 的 SHA-256 前后相同，见[目录日志](../target/validation-bevy020-catalog-20261013.log)、[船体日志](../target/validation-bevy020-ships-20261013.log)、[哈希记录](../target/validation-bevy020-xml-20261013.json)。
+- 本阶段实际执行 `cargo test --workspace --release --locked`：366 项通过（core 104 / editor 262）；`cargo fmt --all --check`、严格全目标 Release Clippy 与 `cargo build --workspace --release --locked` 通过；全量 Python unittest 148 项通过。Rust 首轮默认临时目录拒绝访问，69 项通过 / 35 项失败；使用 `TEMP/TMP=target/test-temp` 后全量复验通过，未改测试断言。[首轮失败](../../target/validation-bevy020-rust-20261013.log)、[复验](../../target/validation-bevy020-rust-temp-20261013.log)、[Clippy](../../target/validation-bevy020-clippy-20261013.log)、[构建](../../target/validation-bevy020-build-20261013.log)、[Python](../../target/validation-bevy020-python-20261013.log)。
+- 本阶段串行运行 DX12 详细 40ms 回放，19 章 / 45 例 / 95 证据全部通过，退出码 0；[报告](../../target/demo-bevy020-fast-20261013/demo-report.json)及[零长 / 连线证据](../../target/demo-bevy020-fast-20261013/line-cases.json)保留。同一 Release 程序的 390×844、640×360、320×640 窄窗全部通过 Bevy / Win32 客户区 / PNG 三重核对，退出码均为 0，见[报告](../../target/narrow-bevy020-dx12-20261013/report.json)。程序 SHA-256 为 `8be2ffc057979d5e870e5546034246413e0c1fe4675b6e9864d70959f1fd6366`；本阶段尚未运行 450ms 观看回放，不拿 0.19 的历史结果替代。
+- 真实 XML 再验：`verify_catalog` 27 类部件 / 793 个元素与属性通过；`verify_ships` 185 个船体 / 125,856 个部件往返通过，仍拒绝 Alliance、Amect-MAIIa TEST、AmectVII、Ss、X Type 2 五个既有异常输入，实际退出码 1，不标为零错误通过。目录和 190 个船体文件共 191 份 XML 的 SHA-256 前后相同，见[目录日志](../../target/validation-bevy020-catalog-20261013.log)、[船体日志](../../target/validation-bevy020-ships-20261013.log)、[哈希记录](../../target/validation-bevy020-xml-20261013.json)。
 - 阶段边界：serde_json 此时仍锁定 1.0.151，1.0.154 将单独升级提交；用户追加的原生 / egui 风格统一另作功能块，最终构建仍需重新执行观看与窗口验收。本轮不新增平台打包工程、不推送、不重写历史；物理触屏、系统键鼠、输入法和系统文字输入未测。
 
 ## 2026-10-13 原生与 egui 轻量风格统一
 
 - 按追加要求统一深色背景、按钮状态色、16px 按钮字号、6px 圆角和间距；保留窄屏 44px 触控目标及原输入 / 事务。配色和反馈复用 `native_buttons`，egui 配置沿用 `egui_ui`，不新增主题模块或工程。文件、帮助、属性入口共用文字构造和状态反馈，删除属性按钮未使用的选中参数及被覆盖的旧尺寸配置。
-- 原生顶栏背景复用文件栏容器，egui 只透明保留该区域；生产与回归共用保留区函数，新增不透明遮盖回归。已实际查看[修复后的目录截图](../target/demo-theme-fast-fixed-20261013/editor-panels-smoke.png)及拓扑截图，原生文件 / 属性 / 帮助入口恢复，不用无头通过代替视觉检查。
+- 原生顶栏背景复用文件栏容器，egui 只透明保留该区域；生产与回归共用保留区函数，新增不透明遮盖回归。已实际查看[修复后的目录截图](../../target/demo-theme-fast-fixed-20261013/editor-panels-smoke.png)及拓扑截图，原生文件 / 属性 / 帮助入口恢复，不用无头通过代替视觉检查。
 - 正式主题暴露的窄窗问题分别修正：属性目标选择单独成行并截断长名称；连线窗口按可用高度初始化，回归使用真实滚动视口而非外框中心判断完整可见；船体虚拟行复用 egui 按钮的文字 / 边距 / 描边尺寸，演示复用 `ScrollAreaOutput` 实测最大偏移，不再估算 32px 行距。覆盖 12.5 / 16 / 22px 字号的千行末项可达回归。
 - 自连接窗口断言失败已无头复现并定位到首次测量阶段过早发布拓扑命中矩形：只注册 `response.enabled()` 且非 sizing pass 的控件，保留真实点击、拒绝错误及历史断言。Painter 说明层重写的对照实验没有修复该问题，已撤回，不保留无证据的额外改动。
-- 本阶段在 serde_json 1.0.151 下实际执行 371 项 workspace Release 测试（core 104 / editor 267）、格式检查、严格全目标 Release Clippy 及 Release build，均通过：[测试](../target/validation-theme-rust-complete-20261013.log)、[Clippy](../target/validation-theme-clippy-complete-20261013.log)、[构建](../target/validation-theme-build-complete-20261013.log)。五项新增回归属于真实执行，不是窗口验收替代品。
+- 本阶段在 serde_json 1.0.151 下实际执行 371 项 workspace Release 测试（core 104 / editor 267）、格式检查、严格全目标 Release Clippy 及 Release build，均通过：[测试](../../target/validation-theme-rust-complete-20261013.log)、[Clippy](../../target/validation-theme-clippy-complete-20261013.log)、[构建](../../target/validation-theme-build-complete-20261013.log)。五项新增回归属于真实执行，不是窗口验收替代品。
 - 窗口失败如实保留：首轮 `demo-theme-fast-20261013` 原生顶栏被 egui 背景盖住，停在第 17 章，编辑器退出 0 但无完整报告、驱动退出 1；第二轮 `demo-theme-fast-fixed-20261013` 的极大滚动偏移方案仍未完成第 17 章，主动终止已核实路径的本次副本，编辑器退出 `4294967295`、驱动退出 1；第三轮 `demo-theme-measured-fast-20261013` 在第 15 章自连接断言失败，编辑器退出 101、驱动退出 1。全部未计为通过、未归类为焦点失败；开发中的 API 编译错误、布局失败和对照日志也保留在 `target/validation-theme-*`。最新修正后的完整窗口回放待最终 serde_json 集成构建重新执行。
 
 ## 2026-10-13 最终集成验收
 
 - 三个依赖块独立提交：quick-xml 0.42.0 为 `9e47977`，Bevy 0.20.0 / bevy_egui 0.43.1 为 `3e3b8f2`，serde_json 1.0.154 为 `9ef6734`。风格统一单独提交 `d84524b`，窗口进程隔离为 `c37c036`，短点击复用与精简为 `980abe0`；未推送、未重写历史、未新增平台打包工程。
-- 原生文件 / 属性 / 帮助入口和 egui 共用现有模块中的字体、配色、圆角与状态反馈，不新增主题框架。已实际查看最终[目录截图](../target/demo-closeout-fast-20261013/editor-panels-smoke.png)、[拓扑截图](../target/demo-click-packet-watch-20261013/editor-topology-smoke.png)及三个窄窗原始 PNG：顶栏正常显示，触控入口保留 44px 高度。窄窗默认相机没有自动适配整船，320×640 / 640×360 初始截图中船体被顶栏遮挡或裁切；需使用已有“适配视野”入口，不能把尺寸 / 入口验收写成初始整船取景通过。
-- 正式 450ms 首轮在第 5 章 `lines.open` 断言失败，编辑器退出 101、驱动退出 1，见[失败日志](../target/demo-final-watch-20261013/demo-editor.log)。随后两轮临时诊断在目录点击处失败，同为 101 / 1；[带帧间隔诊断](../target/demo-watch-trace2-detailed-20261013/demo-editor.log)显示同一真实控件矩形保持稳定，但按下 / 抬起相隔约 1.02s，未判为点击。未将这些断言失败归为焦点干扰，也不把诊断构建算作最终通过程序。
-- 复用 `UiTestInput::click_rect` 同帧交付完整短按事件对，属性 Action 点击也调用该入口；动画仍在抵达控件后交付。删除驱动 `release` 与演示 `click_release` 两套重复释放状态，保留等待、真实分帧长按 / 拖动、单次动作记录与触摸语义，不修改 egui 长按阈值、不伪造时间、不保留临时诊断代码。新增短点击契约测试[修正前失败](../target/validation-click-packet-before-20261013.log)，修正后覆盖 16ms / 1s / 10s 帧间隔、真实目录行、两档动画抵达和不重复点击；真实 1s 长按仍不得当作短点击。
+- 原生文件 / 属性 / 帮助入口和 egui 共用现有模块中的字体、配色、圆角与状态反馈，不新增主题框架。已实际查看最终[目录截图](../../target/demo-closeout-fast-20261013/editor-panels-smoke.png)、[拓扑截图](../../target/demo-click-packet-watch-20261013/editor-topology-smoke.png)及三个窄窗原始 PNG：顶栏正常显示，触控入口保留 44px 高度。窄窗默认相机没有自动适配整船，320×640 / 640×360 初始截图中船体被顶栏遮挡或裁切；需使用已有“适配视野”入口，不能把尺寸 / 入口验收写成初始整船取景通过。
+- 正式 450ms 首轮在第 5 章 `lines.open` 断言失败，编辑器退出 101、驱动退出 1，见[失败日志](../../target/demo-final-watch-20261013/demo-editor.log)。随后两轮临时诊断在目录点击处失败，同为 101 / 1；[带帧间隔诊断](../../target/demo-watch-trace2-detailed-20261013/demo-editor.log)显示同一真实控件矩形保持稳定，但按下 / 抬起相隔约 1.02s，未判为点击。未将这些断言失败归为焦点干扰，也不把诊断构建算作最终通过程序。
+- 复用 `UiTestInput::click_rect` 同帧交付完整短按事件对，属性 Action 点击也调用该入口；动画仍在抵达控件后交付。删除驱动 `release` 与演示 `click_release` 两套重复释放状态，保留等待、真实分帧长按 / 拖动、单次动作记录与触摸语义，不修改 egui 长按阈值、不伪造时间、不保留临时诊断代码。新增短点击契约测试[修正前失败](../../target/validation-click-packet-before-20261013.log)，修正后覆盖 16ms / 1s / 10s 帧间隔、真实目录行、两档动画抵达和不重复点击；真实 1s 长按仍不得当作短点击。
 
-最终实际验证使用同一 Release 程序，SHA-256 为 `608dc9d9688cf00a243f15597d22e90d21f49e44acba378d288059237384f594`；每份窗口身份记录均核对源 / 副本一致，见[集成摘要](../target/validation-closeout-summary-20261013.json)。下表不沿用前述阶段的通过记录：
+最终实际验证使用同一 Release 程序，SHA-256 为 `608dc9d9688cf00a243f15597d22e90d21f49e44acba378d288059237384f594`；每份窗口身份记录均核对源 / 副本一致，见[集成摘要](../../target/validation-closeout-summary-20261013.json)。下表不沿用前述阶段的通过记录：
 
 | 检查 | 本次结果与证据 |
 | --- | --- |
-| Rust | `TEMP/TMP=target/test-temp` 下执行 `cargo test --workspace --release --locked`，373 项通过（core 104 / editor 269）；[日志](../target/validation-click-packet-rust-20261013.log) |
-| Python | `uv run --no-project --python 3.12 python -B -X utf8 -m unittest discover -s scripts -p 'test_*.py' -v`，148 项通过；[日志](../target/validation-click-packet-python-20261013.log) |
-| fmt / Release | `cargo fmt --all --check`、`cargo clippy --workspace --all-targets --release --locked -- -D warnings`、`cargo build --workspace --release --locked` 均通过；[Clippy](../target/validation-click-packet-clippy-20261013.log)、[构建](../target/validation-click-packet-build-20261013.log) |
-| DX12 详细观看 450ms | 串行单窗口完成 19 章 / 45 例 / 95 证据，编辑器与驱动退出码均为 0；[报告](../target/demo-click-packet-watch-20261013/demo-report.json)、[驱动日志](../target/validation-click-packet-watch-20261013.log) |
-| DX12 详细快速 40ms | 观看档结束后再启动，规模相同，编辑器与驱动退出码均为 0；[报告](../target/demo-closeout-fast-20261013/demo-report.json)、[驱动日志](../target/validation-closeout-fast-20261013.log) |
-| DX12 窄窗 | 随后串行运行 390×844、640×360、320×640，三例均通过 Win32 客户区 / Bevy 尺寸与 scale factor 1 / 原始 PNG 三重核对，退出码均为 0；[报告](../target/narrow-closeout-dx12-20261013/report.json) |
-| XML | `verify_catalog` 27 类 / 793 字段通过，退出 0；`verify_ships` 185 船体 / 125,856 部件通过，另 5 个既有异常输入仍拒绝，实际退出 1；191 份源 XML 前后 SHA-256 一致；[目录](../target/validation-closeout-catalog-20261013.log)、[船体](../target/validation-closeout-ships-20261013.log)、[哈希](../target/validation-closeout-xml-20261013.json) |
+| Rust | `TEMP/TMP=target/test-temp` 下执行 `cargo test --workspace --release --locked`，373 项通过（core 104 / editor 269）；[日志](../../target/validation-click-packet-rust-20261013.log) |
+| Python | `uv run --no-project --python 3.12 python -B -X utf8 -m unittest discover -s scripts -p 'test_*.py' -v`，148 项通过；[日志](../../target/validation-click-packet-python-20261013.log) |
+| fmt / Release | `cargo fmt --all --check`、`cargo clippy --workspace --all-targets --release --locked -- -D warnings`、`cargo build --workspace --release --locked` 均通过；[Clippy](../../target/validation-click-packet-clippy-20261013.log)、[构建](../../target/validation-click-packet-build-20261013.log) |
+| DX12 详细观看 450ms | 串行单窗口完成 19 章 / 45 例 / 95 证据，编辑器与驱动退出码均为 0；[报告](../../target/demo-click-packet-watch-20261013/demo-report.json)、[驱动日志](../../target/validation-click-packet-watch-20261013.log) |
+| DX12 详细快速 40ms | 观看档结束后再启动，规模相同，编辑器与驱动退出码均为 0；[报告](../../target/demo-closeout-fast-20261013/demo-report.json)、[驱动日志](../../target/validation-closeout-fast-20261013.log) |
+| DX12 窄窗 | 随后串行运行 390×844、640×360、320×640，三例均通过 Win32 客户区 / Bevy 尺寸与 scale factor 1 / 原始 PNG 三重核对，退出码均为 0；[报告](../../target/narrow-closeout-dx12-20261013/report.json) |
+| XML | `verify_catalog` 27 类 / 793 字段通过，退出 0；`verify_ships` 185 船体 / 125,856 部件通过，另 5 个既有异常输入仍拒绝，实际退出 1；191 份源 XML 前后 SHA-256 一致；[目录](../../target/validation-closeout-catalog-20261013.log)、[船体](../../target/validation-closeout-ships-20261013.log)、[哈希](../../target/validation-closeout-xml-20261013.json) |
 
 - 两档详细回放都保持 Test.xml / Heronb.xml 源哈希不变；64 级 / 1,024 动作的末项编辑、应用、撤销重做及 XML 往返均通过。两份 `line-cases.json` 的真实零长路径均为四点、长度 0、方向采样 0、提交顶点 0、安全跳过，流动 / 箭头开启且文档 / 历史不变。
 - 观看回放前段仍观察到约 1s 的慢帧，后段恢复较快更新；用户协助保持窗口可见，未自动抢占前台。耗时包含观看节拍、滚轮与截图等待，不是性能或物理输入延迟测量；未确诊慢帧来源，也不宣称呈现策略已经解决所有后端时序问题。运行日志仍有 `DockingConnector.PNG` 的多 AssetLoader 警告，本轮未改资源加载管线。
-- 本次窗口结果限定 DX12；默认 Vulkan 未复验。物理触屏、Android / iOS 真机、系统键鼠、原生路径选择、输入法与系统文字输入专项未执行；不以内部输入或窄窗截图替代。旧 Windows ZIP 仅保留适配前的历史记录，当前工作区未找到该归档，本次未重新打包、不宣称旧包包含改动。全历史证据链接首次检查[失败日志](../target/validation-closeout-doc-links-first-20261013.log)保留；缺失的是旧本地证据，不抹去历史执行记录或伪造旧产物。当前依赖升级目标已完成，项目整体复刻的下列缺口仍继续保留。
+- 本次窗口结果限定 DX12；默认 Vulkan 未复验。物理触屏、Android / iOS 真机、系统键鼠、原生路径选择、输入法与系统文字输入专项未执行；不以内部输入或窄窗截图替代。旧 Windows ZIP 仅保留适配前的历史记录，当前工作区未找到该归档，本次未重新打包、不宣称旧包包含改动。全历史证据链接首次检查[失败日志](../../target/validation-closeout-doc-links-first-20261013.log)保留；缺失的是旧本地证据，不抹去历史执行记录或伪造旧产物。当前依赖升级目标已完成，项目整体复刻的下列缺口仍继续保留。
 
 ## 2026-10-13 原版 sandbox 风格与分组验收
 
 - 本次实际从原版主菜单进入 sandbox → Smolar System → Builder → 部件目录，滚动观察四组并点击折叠。原版为中性灰黑底、青柠标题 / 图标、方正连续行和固定图片列；Gizmos / Fuel Tanks / Engines / Satellite 分别为 8 / 4 / 6 / 7 项，两个隐藏类型不显示。原版观察截图保留在本地 `target/sr1-sandbox-reference-20261013`，有效分组记录为 `10-parts-top.png`、`11-parts-middle.png`、`12-parts-fuel-collapsed.png`、`13-parts-bottom.png`、`14-satellite-tail.png`；一次旧窗口几何截图无效，不作证据。桌面不可见时两次恢复未成功，已通知 `sr1` 并等待，用户恢复后继续；观察结束正常关闭本任务启动的原版游戏，不和编辑器窗口并行。
 - 原生入口与 egui 继续共享 `native_buttons` / `egui_ui`，改为灰黑控件、青柠状态描边和 2px 圆角，按钮字号仍为 16px；部件行改为 64px，图片列 64px、等比缩略图 48px，名称左对齐、长名称截断。复用原有反馈、图片加载、拖放、滚动与原生 `ui_widgets` / picking / `Activate`，未引入主题框架或新资产。保留当前编辑器布局，不为复刻原版底栏另加一套界面。
-- 移除旧“常规 / Satellite”独占筛选、旧分类消息及 `UiState` 分类镜像字段；`Palette` 唯一维护收起的组，复用 egui `CollapsingHeader` 标题与裁剪动画，关闭动画中的旧行不可交互。四组按原版顺序显示，可独立收起并全部展开；目录与 Tab / Shift+Tab 使用同一可见集合，组内顺序与原可见索引不变。显式 XML `category` 优先（包括 Satellite 的油罐），未知自定义组保留原名并追加；默认分类只在视图推断，不写回目录或船体。实际目录成员核对见[分组记录](../target/validation-sandbox-categories-20261013.json)。
+- 移除旧“常规 / Satellite”独占筛选、旧分类消息及 `UiState` 分类镜像字段；`Palette` 唯一维护收起的组，复用 egui `CollapsingHeader` 标题与裁剪动画，关闭动画中的旧行不可交互。四组按原版顺序显示，可独立收起并全部展开；目录与 Tab / Shift+Tab 使用同一可见集合，组内顺序与原可见索引不变。显式 XML `category` 优先（包括 Satellite 的油罐），未知自定义组保留原名并追加；默认分类只在视图推断，不写回目录或船体。实际目录成员核对见[分组记录](../../target/validation-sandbox-categories-20261013.json)。
 - 新增六项回归：默认分类 / 显式元数据优先、分组顺序与隐藏项、独立折叠与历史不变、主题视觉契约、自定义长组名限宽 / 44px 高度、真实标题点击与全部展开共享 `Palette`。已有图片比例、鼠标按下、触摸抬指一次及长按不重复等断言保留；不增加详细演示 corner 或独立自动化框架。
-- 首轮 Rust 为 core 104 通过、editor 262 通过 / 7 失败，原因是测试仍写死旧配色与 40px 图 / 52px 行规格；更新为共享角色色及新尺寸，行为断言不变，[失败日志](../target/validation-sandbox-first-rust-20261013.log)保留。新增测试首次比较 `PartCatalog` 因没有 `PartialEq` 编译失败，改为比较已有 `types`，不为测试改核心 API，[编译日志](../target/validation-sandbox-tests-compile-20261013.log)保留；随后一项标题限宽测试错误假设 `run_ui` 有 16px 根边距，274 / 1 的[失败日志](../target/validation-sandbox-rust-final-20261013.log)保留，改正测试视口宽度而不放宽边界断言。严格 Clippy 首轮报按钮 Query 类型过长，提取本模块局部类型别名，不增加 suppress，[日志](../target/validation-sandbox-clippy-first-failed-20261013.log)保留。
-- 首次详细快速回放在滚轮验证之后等待“当前可见的分组标题”，标题已经滚出视口，夹具停滞。仅终止已核对路径的本次 EXE 副本，编辑器退出 `4294967295`、驱动退出 1，[终止原因](../target/demo-sandbox-fast-20261013/agent-abort.json)与[日志](../target/validation-sandbox-fast-20261013.log)保留，不记为焦点失败。修正为指定目录末组并复用既有 `click_panel` 滚动寻址，进入视口后真实点击；未延长超时、放宽文档 / 历史断言或新增驱动状态。
+- 首轮 Rust 为 core 104 通过、editor 262 通过 / 7 失败，原因是测试仍写死旧配色与 40px 图 / 52px 行规格；更新为共享角色色及新尺寸，行为断言不变，[失败日志](../../target/validation-sandbox-first-rust-20261013.log)保留。新增测试首次比较 `PartCatalog` 因没有 `PartialEq` 编译失败，改为比较已有 `types`，不为测试改核心 API，[编译日志](../../target/validation-sandbox-tests-compile-20261013.log)保留；随后一项标题限宽测试错误假设 `run_ui` 有 16px 根边距，274 / 1 的[失败日志](../../target/validation-sandbox-rust-final-20261013.log)保留，改正测试视口宽度而不放宽边界断言。严格 Clippy 首轮报按钮 Query 类型过长，提取本模块局部类型别名，不增加 suppress，[日志](../../target/validation-sandbox-clippy-first-failed-20261013.log)保留。
+- 首次详细快速回放在滚轮验证之后等待“当前可见的分组标题”，标题已经滚出视口，夹具停滞。仅终止已核对路径的本次 EXE 副本，编辑器退出 `4294967295`、驱动退出 1，[终止原因](../../target/demo-sandbox-fast-20261013/agent-abort.json)与[日志](../../target/validation-sandbox-fast-20261013.log)保留，不记为焦点失败。修正为指定目录末组并复用既有 `click_panel` 滚动寻址，进入视口后真实点击；未延长超时、放宽文档 / 历史断言或新增驱动状态。
 
-以下为修正后的最新 Release 程序实际结果，SHA-256 为 `b8b8497d2bb61c80160161e40cf97ed283de66bc3870c084f62bca8387e0af35`；各窗口先核对源 / 唯一副本一致，所有窗口串行运行，不拿上节旧程序的两档记录代替。本次[汇总](../target/validation-sandbox-summary-20261013.json)独立核对报告、逐例状态及非空产物：
+以下为修正后的最新 Release 程序实际结果，SHA-256 为 `b8b8497d2bb61c80160161e40cf97ed283de66bc3870c084f62bca8387e0af35`；各窗口先核对源 / 唯一副本一致，所有窗口串行运行，不拿上节旧程序的两档记录代替。本次[汇总](../../target/validation-sandbox-summary-20261013.json)独立核对报告、逐例状态及非空产物：
 
 | 检查 | 本次结果与证据 |
 | --- | --- |
-| Rust | `TEMP/TMP=target/test-temp` 下执行 `cargo test --workspace --release --locked`，379 项通过（core 104 / editor 275）；[日志](../target/validation-sandbox-rust-complete-20261013.log) |
-| Python | `uv run --no-project --python 3.12 python -B -X utf8 -m unittest discover -s scripts -p 'test_*.py' -v`，148 项通过；[日志](../target/validation-sandbox-python-20261013.log) |
-| fmt / Release | `cargo fmt --all --check`、`cargo clippy --workspace --all-targets --release --locked -- -D warnings`、`cargo build --workspace --release --locked` 均通过；[fmt](../target/validation-sandbox-fmt-20261013.log)、[Clippy](../target/validation-sandbox-clippy-passed-20261013.log)、[build](../target/validation-sandbox-build-20261013.log) |
-| DX12 详细快速 40ms | 19 章 / 45 例 / 95 个唯一非空证据，编辑器与驱动退出码均为 0，Test.xml / Heronb.xml 源哈希不变；[报告](../target/demo-sandbox-fast-final-20261013/demo-report.json)、[日志](../target/validation-sandbox-fast-final-20261013.log) |
-| DX12 窄窗 | 随后串行运行 390×844、640×360、320×640，三例均通过 Win32 客户区 / Bevy 窗口尺寸及 scale factor 1 / 原始 PNG 三重核对，退出码均为 0；[报告](../target/narrow-sandbox-dx12-20261013/report.json) |
-| XML | `verify_catalog` 27 类 / 793 字段往返通过，退出 0；`verify_ships` 185 船体 / 125,856 部件往返通过，另 5 个既有异常输入仍拒绝，实际退出 1；191 份源 XML 前后哈希不变；[目录](../target/validation-sandbox-catalog-20261013.log)、[船体](../target/validation-sandbox-ships-20261013.log)、[哈希](../target/validation-sandbox-xml-20261013.json) |
+| Rust | `TEMP/TMP=target/test-temp` 下执行 `cargo test --workspace --release --locked`，379 项通过（core 104 / editor 275）；[日志](../../target/validation-sandbox-rust-complete-20261013.log) |
+| Python | `uv run --no-project --python 3.12 python -B -X utf8 -m unittest discover -s scripts -p 'test_*.py' -v`，148 项通过；[日志](../../target/validation-sandbox-python-20261013.log) |
+| fmt / Release | `cargo fmt --all --check`、`cargo clippy --workspace --all-targets --release --locked -- -D warnings`、`cargo build --workspace --release --locked` 均通过；[fmt](../../target/validation-sandbox-fmt-20261013.log)、[Clippy](../../target/validation-sandbox-clippy-passed-20261013.log)、[build](../../target/validation-sandbox-build-20261013.log) |
+| DX12 详细快速 40ms | 19 章 / 45 例 / 95 个唯一非空证据，编辑器与驱动退出码均为 0，Test.xml / Heronb.xml 源哈希不变；[报告](../../target/demo-sandbox-fast-final-20261013/demo-report.json)、[日志](../../target/validation-sandbox-fast-final-20261013.log) |
+| DX12 窄窗 | 随后串行运行 390×844、640×360、320×640，三例均通过 Win32 客户区 / Bevy 窗口尺寸及 scale factor 1 / 原始 PNG 三重核对，退出码均为 0；[报告](../../target/narrow-sandbox-dx12-20261013/report.json) |
+| XML | `verify_catalog` 27 类 / 793 字段往返通过，退出 0；`verify_ships` 185 船体 / 125,856 部件往返通过，另 5 个既有异常输入仍拒绝，实际退出 1；191 份源 XML 前后哈希不变；[目录](../../target/validation-sandbox-catalog-20261013.log)、[船体](../../target/validation-sandbox-ships-20261013.log)、[哈希](../../target/validation-sandbox-xml-20261013.json) |
 
-- 已实际查看当前[目录](../target/demo-sandbox-fast-final-20261013/editor-panels-smoke.png)、[连接编辑窗口](../target/demo-sandbox-fast-final-20261013/editor-topology-smoke.png)、三个窄窗原始 PNG；又串行用同一程序运行 1440×900 普通 `--smoke-test`，退出 0，并查看[无演示遮罩预览](../target/sandbox-preview-20261013/target/editor-smoke.png)。原生顶栏与 egui 共用同一灰黑 / 青柠风格，顶栏入口和窄屏触控尺寸保留。320×640 / 640×360 初始船体仍被顶部 UI 裁切，需既有“适配视野”；本次没有宣称默认相机自动取景通过，也未扩大范围改变相机。
+- 已实际查看当前[目录](../../target/demo-sandbox-fast-final-20261013/editor-panels-smoke.png)、[连接编辑窗口](../../target/demo-sandbox-fast-final-20261013/editor-topology-smoke.png)、三个窄窗原始 PNG；又串行用同一程序运行 1440×900 普通 `--smoke-test`，退出 0，并查看[无演示遮罩预览](../../target/sandbox-preview-20261013/target/editor-smoke.png)。原生顶栏与 egui 共用同一灰黑 / 青柠风格，顶栏入口和窄屏触控尺寸保留。320×640 / 640×360 初始船体仍被顶部 UI 裁切，需既有“适配视野”；本次没有宣称默认相机自动取景通过，也未扩大范围改变相机。
 - 本次只复跑 DX12 40ms，**450ms 观看档未复跑**，上节通过记录属于风格改动前程序；默认 Vulkan、物理触屏、移动真机、系统键鼠、原生路径选择、输入法与系统文字输入专项未测。没有修改依赖版本、原版游戏文件或 XML 数据格式，不新增平台打包工程、不重新打包、不推送、不重写历史；本次风格 / 分类完成不代表全项目复刻缺口消除。
 
 
@@ -284,16 +286,16 @@
 | --- | --- |
 | 只读审查 | 已完成：TouchInput / 鼠标仲裁、窄屏 UI、平台构建边界；V41f high 子代理参与独立审查与最小 UI 实现 |
 | 差异检查 | `git diff --check` 通过，只有 Windows LF / CRLF 转换提示 |
-| Rust / fmt / Clippy / build | 最终 351 项 Rust 测试通过（core 101 / editor 250）；格式检查、严格全目标 Release Clippy 和 Release build 通过。日志：[测试](../target/validation-mobile-workspace-canvas-corrected.log)、[Clippy](../target/validation-mobile-clippy-canvas-corrected.log)、[构建](../target/validation-mobile-build-canvas-corrected.log) |
-| Python | 收尾重新执行全套 127 项并通过，含演示驱动 43 项、窄窗工具 7 项契约回归；[运行日志](../target/validation-mobile-python-closeout.log) |
-| 详细演示 | 最新构建在进程级 `WGPU_BACKEND=dx12` 下，快速 40ms 与观看 450ms 两档均完整通过：19 章、45 例、95 个证据；[快速报告](../target/demo-mobile-fast-20261012-canvas-final/demo-report.json)、[观看报告](../target/demo-mobile-watch-20261012-canvas-final/demo-report.json)。原版样本哈希未改变 |
-| 真实窄窗：较早记录 | 390×844、640×360、320×640 三种原始截图曾通过 Win32 客户区、Bevy 窗口尺寸与 PNG 像素三重核对；[已通过报告](../target/mobile-narrow-20261012-owned-window/report.json)。这是较早构建的记录，和最新复验分开使用 |
-| 真实窄窗：最新复验 | [Vulkan 报告](../target/mobile-narrow-20261012-vulkan-final/report.json)：390×844 通过，640×360 运行中变成 390×844 后截图超时，320×640 未运行；[DX12 报告](../target/mobile-narrow-20261012-canvas-final/report.json)：390×844 运行中变成 1440×900 后超时，后两例未运行。最新三尺寸全量复验未通过，尺寸变化来源保留为后续核查项 |
+| Rust / fmt / Clippy / build | 最终 351 项 Rust 测试通过（core 101 / editor 250）；格式检查、严格全目标 Release Clippy 和 Release build 通过。日志：[测试](../../target/validation-mobile-workspace-canvas-corrected.log)、[Clippy](../../target/validation-mobile-clippy-canvas-corrected.log)、[构建](../../target/validation-mobile-build-canvas-corrected.log) |
+| Python | 收尾重新执行全套 127 项并通过，含演示驱动 43 项、窄窗工具 7 项契约回归；[运行日志](../../target/validation-mobile-python-closeout.log) |
+| 详细演示 | 最新构建在进程级 `WGPU_BACKEND=dx12` 下，快速 40ms 与观看 450ms 两档均完整通过：19 章、45 例、95 个证据；[快速报告](../../target/demo-mobile-fast-20261012-canvas-final/demo-report.json)、[观看报告](../../target/demo-mobile-watch-20261012-canvas-final/demo-report.json)。原版样本哈希未改变 |
+| 真实窄窗：较早记录 | 390×844、640×360、320×640 三种原始截图曾通过 Win32 客户区、Bevy 窗口尺寸与 PNG 像素三重核对；[已通过报告](../../target/mobile-narrow-20261012-owned-window/report.json)。这是较早构建的记录，和最新复验分开使用 |
+| 真实窄窗：最新复验 | [Vulkan 报告](../../target/mobile-narrow-20261012-vulkan-final/report.json)：390×844 通过，640×360 运行中变成 390×844 后截图超时，320×640 未运行；[DX12 报告](../../target/mobile-narrow-20261012-canvas-final/report.json)：390×844 运行中变成 1440×900 后超时，后两例未运行。最新三尺寸全量复验未通过，尺寸变化来源保留为后续核查项 |
 | 物理触屏与 Android / iOS 真机 | 本轮未执行，不以内部消息或桌面窄窗回归替代真机结果 |
 
 ### 当时的复现入口与未完成核查
 
-[窄窗验收工具](../scripts/validate_narrow_windows.py#L101-L131) 从初始 Bevy 窗口尺寸启动，仅只读测量其自建进程的 Win32 客户区，并校验原始 PNG；不改变系统窗口尺寸，不注入鼠标或触摸。输出目录要求全新，失败报告保留，不用历史截图替换。
+[窄窗验收工具](../../scripts/validate_narrow_windows.py#L101-L131) 从初始 Bevy 窗口尺寸启动，仅只读测量其自建进程的 Win32 客户区，并校验原始 PNG；不改变系统窗口尺寸，不注入鼠标或触摸。输出目录要求全新，失败报告保留，不用历史截图替换。
 
 ```powershell
 # 最新详细回放的已通过条件；只影响本次进程，不更改普通编辑器默认后端
@@ -326,31 +328,31 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/validate_narrow_wind
 
 | 检查 | 本次实际结果 / 证据 |
 | --- | --- |
-| Rust | `cargo test --workspace --release --locked`：372 项（core 104 / editor 268）通过；[日志](../target/cleanup-20261013/rust-final.log) |
-| Python | `uv run --no-project --python 3.12 python -B -X utf8 -m unittest discover -s scripts -p 'test_*.py' -v`：148 项通过；[日志](../target/cleanup-20261013/python-passed.log) |
-| 格式 / Release | fmt check、全目标 Release Clippy `-D warnings`、workspace Release build 均通过；[fmt](../target/cleanup-20261013/fmt.log)、[Clippy](../target/cleanup-20261013/clippy.log)、[build](../target/cleanup-20261013/build.log) |
-| 详细窗口演示 | 同一 Release 程序 DX12 40ms，19 章/45 例/95 个唯一非空证据通过，退出 0；[报告](../target/demo-cleanup-fast-20261013/demo-report.json)、[驱动日志](../target/cleanup-20261013/demo.log) |
-| 串行窄窗 | 390×844、640×360、320×640 三重尺寸校验、退出 0；原始 PNG 均已查看；[报告](../target/narrow-cleanup-dx12-20261013/report.json) |
-| XML | 27 类/793 字段目录往返退出 0；185 船体/125,856 部件往返、5 个既有异常明确拒绝，verify_ships 如实退出 1；[目录](../target/cleanup-20261013/catalog.log)、[船体](../target/cleanup-20261013/ships.log) |
-| 不变性 / 整理审计 | 191 份源 XML 哈希未变，4 份窗口副本与源程序 SHA 一致；[汇总](../target/cleanup-20261013/summary.json)、[迁移正文/调度核对](../target/cleanup-20261013/migration-check.json)、[测试删除核对](../target/cleanup-20261013/test-audit.json) |
+| Rust | `cargo test --workspace --release --locked`：372 项（core 104 / editor 268）通过；[日志](../../target/cleanup-20261013/rust-final.log) |
+| Python | `uv run --no-project --python 3.12 python -B -X utf8 -m unittest discover -s scripts -p 'test_*.py' -v`：148 项通过；[日志](../../target/cleanup-20261013/python-passed.log) |
+| 格式 / Release | fmt check、全目标 Release Clippy `-D warnings`、workspace Release build 均通过；[fmt](../../target/cleanup-20261013/fmt.log)、[Clippy](../../target/cleanup-20261013/clippy.log)、[build](../../target/cleanup-20261013/build.log) |
+| 详细窗口演示 | 同一 Release 程序 DX12 40ms，19 章/45 例/95 个唯一非空证据通过，退出 0；[报告](../../target/demo-cleanup-fast-20261013/demo-report.json)、[驱动日志](../../target/cleanup-20261013/demo.log) |
+| 串行窄窗 | 390×844、640×360、320×640 三重尺寸校验、退出 0；原始 PNG 均已查看；[报告](../../target/narrow-cleanup-dx12-20261013/report.json) |
+| XML | 27 类/793 字段目录往返退出 0；185 船体/125,856 部件往返、5 个既有异常明确拒绝，verify_ships 如实退出 1；[目录](../../target/cleanup-20261013/catalog.log)、[船体](../../target/cleanup-20261013/ships.log) |
+| 不变性 / 整理审计 | 191 份源 XML 哈希未变，4 份窗口副本与源程序 SHA 一致；[汇总](../../target/cleanup-20261013/summary.json)、[迁移正文/调度核对](../../target/cleanup-20261013/migration-check.json)、[测试删除核对](../../target/cleanup-20261013/test-audit.json) |
 
 本次程序 SHA-256：`b169b9e94806b86ab70aaa83a46cb8ef833cce0e3f8aadc223621e7e384805d8`。本次未运行 450ms 观看档、Vulkan、物理触屏/移动真机、系统键鼠/文字/输入法/原生路径专项，也未录制视频、重新打包。此前 379/373 项和观看结果均属于其他构建，不代替本次。
 
 ### 失败与验证边界
 
-模块迁移首次 fmt 因自动提取误加可见性到 anyhow 宏报错；首次 Rust 编译暴露原入口隐式 imports（58 项缺失），第二次编译暴露 HUD 系统签名的私有类型。均以显式所有者导入及适当模块内可见性修正，未压制警告、未放宽断言。[首次编译](../target/cleanup-20261013/refactor-compile-first.log)、[第二次编译](../target/cleanup-20261013/refactor-compile-second.log)、[迁移后回归](../target/cleanup-20261013/rust-first.log)、[测试归位后回归](../target/cleanup-20261013/rust-final.log)。
+模块迁移首次 fmt 因自动提取误加可见性到 anyhow 宏报错；首次 Rust 编译暴露原入口隐式 imports（58 项缺失），第二次编译暴露 HUD 系统签名的私有类型。均以显式所有者导入及适当模块内可见性修正，未压制警告、未放宽断言。[首次编译](../../target/cleanup-20261013/refactor-compile-first.log)、[第二次编译](../../target/cleanup-20261013/refactor-compile-second.log)、[迁移后回归](../../target/cleanup-20261013/rust-first.log)、[测试归位后回归](../../target/cleanup-20261013/rust-final.log)。
 
-Python 两轮首次回归均为 147 通过/1 失败：视频字幕已同步组折叠，测试仍要求旧“分类筛选/恢复全部”文字。同步两条断言至现行“独立收起/全部展开”，其余真实三键与显示说明不变，全套 148 项复跑通过。[首轮](../target/cleanup-20261013/python.log)、[第二轮](../target/cleanup-20261013/python-final.log)。文档活动链接及章节已核对；历史 30 个缺失 target 链接明确保留，不伪造日志。记录勘误：`7de95b8` 提交正文将链接数误写为 229，实际报告为 215；这里只更正记录，不重写历史提交。
+Python 两轮首次回归均为 147 通过/1 失败：视频字幕已同步组折叠，测试仍要求旧“分类筛选/恢复全部”文字。同步两条断言至现行“独立收起/全部展开”，其余真实三键与显示说明不变，全套 148 项复跑通过。[首轮](../../target/cleanup-20261013/python.log)、[第二轮](../../target/cleanup-20261013/python-final.log)。文档活动链接及章节已核对；历史 30 个缺失 target 链接明确保留，不伪造日志。记录勘误：`7de95b8` 提交正文将链接数误写为 229，实际报告为 215；这里只更正记录，不重写历史提交。
 
 ## 2026-10-13 分级界面中间验证与失败
 
 以下均为中间构建，不能代替最终悬停联动版本的验收。
 
-- 初次停靠回归暴露 640×360 下 ScrollArea 默认最小高度将面板撑出窗口；设 `min_scrolled_height(0)` 并压缩短窗辅助标题，保留真实几何断言。[越界复现](../target/staging-ui-20261013/dock-bounds-failed.log)。首次 Clippy 的参数类型复杂度及无用更新语法也直接修正，不加警告抑制。[首次 Clippy](../target/staging-ui-20261013/clippy-first.log)。
-- 补图标时首次编译漏改一个 show 调用；首轮新布局测试把空 Button 的空文字 Shape 当实际标签，修正为核对非空文字，真实列宽/比例/单行断言保留。[编译](../target/staging-ui-20261013/rust-icons-first.log)、[测试](../target/staging-ui-20261013/rust-icons-second.log)。
-- 整套 Rust 首次为 core 69 通过/35 失败，均因系统 TEMP 拒绝访问；仅为本次进程设置工作区 TEMP/TMP 后全套复跑，不放宽数据断言。[失败](../target/staging-ui-20261013/rust-icons-final.log)、[复跑](../target/staging-ui-20261013/rust-icons-passed.log)。
-- 停靠版及图标版分别完成 DX12 40ms 详细 19 章/45 例/95 证据，退出 0，但不是最后构建。[停靠版](../target/demo-staging-docked-fast-20261013/demo-report.json)、[图标版](../target/demo-staging-icons-fast-20261013/demo-report.json)。人工查看图标版截图发现底部演示横幅遮住船底目标；随后在分级停靠期间隐藏横幅，不把“已绘制/矩形在画布内”冒充无遮挡。
-- 第一次真实窄窗分级：390×844、640×360 通过，320×640 到 180s 仍未完成，应用明确退出 101；不是焦点失败，未冒充通过或自动重复置前。[完整失败报告](../target/narrow-staging-dx12-20261013/report.json)、[320×640 日志](../target/narrow-staging-dx12-20261013/320x640/editor.log)。随后滚动驱动改取实际正文中心，短横屏压缩标题；最终复跑结果见当前进度。
+- 初次停靠回归暴露 640×360 下 ScrollArea 默认最小高度将面板撑出窗口；设 `min_scrolled_height(0)` 并压缩短窗辅助标题，保留真实几何断言。[越界复现](../../target/staging-ui-20261013/dock-bounds-failed.log)。首次 Clippy 的参数类型复杂度及无用更新语法也直接修正，不加警告抑制。[首次 Clippy](../../target/staging-ui-20261013/clippy-first.log)。
+- 补图标时首次编译漏改一个 show 调用；首轮新布局测试把空 Button 的空文字 Shape 当实际标签，修正为核对非空文字，真实列宽/比例/单行断言保留。[编译](../../target/staging-ui-20261013/rust-icons-first.log)、[测试](../../target/staging-ui-20261013/rust-icons-second.log)。
+- 整套 Rust 首次为 core 69 通过/35 失败，均因系统 TEMP 拒绝访问；仅为本次进程设置工作区 TEMP/TMP 后全套复跑，不放宽数据断言。[失败](../../target/staging-ui-20261013/rust-icons-final.log)、[复跑](../../target/staging-ui-20261013/rust-icons-passed.log)。
+- 停靠版及图标版分别完成 DX12 40ms 详细 19 章/45 例/95 证据，退出 0，但不是最后构建。[停靠版](../../target/demo-staging-docked-fast-20261013/demo-report.json)、[图标版](../../target/demo-staging-icons-fast-20261013/demo-report.json)。人工查看图标版截图发现底部演示横幅遮住船底目标；随后在分级停靠期间隐藏横幅，不把“已绘制/矩形在画布内”冒充无遮挡。
+- 第一次真实窄窗分级：390×844、640×360 通过，320×640 到 180s 仍未完成，应用明确退出 101；不是焦点失败，未冒充通过或自动重复置前。[完整失败报告](../../target/narrow-staging-dx12-20261013/report.json)、[320×640 日志](../../target/narrow-staging-dx12-20261013/320x640/editor.log)。随后滚动驱动改取实际正文中心，短横屏压缩标题；最终复跑结果见当前进度。
 - 新窗口策略无头测试最初在 crate 目录生成窗口 JSON，已改为不创建窗口、不写证据；真实尺寸留给串行窗口专项，移除本次测试生成的无用文件。
 
 ## 2026-10-16 图标界面与三级火箭：中间失败记录
@@ -364,16 +366,16 @@ Python 两轮首次回归均为 147 通过/1 失败：视频字幕已同步组�
 - Esc 与跨越拖动阈值同帧的回归最初失败。仅以本帧 `drag_started` 判断不足以保留草稿；修复为从正式 `Response` 记录真实按下来源，原失败断言保留，限定面板 23 项回归已实际通过。
 - 部件 `NoAutomaticBatching` 对照构建 SHA256 为 `e604fe3a48de6d2d913cdc8f9d8574849f4f3c3c98289c4c16364d7f0fc5b930`。原始火箭手调截图仍有发动机错图与缺件，关闭部件合批未改善，实验行随后撤回；这个构建同时包含独立的布局与演示导航修正，不将整个构建称为单变量。演示已通过旋转镜像、自由连接、整组变换及连接线边界章节，随后在选择专项第 29 阶段退出 101：旧驱动仍将 `(100, 400)` 当作侧栏释放点，而新布局下该处是画布，真实移动了文档。保留原文档相等断言，改用正式入口和真实抽屉区域继续验证；该轮不算完整 GUI 通过。
 
-官方非 bindless 回退对照构建 SHA256 为 `0590a74a03884014d41454ff12a4221c4f82c18dae2a5bc66cd11d848929c43d`。正式 `RenderStartup` 已严格确认 `TEXTURE_BINDING_ARRAY=false`、`SpriteMeshMaterial::bindless_supported=false`，但原始手调截图仍有同样错图与缺件，未改善；配置与启动断言随后撤回，保持默认设备能力。两组无效对照均不作为生产修复提交，也不据此认定引擎根因。[无效对照记录](../target/validation-ui-staging/visual-ab-plan.json)、[非 bindless 日志](../target/demo-ui-staging-non-bindless-20261016/demo-editor.log)。
+官方非 bindless 回退对照构建 SHA256 为 `0590a74a03884014d41454ff12a4221c4f82c18dae2a5bc66cd11d848929c43d`。正式 `RenderStartup` 已严格确认 `TEXTURE_BINDING_ARRAY=false`、`SpriteMeshMaterial::bindless_supported=false`，但原始手调截图仍有同样错图与缺件，未改善；配置与启动断言随后撤回，保持默认设备能力。两组无效对照均不作为生产修复提交，也不据此认定引擎根因。[无效对照记录](../../target/validation-ui-staging/visual-ab-plan.json)、[非 bindless 日志](../../target/demo-ui-staging-non-bindless-20261016/demo-editor.log)。
 
 ### 窄窗换行与真实导航的后续实测
 
 构建 SHA256 `8579d159023dce17fde20e2822efb3bb5054521ad0b5ca23a84dd60adb82149d` 使用默认设备特性和正常自动合批。实际执行 `cargo fmt --all --check`、`cargo test --workspace --release --locked`（core 120 / editor 358，共 478 项）、严格 Release Clippy 及 workspace Release build 均通过；另新增独立属性导航入口的两项直接回归随后通过，未运行其文本 / IME GUI 专项。Python 全量 189 项通过。以上各项以对应日志时的源码为准，不包含之后新增的渲染诊断代码。
 
-- 同一 EXE 串行完成 **390×844、640×360、320×640** 三档真实窗口分级专项，每档均 `exit 0`。Win32 客户区、Bevy 逻辑 / 物理尺寸和 PNG 尺寸一致；每档保留 **64 级 / 1024 动作**，末级末项通过真实裁剪控件可达，悬停恢复、`moved` 编辑、Apply、撤销重做及 XML 断言通过，面板与画布不重叠。三张原始截图已逐张检查，窄窗 tile 真实换行。证据见[三档报告](../target/narrow-ui-staging-wrap-20261016/report.json)及[390×844 原图](../target/narrow-ui-staging-wrap-20261016/390x844/target/editor-staging-draft.png)、[640×360 原图](../target/narrow-ui-staging-wrap-20261016/640x360/target/editor-staging-draft.png)、[320×640 原图](../target/narrow-ui-staging-wrap-20261016/320x640/target/editor-staging-draft.png)。该测试使用内部输入回放与只读窗口测量，不是物理触摸测量。
-- 同一 EXE 的详细演示已连续完成前 **17 / 20** 章，包括修正后的选择取消 / Parts 删除边界、分级压力、历史、拓扑及重号修复；第 18 章船体目录启动后未产生导航动作，外部等待 300 秒超时，完整报告缺失。定位到专项未先打开默认关闭的 Ships 抽屉，正在保留原虚拟滚动与末项打开断言修正入口。该轮不记为完整演示通过，也不以它代替仍未完成的 GPU 原图验收。证据见[导航演示日志](../target/demo-ui-staging-navigation-20261016/demo-editor.log)、[章节时间线](../target/demo-ui-staging-navigation-20261016/demo-timeline.jsonl)和[构建身份](../target/validation-ui-staging/build-identity-navigation.json)。
+- 同一 EXE 串行完成 **390×844、640×360、320×640** 三档真实窗口分级专项，每档均 `exit 0`。Win32 客户区、Bevy 逻辑 / 物理尺寸和 PNG 尺寸一致；每档保留 **64 级 / 1024 动作**，末级末项通过真实裁剪控件可达，悬停恢复、`moved` 编辑、Apply、撤销重做及 XML 断言通过，面板与画布不重叠。三张原始截图已逐张检查，窄窗 tile 真实换行。证据见[三档报告](../../target/narrow-ui-staging-wrap-20261016/report.json)及[390×844 原图](../../target/narrow-ui-staging-wrap-20261016/390x844/target/editor-staging-draft.png)、[640×360 原图](../../target/narrow-ui-staging-wrap-20261016/640x360/target/editor-staging-draft.png)、[320×640 原图](../../target/narrow-ui-staging-wrap-20261016/320x640/target/editor-staging-draft.png)。该测试使用内部输入回放与只读窗口测量，不是物理触摸测量。
+- 同一 EXE 的详细演示已连续完成前 **17 / 20** 章，包括修正后的选择取消 / Parts 删除边界、分级压力、历史、拓扑及重号修复；第 18 章船体目录启动后未产生导航动作，外部等待 300 秒超时，完整报告缺失。定位到专项未先打开默认关闭的 Ships 抽屉，正在保留原虚拟滚动与末项打开断言修正入口。该轮不记为完整演示通过，也不以它代替仍未完成的 GPU 原图验收。证据见[导航演示日志](../../target/demo-ui-staging-navigation-20261016/demo-editor.log)、[章节时间线](../../target/demo-ui-staging-navigation-20261016/demo-timeline.jsonl)和[构建身份](../../target/validation-ui-staging/build-identity-navigation.json)。
 
-本地中间证据：[r1 日志](../target/validation-ui-staging/demo.log)、[r2 日志](../target/validation-ui-staging/demo-r2.log)、[r3 日志](../target/validation-ui-staging/demo-r3.log)、[r3 构建身份](../target/validation-ui-staging/build-identity-r3.json)、[r3 火箭报告](../target/demo-ui-staging-r3-20261016/rocket-workflow.json)、[390×844 失败日志](../target/narrow-ui-staging-diagnostic-r2-20261016/390x844/editor.log)。`target/` 不入 Git，原记录随本机证据保留，不补造产物。
+本地中间证据：[r1 日志](../../target/validation-ui-staging/demo.log)、[r2 日志](../../target/validation-ui-staging/demo-r2.log)、[r3 日志](../../target/validation-ui-staging/demo-r3.log)、[r3 构建身份](../../target/validation-ui-staging/build-identity-r3.json)、[r3 火箭报告](../../target/demo-ui-staging-r3-20261016/rocket-workflow.json)、[390×844 失败日志](../../target/narrow-ui-staging-diagnostic-r2-20261016/390x844/editor.log)。`target/` 不入 Git，原记录随本机证据保留，不补造产物。
 
 ## 2026-10-16 完整演示与 RenderWorld 诊断边界
 
@@ -381,26 +383,26 @@ Python 两轮首次回归均为 147 通过/1 失败：视频字幕已同步组�
 
 ### 构建与实际检查
 
-- 构建基底 `37996ef2ca65b307e7a6ee3dce64959afefe8961`，Ships 抽屉入口修复独立提交为 `b6db201`。EXE SHA-256 为 `6b7d0ba761fd4490916260b7ad9c648a856f75c184da5e09cbd3bdf4b63b75b1`；唯一副本与源 EXE 身份一致，源码快照见[构建身份](../target/validation-ui-staging/build-identity-render-probe.json)。
-- `cargo test --workspace --release --locked` 实际 **485 项通过**（core 120 / editor 365）；fmt check、严格 Release Clippy `-D warnings`、workspace Release build 通过。见[Rust 日志](../target/validation-ui-staging/rust-render-probe.log)、[Clippy 日志](../target/validation-ui-staging/clippy-render-probe.log)、[构建日志](../target/validation-ui-staging/build-render-probe.log)。
-- Python 全量 **189 项通过**，见[测试日志](../target/validation-ui-staging/python-tests-final.log)。以上为本构建统一验收的真实运行记录；本次文档更新仅检查文档差异，没有另行启动测试或窗口。
-- 40ms 详细演示完整运行 **20 章 / 48 例 / 104 个唯一非空产物**，`completed=true`、全部章节 `passed`、退出 0；两份源船体 SHA256 未变。见[完整报告](../target/demo-ui-staging-render-probe-20261016/demo-report.json)、[运行日志](../target/validation-ui-staging/demo-render-probe.log)。输入合同仍是内部 UI / 画布事件注入，不是系统键鼠或物理触屏验收。
+- 构建基底 `37996ef2ca65b307e7a6ee3dce64959afefe8961`，Ships 抽屉入口修复独立提交为 `b6db201`。EXE SHA-256 为 `6b7d0ba761fd4490916260b7ad9c648a856f75c184da5e09cbd3bdf4b63b75b1`；唯一副本与源 EXE 身份一致，源码快照见[构建身份](../../target/validation-ui-staging/build-identity-render-probe.json)。
+- `cargo test --workspace --release --locked` 实际 **485 项通过**（core 120 / editor 365）；fmt check、严格 Release Clippy `-D warnings`、workspace Release build 通过。见[Rust 日志](../../target/validation-ui-staging/rust-render-probe.log)、[Clippy 日志](../../target/validation-ui-staging/clippy-render-probe.log)、[构建日志](../../target/validation-ui-staging/build-render-probe.log)。
+- Python 全量 **189 项通过**，见[测试日志](../../target/validation-ui-staging/python-tests-final.log)。以上为本构建统一验收的真实运行记录；本次文档更新仅检查文档差异，没有另行启动测试或窗口。
+- 40ms 详细演示完整运行 **20 章 / 48 例 / 104 个唯一非空产物**，`completed=true`、全部章节 `passed`、退出 0；两份源船体 SHA256 未变。见[完整报告](../../target/demo-ui-staging-render-probe-20261016/demo-report.json)、[运行日志](../../target/validation-ui-staging/demo-render-probe.log)。输入合同仍是内部 UI / 画布事件注入，不是系统键鼠或物理触屏验收。
 
 ### 连续火箭与旧压力合同
 
-原详细 **19 章 / 45 例 / 95 产物**独立保留，新增 `rocket-workflow` 一章、三例、九个产物；brief 合同为 11 章，本节实际完整运行的是 detailed 20 章。原分级 **64 级 / 1024 动作**专项保留并通过，见[分级报告](../target/demo-ui-staging-render-probe-20261016/editor-staging-performance.json)。三窄窗专项属于前述上一构建的实际记录，本节不把它改写为 probe 构建重跑。
+原详细 **19 章 / 45 例 / 95 产物**独立保留，新增 `rocket-workflow` 一章、三例、九个产物；brief 合同为 11 章，本节实际完整运行的是 detailed 20 章。原分级 **64 级 / 1024 动作**专项保留并通过，见[分级报告](../../target/demo-ui-staging-render-probe-20261016/editor-staging-performance.json)。三窄窗专项属于前述上一构建的实际记录，本节不把它改写为 probe 构建重跑。
 
-新增三例见[火箭报告](../target/demo-ui-staging-render-probe-20261016/rocket-workflow.json)：
+新增三例见[火箭报告](../../target/demo-ui-staging-render-probe-20261016/rocket-workflow.json)：
 
 1. `rocket-assembly`：由单 Command Pod、零连接、空计划开始，每次真实目录选择、光标预览与生产画布 snap 放置，预览不改文档。终点 **9 件 / 8 条 Normal 连接 / 3 发动机 / 2 分离器**，连接端点一致；三个物理推进段的几何和连接在三份 XML 中一致。
 2. `basic-staging`：显式 Generate 仅生成草稿 `[[9],[7],[6],[4],[3]]`，`current=0`、全部 `moved=false`；Apply 单步历史，撤销、重做与 XML 往返通过。
 3. `manual-staging-drag`：真实跨帧 `press → held_threshold → held_target → release`，将发动机 6 放入分离器 7 的卡，得到 `[[9],[7,6],[],[4],[3]]`，保留空卡且仅 6 的 `moved=true`；整卡重排及回置、目标多重集不丢不复制、Cancel 无修改、Apply 单历史与撤销重做 / XML 均通过。
 
-九个新增产物为：[单 Pod 原图](../target/demo-ui-staging-render-probe-20261016/editor-rocket-command-pod.png)、[预览原图](../target/demo-ui-staging-render-probe-20261016/editor-rocket-placement-preview.png)、[装配原图](../target/demo-ui-staging-render-probe-20261016/editor-rocket-assembled.png)、[生成草稿原图](../target/demo-ui-staging-render-probe-20261016/editor-rocket-generated.png)、[手调原图](../target/demo-ui-staging-render-probe-20261016/editor-rocket-manual.png)、[装配 XML](../target/demo-ui-staging-render-probe-20261016/rocket-assembled.xml)、[基础分级 XML](../target/demo-ui-staging-render-probe-20261016/rocket-basic-staging.xml)、[手调 XML](../target/demo-ui-staging-render-probe-20261016/rocket-manual-staging.xml)、[工作流 JSON](../target/demo-ui-staging-render-probe-20261016/rocket-workflow.json)。产物完整与结构校验通过不替代下述原图视觉检查。
+九个新增产物为：[单 Pod 原图](../../target/demo-ui-staging-render-probe-20261016/editor-rocket-command-pod.png)、[预览原图](../../target/demo-ui-staging-render-probe-20261016/editor-rocket-placement-preview.png)、[装配原图](../../target/demo-ui-staging-render-probe-20261016/editor-rocket-assembled.png)、[生成草稿原图](../../target/demo-ui-staging-render-probe-20261016/editor-rocket-generated.png)、[手调原图](../../target/demo-ui-staging-render-probe-20261016/editor-rocket-manual.png)、[装配 XML](../../target/demo-ui-staging-render-probe-20261016/rocket-assembled.xml)、[基础分级 XML](../../target/demo-ui-staging-render-probe-20261016/rocket-basic-staging.xml)、[手调 XML](../../target/demo-ui-staging-render-probe-20261016/rocket-manual-staging.xml)、[工作流 JSON](../../target/demo-ui-staging-render-probe-20261016/rocket-workflow.json)。产物完整与结构校验通过不替代下述原图视觉检查。
 
 ### RenderWorld 一次稳定观测
 
-在公开 `PrepareBindGroups` 之后、`Render` 之前采集一次稳定火箭表，见[完整诊断表](../target/validation-ui-staging/rocket-render-table.json)。这是定位用临时诊断，没有扩大 20 / 48 / 104 合同，后续可能移除。
+在公开 `PrepareBindGroups` 之后、`Render` 之前采集一次稳定火箭表，见[完整诊断表](../../target/validation-ui-staging/rocket-render-table.json)。这是定位用临时诊断，没有扩大 20 / 48 / 104 合同，后续可能移除。
 
 | 公开观测 | 实际结果 |
 | --- | --- |
@@ -414,12 +416,12 @@ Python 两轮首次回归均为 147 通过/1 失败：视频字幕已同步组�
 
 ### 原图结论与后续边界
 
-DX12 的[装配原图](../target/demo-ui-staging-render-probe-20261016/editor-rocket-assembled.png)与[手调原图](../target/demo-ui-staging-render-probe-20261016/editor-rocket-manual.png)仍仅见 **5 张精灵**，发动机区域仍有油箱错图；可见位置呈 `2*i` 分布。数据、交互与公开 RenderWorld 身份 / 范围合同通过，**DX12 GPU 可见画面验收未通过**。以下后续证据增强了定位，但本构建没有生产修复，也没有修复后的 DX12 原图复验；保持任务未完成，不继续扩大 probe，不把临时诊断记为生产修复。
+DX12 的[装配原图](../../target/demo-ui-staging-render-probe-20261016/editor-rocket-assembled.png)与[手调原图](../../target/demo-ui-staging-render-probe-20261016/editor-rocket-manual.png)仍仅见 **5 张精灵**，发动机区域仍有油箱错图；可见位置呈 `2*i` 分布。数据、交互与公开 RenderWorld 身份 / 范围合同通过，**DX12 GPU 可见画面验收未通过**。以下后续证据增强了定位，但本构建没有生产修复，也没有修复后的 DX12 原图复验；保持任务未完成，不继续扩大 probe，不把临时诊断记为生产修复。
 
 ### 同 EXE 后端对照与 Naga 最小反例
 
-- 保持上述 EXE SHA-256 完全相同，仅切换 `WGPU_BACKEND=vulkan`，实际 brief **11 章**完整退出 0；手调原图真实九件紧密完整，发动机 9 图片正确。见[Vulkan 报告](../target/demo-ui-staging-vulkan-diagnostic-20261016/demo-report.json)、[手调原图](../target/demo-ui-staging-vulkan-diagnostic-20261016/editor-rocket-manual.png)、[构建身份](../target/validation-ui-staging/build-identity-vulkan.json)。这是同构建后端差异证据，不是 Vulkan detailed 20 章或最终 DX12 修复验收。
-- 独立目标中实际使用 **Naga 30.0.1** 执行 WGSL → HLSL 翻译，严格断言通过：`let i = vertex.instance_index` 的命名局部变量路径先生成 `i = first_instance + SV_InstanceID`，引用时又生成 `first_instance + i`；直接表达式路径仅加入一次 `first_instance`。证据见[named HLSL:20–21](../target/validation-ui-staging/naga-instance-probe/named.hlsl#L20-L21)、[direct HLSL:20](../target/validation-ui-staging/naga-instance-probe/direct.hlsl#L20)、[断言汇总:53](../target/validation-ui-staging/naga-instance-probe/probe.log#L53)。
+- 保持上述 EXE SHA-256 完全相同，仅切换 `WGPU_BACKEND=vulkan`，实际 brief **11 章**完整退出 0；手调原图真实九件紧密完整，发动机 9 图片正确。见[Vulkan 报告](../../target/demo-ui-staging-vulkan-diagnostic-20261016/demo-report.json)、[手调原图](../../target/demo-ui-staging-vulkan-diagnostic-20261016/editor-rocket-manual.png)、[构建身份](../../target/validation-ui-staging/build-identity-vulkan.json)。这是同构建后端差异证据，不是 Vulkan detailed 20 章或最终 DX12 修复验收。
+- 独立目标中实际使用 **Naga 30.0.1** 执行 WGSL → HLSL 翻译，严格断言通过：`let i = vertex.instance_index` 的命名局部变量路径先生成 `i = first_instance + SV_InstanceID`，引用时又生成 `first_instance + i`；直接表达式路径仅加入一次 `first_instance`。证据见[named HLSL:20–21](../../target/validation-ui-staging/naga-instance-probe/named.hlsl#L20-L21)、[direct HLSL:20](../../target/validation-ui-staging/naga-instance-probe/direct.hlsl#L20)、[断言汇总:53](../../target/validation-ui-staging/naga-instance-probe/probe.log#L53)。
 - 最小反例与 DX12 的 `2*i` 原图观测吻合；它是独立翻译层的可重复证据，不等于已经读取本程序实际上传 uniform 或最终绑定纹理，也尚未构成修复后程序画面通过。后续以最小生产修复及同身份 DX12 重新构建、原图复验为准，当前不宣布最终修复完成。
 
 ## 2026-10-16 正式修复后的 DX12 验收闭环（新增要求之前的基线）
@@ -428,21 +430,21 @@ DX12 的[装配原图](../target/demo-ui-staging-render-probe-20261016/editor-ro
 
 ### 构建身份与实际检查
 
-构建基底为 `b6db201db166387e465a9a1c8731b687841a4fbd`，EXE SHA-256 为 `08b3fcc6d791c64042db41f3652a0481641f1b4535f9b90302301e04a464f899`；见[构建身份](../target/validation-ui-staging/build-identity-final-dx12.json)。以下结果均属于该次统一验收，不是本次文档编辑重新执行的测试：
+构建基底为 `b6db201db166387e465a9a1c8731b687841a4fbd`，EXE SHA-256 为 `08b3fcc6d791c64042db41f3652a0481641f1b4535f9b90302301e04a464f899`；见[构建身份](../../target/validation-ui-staging/build-identity-final-dx12.json)。以下结果均属于该次统一验收，不是本次文档编辑重新执行的测试：
 
 | 检查 | 冻结构建的实际结果 / 本地证据 |
 | --- | --- |
-| Rust | Release 全量 **487 项**（core 120 / editor 367）通过；[日志](../target/validation-ui-staging/rust-final-dx12.log) |
-| Python | 全量 **189 项**通过；[日志](../target/validation-ui-staging/python-final-dx12.log) |
-| 格式 / Release | fmt check、严格 Release Clippy `-D warnings`、workspace Release build 通过；[Clippy](../target/validation-ui-staging/clippy-final-dx12.log)、[build](../target/validation-ui-staging/build-final-dx12.log) |
-| DX12 详细演示 | 40ms 内部输入回放，**20 章 / 48 例 / 104 个唯一非空产物**，`completed=true`、全部章节 `passed`、完整退出 0；两份源船体 SHA256 未变；[报告](../target/demo-ui-staging-final-dx12-20261016/demo-report.json)、[运行日志](../target/validation-ui-staging/demo-final-dx12.log) |
-| 三窄窗 | 同 SHA 构建串行完成 **390×844、640×360、320×640**，三例均 `passed=true`、退出 0，Win32 / Bevy / PNG 尺寸合同通过；[报告](../target/narrow-ui-staging-final-dx12-20261016/report.json) |
+| Rust | Release 全量 **487 项**（core 120 / editor 367）通过；[日志](../../target/validation-ui-staging/rust-final-dx12.log) |
+| Python | 全量 **189 项**通过；[日志](../../target/validation-ui-staging/python-final-dx12.log) |
+| 格式 / Release | fmt check、严格 Release Clippy `-D warnings`、workspace Release build 通过；[Clippy](../../target/validation-ui-staging/clippy-final-dx12.log)、[build](../../target/validation-ui-staging/build-final-dx12.log) |
+| DX12 详细演示 | 40ms 内部输入回放，**20 章 / 48 例 / 104 个唯一非空产物**，`completed=true`、全部章节 `passed`、完整退出 0；两份源船体 SHA256 未变；[报告](../../target/demo-ui-staging-final-dx12-20261016/demo-report.json)、[运行日志](../../target/validation-ui-staging/demo-final-dx12.log) |
+| 三窄窗 | 同 SHA 构建串行完成 **390×844、640×360、320×640**，三例均 `passed=true`、退出 0，Win32 / Bevy / PNG 尺寸合同通过；[报告](../../target/narrow-ui-staging-final-dx12-20261016/report.json) |
 
 ### 三级火箭原图与旧合同闭环
 
-逐张核对[装配原图](../target/demo-ui-staging-final-dx12-20261016/editor-rocket-assembled.png)、[生成草稿原图](../target/demo-ui-staging-final-dx12-20261016/editor-rocket-generated.png)和[手调原图](../target/demo-ui-staging-final-dx12-20261016/editor-rocket-manual.png)：九件火箭连续显示，三个推进段存在，#9 发动机图片正确，先前仅五精灵及发动机错贴油箱图的现象不再出现。本节视觉结论来自正式修复后的原图，不仅来自主 World 或 RenderWorld 公开身份一致性。
+逐张核对[装配原图](../../target/demo-ui-staging-final-dx12-20261016/editor-rocket-assembled.png)、[生成草稿原图](../../target/demo-ui-staging-final-dx12-20261016/editor-rocket-generated.png)和[手调原图](../../target/demo-ui-staging-final-dx12-20261016/editor-rocket-manual.png)：九件火箭连续显示，三个推进段存在，#9 发动机图片正确，先前仅五精灵及发动机错贴油箱图的现象不再出现。本节视觉结论来自正式修复后的原图，不仅来自主 World 或 RenderWorld 公开身份一致性。
 
-[火箭报告](../target/demo-ui-staging-final-dx12-20261016/rocket-workflow.json)与[分级报告](../target/demo-ui-staging-final-dx12-20261016/editor-staging-performance.json)继续满足既定合同：真实目录选择 / 预览 / 画布 snap 连续搭建 **9 件 / 8 条 Normal 连接 / 3 发动机 / 2 分离器**；显式生成草稿 `[[9],[7],[6],[4],[3]]`，真实跨帧拖放得到 `[[9],[7,6],[],[4],[3]]`，保留空卡且仅 6 的 `moved=true`；Apply / Cancel、单步历史、撤销重做与 XML 合同不变。
+[火箭报告](../../target/demo-ui-staging-final-dx12-20261016/rocket-workflow.json)与[分级报告](../../target/demo-ui-staging-final-dx12-20261016/editor-staging-performance.json)继续满足既定合同：真实目录选择 / 预览 / 画布 snap 连续搭建 **9 件 / 8 条 Normal 连接 / 3 发动机 / 2 分离器**；显式生成草稿 `[[9],[7],[6],[4],[3]]`，真实跨帧拖放得到 `[[9],[7,6],[],[4],[3]]`，保留空卡且仅 6 的 `moved=true`；Apply / Cancel、单步历史、撤销重做与 XML 合同不变。
 
 新增章仍为一章 / 三例 / 九产物，原 **19 章 / 45 例 / 95 产物**保持；三窄窗各自仍为 **64 级 / 1024 动作**，真实滚动至末级末项 `(63, 15)` 后编辑、Apply、撤销重做及 XML，悬停恢复、目标可见与面板不遮画布断言通过。窗口与内部输入证据不扩展为系统键鼠或物理触屏测量。
 
@@ -454,20 +456,20 @@ DX12 的[装配原图](../target/demo-ui-staging-render-probe-20261016/editor-ro
 
 ## 2026-10-16 新增界面与分级融合：双后端完整验收
 
-本节对应新一轮用户要求的最终验收（帮助窗口可拖动 / 居中 / 彩色图例、分级与左右抽屉及画布历史的融合、工具溢出与默认跟随、独立吸附开关、DX12 与 Vulkan 完整验证、两版视频、sr1 多状态图）。代码基底 `3332912`（其后仅文档提交，二进制未变），EXE SHA-256 `32a9b610459aeb296bf5af9245a66d746063c681e7802cf59e4e24462d8a42be`；DX12 与 Vulkan 两次演示使用**同一个二进制**，只切换 `WGPU_BACKEND`，[构建身份](../target/validation-ui-fusion/build-identity-fusion-dx12.json)。
+本节对应新一轮用户要求的最终验收（帮助窗口可拖动 / 居中 / 彩色图例、分级与左右抽屉及画布历史的融合、工具溢出与默认跟随、独立吸附开关、DX12 与 Vulkan 完整验证、两版视频、sr1 多状态图）。代码基底 `3332912`（其后仅文档提交，二进制未变），EXE SHA-256 `32a9b610459aeb296bf5af9245a66d746063c681e7802cf59e4e24462d8a42be`；DX12 与 Vulkan 两次演示使用**同一个二进制**，只切换 `WGPU_BACKEND`，[构建身份](../../target/validation-ui-fusion/build-identity-fusion-dx12.json)。
 
 | 检查 | 本轮实际结果 / 本地证据 |
 | --- | --- |
-| Rust | Release 全量 **533 项**（core 120 / editor 413）通过；[日志](../target/validation-ui-fusion/rust-fusion-final.log) |
-| Python | 全量 **203 项**通过；[日志](../target/validation-ui-fusion/python-final-pre-rocket.log) |
-| 格式 / Clippy / Release | `cargo fmt --all --check`、严格 Release Clippy `-D warnings`、workspace Release build 均通过；[Clippy](../target/validation-ui-fusion/clippy-fusion-2.log)、[build](../target/validation-ui-fusion/build-fusion.log) |
-| DX12 详细演示 | 40ms 内部输入回放，**20 章 / 48 例 / 104 产物**，退出 0；[报告](../target/demo-final-dx12-20261016/demo-report.json)、[日志](../target/validation-ui-fusion/final2-dx12.log) |
-| Vulkan 详细演示 | 同一 EXE 仅切后端，**20 章 / 104 产物**、退出 0、`AdapterInfo backend: Vulkan`；[报告](../target/demo-final-vulkan-20261016/demo-report.json)、[日志](../target/validation-ui-fusion/final2-vulkan.log) |
+| Rust | Release 全量 **533 项**（core 120 / editor 413）通过；[日志](../../target/validation-ui-fusion/rust-fusion-final.log) |
+| Python | 全量 **203 项**通过；[日志](../../target/validation-ui-fusion/python-final-pre-rocket.log) |
+| 格式 / Clippy / Release | `cargo fmt --all --check`、严格 Release Clippy `-D warnings`、workspace Release build 均通过；[Clippy](../../target/validation-ui-fusion/clippy-fusion-2.log)、[build](../../target/validation-ui-fusion/build-fusion.log) |
+| DX12 详细演示 | 40ms 内部输入回放，**20 章 / 48 例 / 104 产物**，退出 0；[报告](../../target/demo-final-dx12-20261016/demo-report.json)、[日志](../../target/validation-ui-fusion/final2-dx12.log) |
+| Vulkan 详细演示 | 同一 EXE 仅切后端，**20 章 / 104 产物**、退出 0、`AdapterInfo backend: Vulkan`；[报告](../../target/demo-final-vulkan-20261016/demo-report.json)、[日志](../../target/validation-ui-fusion/final2-vulkan.log) |
 | 贴图加载告警 | DX12、Vulkan 演示与窄窗、截图驱动的全部日志中 `Multiple AssetLoaders` 出现 **0** 次（此前 `DockingConnector.PNG` 的大写扩展名会触发该告警） |
-| 三窄窗 + 分级 | 390×844、640×360、320×640 三例 `passed=true`、退出 0，每例仍为 **64 级 / 1024 动作**；[报告](../target/narrow-final2-dx12-20261016/report.json)、[日志](../target/validation-ui-fusion/final2-narrow2.log) |
-| 分级多状态截图 | 6 张状态图 + `staging-shots.json`（`complete=true`）：共存状态 dock 320×844 / palette 296×844 / canvas 824×844 且 `coexist_valid`，画布拖动 `drag.active` 为真且预览偏离起点，整卡插入线像素 168，外部删目标后 `draft_retained=true` 且诊断含“草稿已保留”；[目录](../target/staging-shots-final2-dx12-20261016)、[报告](../target/staging-shots-final2-dx12-20261016/staging-shots.json) |
-| 两版视频 | 简略 11 章 `dr-rs-progress-1080p.mp4`（365.3s，sha256 `ed816f06102fc9bf…`）、详细 20 章 `dr-rs-progress-detailed-1080p.mp4`（616.1s，sha256 `c99f33979a139173…`），两片均通过成片校验；[简略](../target/video-final-brief-20261016/video-manifest.json)、[详细](../target/video-final-detailed-20261016/video-manifest.json) |
-| 火箭章 | 14 件 / 13 条 Normal 树边 / 四个物理推进级：芯链 `1→2→3→4→5→6→7→8→9`，左右 `8→10→11`、`8→12→13`（Blasto SRB，叶子、自带固体燃料 Tank、顶部不挂罐），`1→14` 降落伞；自动生成 `[[11,13],[9],[10,12],[7],[6],[4],[3],[14]]`，手动六次真实拖放 `[[11,13],[],[10,12,9],[7],[6],[4],[3],[14]]`（仅 9 的 `moved` 为真）；[火箭报告](../target/demo-final-dx12-20261016/rocket-workflow.json) |
+| 三窄窗 + 分级 | 390×844、640×360、320×640 三例 `passed=true`、退出 0，每例仍为 **64 级 / 1024 动作**；[报告](../../target/narrow-final2-dx12-20261016/report.json)、[日志](../../target/validation-ui-fusion/final2-narrow2.log) |
+| 分级多状态截图 | 6 张状态图 + `staging-shots.json`（`complete=true`）：共存状态 dock 320×844 / palette 296×844 / canvas 824×844 且 `coexist_valid`，画布拖动 `drag.active` 为真且预览偏离起点，整卡插入线像素 168，外部删目标后 `draft_retained=true` 且诊断含“草稿已保留”；[目录](../../target/staging-shots-final2-dx12-20261016)、[报告](../../target/staging-shots-final2-dx12-20261016/staging-shots.json) |
+| 两版视频 | 简略 11 章 `dr-rs-progress-1080p.mp4`（365.3s，sha256 `ed816f06102fc9bf…`）、详细 20 章 `dr-rs-progress-detailed-1080p.mp4`（616.1s，sha256 `c99f33979a139173…`），两片均通过成片校验；[简略](../../target/video-final-brief-20261016/video-manifest.json)、[详细](../../target/video-final-detailed-20261016/video-manifest.json) |
+| 火箭章 | 14 件 / 13 条 Normal 树边 / 四个物理推进级：芯链 `1→2→3→4→5→6→7→8→9`，左右 `8→10→11`、`8→12→13`（Blasto SRB，叶子、自带固体燃料 Tank、顶部不挂罐），`1→14` 降落伞；自动生成 `[[11,13],[9],[10,12],[7],[6],[4],[3],[14]]`，手动六次真实拖放 `[[11,13],[],[10,12,9],[7],[6],[4],[3],[14]]`（仅 9 的 `moved` 为真）；[火箭报告](../../target/demo-final-dx12-20261016/rocket-workflow.json) |
 
 ### 本轮窗口运行中发现并修掉的问题
 
@@ -497,3 +499,42 @@ DX12 的[装配原图](../target/demo-ui-staging-render-probe-20261016/editor-ro
 清理：删除 dr-core 无引用 API 与两个琐碎测试、dr-editor 两个重复或无独立语义的测试；输入边沿、事务、XML、失败数据保护、5% 几何边界与分级断言保留。
 
 未运行：Vulkan detailed、三窄窗专项脚本、系统键鼠/输入法/物理触屏专项、便携包重打包。
+
+## 2026-10-18 部件网格步长：对齐原版 0.5
+
+**原版实测**：用真实 Win32 输入驱动 SimpleRockets PC 1.6.11 编辑器，24 个有效样本、四档缩放（41/62/84/98 px/单位）下拖动位移始终是 **0.5 逻辑单位**；0.1 与 0.25 在拖动中从未出现，恰好半格向远离零方向进位，x / y 独立量化。证据在 `target/grid-probe/`（完整报告、65 张截图、37 份存档快照与可复用遥控脚本），该目录不入库。
+
+实现取舍：
+
+- `EDITOR_GRID_STEP = 0.5` 位于 dr-core 的 geometry，拖动、放置与整组平移都引用它；改实测值只改这一处。
+- 量化的是**位移增量**而不是绝对坐标：已加载的 0.75、连接几何产生的 0.25 偏移不会被拉回网格，避免改写约 28% 的原版部件坐标。
+- 网格跟随吸附开关：吸附开启且非自由模式才量化，关闭吸附或进入自由模式都改为连续跟随；连接吸附仍然优先于网格。旋转、镜像与 15° / 1° 精调不受影响。
+- 演示的变换章用真实图标切换两种模式并各拖同一距离：关闭吸附落点 0.2999（连续），开启吸附落点 0.5（量化），写入 `transforms-smoke.json` 的 `snap_off_drag_delta` / `snap_on_drag_delta`。关闭吸附的手势、触摸与千件拖动样例同样改为连续位移。
+- 演示夹具随量化调整：31° 辅助拒绝样例改为向部件 1 平移半格（量化后真实重叠 20.9%），选择章的小幅拖动样例改用 0.26 / 0.74 跨过半格。
+
+| 检查 | 本次实际结果 |
+| --- | --- |
+| Rust | `cargo test --workspace --release --locked`：**550 项**（core 119 / editor 431）通过 |
+| Python | 全量 **203 项**通过 |
+| 格式 / Release | fmt check、严格 clippy、workspace Release build 通过 |
+| detailed 演示 | DX12 40ms，23 章全部 `passed`、退出 0；[报告](../../target/demo-grid4-20261018/demo-report.json) |
+| brief 演示 | DX12 40ms，11 章全部通过、退出 0；[报告](../../target/demo-grid-brief-20261018/demo-report.json) |
+
+未做：按新步长重录两版成片、Vulkan 复跑、系统键鼠/输入法专项。
+
+## 2026-10-24 SR1 数据层首次统一验收
+
+本轮已实际检查：27种部件完整目录；DefaultShip的3个部件、版本0→1和旧分级保存；AdvancedDocking的12个XML节点、2艘船与16星体上下文绑定。检查工具不代替实际选择或关卡上下文，不擅自保存Runtime。
+
+2026-10-24 本轮统一实测：
+
+| 检查 | 结果 |
+| --- | --- |
+| 全工作区 Release 测试 | 649项通过：核心212、跨模块6、编辑器431；相对119+431基线新增99项 |
+| 工作区全部目标 Release Clippy | -D warnings通过 |
+| 全项目 rustfmt | 通过 |
+| 原版实际资源检查 | 27种部件、3部件旧船、12节点/2船与16星体绑定通过 |
+| 实际Rust格式器对同版本x64 CRT | 19,137个独立样本全部一致，包含全指数、中点/相邻ULP、负零及非有限模式；不是只验证Python模型 |
+| 证据文件链接 | 本机目标存在性检查通过 |
+
+直接Rust差分使用本轮编译的核心库读取独立CRT金样；它与队友此前19,122项离线模型差分分列，均不等于游戏x86内逐值动态证明。

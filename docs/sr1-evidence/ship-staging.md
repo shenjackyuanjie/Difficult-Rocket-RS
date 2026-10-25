@@ -1,5 +1,7 @@
 # SR1 PC 船体、树组与分级读取证据
 
+[项目首页](../../README.md) · [操作指南](../guides/editor.md) · [验证指南](../validation/README.md)
+
 ## 范围与证据等级
 
 实现入口为 [ship.rs](../../crates/dr-core/src/sr1/ship.rs) 与 [staging.rs](../../crates/dr-core/src/sr1/staging.rs)。本层不调用或修改既有严格 [io.rs](../../crates/dr-core/src/io.rs)、[model.rs](../../crates/dr-core/src/model.rs) 与编辑器默认合同。
@@ -122,4 +124,4 @@ cargo test -p dr-core sr1::ship::tests
 
 ## 本轮统一验收
 
-Lead 已完成的构建、跨模块回归、真实资源和独立 Rust/CRT 差分结果，见[本体数据语义层验证记录](../sr1-data-restoration.md#验证与后续)。本文的队友交接验证与该统一结果分列。
+Lead 已完成的构建、跨模块回归、真实资源和独立 Rust/CRT 差分结果，见[本体数据语义层验证记录](../development/sr1-data.md#验证与后续)。本文的队友交接验证与该统一结果分列。

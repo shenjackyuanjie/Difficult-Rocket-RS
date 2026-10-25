@@ -1,10 +1,10 @@
 # 开发与验收指南
 
-[返回 README](../README.md) · [当前实际结果](editor-progress.md) · [历史记录](validation-history.md)
+[项目首页](../../README.md) · [操作指南](../guides/editor.md) · [验证指南](README.md)
 
 以下命令是复现入口，**不是已运行通过的声明**。从仓库根目录执行；每次 GUI 验收使用新输出目录、同一已构建程序，串行运行，勿覆盖旧报告或原版资源。
 
-构建工具、资源和职责边界见[开发导航](development.md#构建先决条件)；本页集中维护可执行的验证入口。
+构建工具、资源和职责边界见[开发导航](../development/README.md#构建先决条件)；本页集中维护可执行的验证入口。
 
 ## 无窗口与 Release 检查
 

@@ -1,5 +1,7 @@
 # SR1 PC 部件构造、加载与保存证据
 
+[项目首页](../../README.md) · [操作指南](../guides/editor.md) · [验证指南](../validation/README.md)
+
 ## 范围与证据等级
 
 实现入口为 [parts.rs](../../crates/dr-core/src/sr1/parts.rs)，独立于现有严格的 [model.rs](../../crates/dr-core/src/model.rs) 与 [io.rs](../../crates/dr-core/src/io.rs)。目录类型与燃料容量复用 [catalog.rs](../../crates/dr-core/src/sr1/catalog.rs)，数值读取及六位输出复用 [scalars.rs](../../crates/dr-core/src/sr1/scalars.rs)，分级结构复用 [staging.rs](../../crates/dr-core/src/sr1/staging.rs)。本模块不接 UI，不执行物理模拟。
@@ -163,4 +165,4 @@ cargo test -p dr-core sr1::parts::tests
 
 ## 本轮统一验收
 
-Lead 已完成的构建、跨模块回归、真实资源和独立 Rust/CRT 差分结果，见[本体数据语义层验证记录](../sr1-data-restoration.md#验证与后续)。本文的队友交接验证与该统一结果分列。
+Lead 已完成的构建、跨模块回归、真实资源和独立 Rust/CRT 差分结果，见[本体数据语义层验证记录](../development/sr1-data.md#验证与后续)。本文的队友交接验证与该统一结果分列。

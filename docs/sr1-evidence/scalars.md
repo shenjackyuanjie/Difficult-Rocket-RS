@@ -1,5 +1,7 @@
 # SR1 PC 标量读取与写出证据
 
+[项目首页](../../README.md) · [操作指南](../guides/editor.md) · [验证指南](../validation/README.md)
+
 ## 目标与证据等级
 
 本记录对应 [scalars.rs](../../crates/dr-core/src/sr1/scalars.rs)，实现独立的 `dr_core::sr1::scalars`。它不修改现有严格编辑模型和导入入口的默认合同，也不依赖其他本体语义模块。
@@ -220,4 +222,4 @@ cargo test -p dr-core sr1::scalars::tests
 
 ## 本轮统一验收
 
-Lead 已完成的构建、跨模块回归、真实资源和独立 Rust/CRT 差分结果，见[本体数据语义层验证记录](../sr1-data-restoration.md#验证与后续)。本文的队友交接验证与该统一结果分列。
+Lead 已完成的构建、跨模块回归、真实资源和独立 Rust/CRT 差分结果，见[本体数据语义层验证记录](../development/sr1-data.md#验证与后续)。本文的队友交接验证与该统一结果分列。

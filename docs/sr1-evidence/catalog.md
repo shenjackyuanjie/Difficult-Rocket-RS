@@ -1,5 +1,7 @@
 # SR1 PC 部件目录与静态数据证据
 
+[项目首页](../../README.md) · [操作指南](../guides/editor.md) · [验证指南](../validation/README.md)
+
 ## 范围与证据等级
 
 本次新增独立的 [sr1/catalog.rs](../../crates/dr-core/src/sr1/catalog.rs)，不修改现有 [严格目录读写](../../crates/dr-core/src/io/catalog.rs) 与 [编辑器模型](../../crates/dr-core/src/model.rs) 的默认合同。
@@ -186,4 +188,4 @@ cargo test -p dr-core sr1::catalog
 
 ## 本轮统一验收
 
-Lead 已完成的构建、跨模块回归、真实资源和独立 Rust/CRT 差分结果，见[本体数据语义层验证记录](../sr1-data-restoration.md#验证与后续)。本文的队友交接验证与该统一结果分列。
+Lead 已完成的构建、跨模块回归、真实资源和独立 Rust/CRT 差分结果，见[本体数据语义层验证记录](../development/sr1-data.md#验证与后续)。本文的队友交接验证与该统一结果分列。

@@ -1,5 +1,7 @@
 # SR1 PC 运行态、星系与挑战数据证据
 
+[项目首页](../../README.md) · [操作指南](../guides/editor.md) · [验证指南](../validation/README.md)
+
 ## 目标与实现入口
 
 本轮新增独立本体层的 [runtime.rs](../../crates/dr-core/src/sr1/runtime.rs) 与 [solar.rs](../../crates/dr-core/src/sr1/solar.rs)，不修改现有严格入口 [io.rs](../../crates/dr-core/src/io.rs)、[model.rs](../../crates/dr-core/src/model.rs) 的默认合同，不接 UI，不实现物理引擎。
@@ -153,4 +155,4 @@ cargo test -p dr-core sr1::solar::tests
 
 ## 本轮统一验收
 
-Lead 已完成的构建、跨模块回归、真实资源和独立 Rust/CRT 差分结果，见[本体数据语义层验证记录](../sr1-data-restoration.md#验证与后续)。本文的队友交接验证与该统一结果分列。
+Lead 已完成的构建、跨模块回归、真实资源和独立 Rust/CRT 差分结果，见[本体数据语义层验证记录](../development/sr1-data.md#验证与后续)。本文的队友交接验证与该统一结果分列。

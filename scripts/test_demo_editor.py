@@ -337,7 +337,7 @@ class DemoTests(unittest.TestCase):
             self.assertIn(phrase, chapter)
         for old_copy in ("三级火箭：", "五步草稿", "9 部件", "8 条 Normal", "16 部件", "15 条 Normal"):
             self.assertNotIn(old_copy, chapter)
-        review = (demo.ROOT / "docs/demo-review-suggestions.md").read_text(encoding="utf-8")
+        review = (demo.ROOT / "docs/development/demo-contract.md").read_text(encoding="utf-8")
         for phrase in ("ID 10 分离器 → ID 11 SRB", "ID 12 分离器 → ID 13 SRB",
                        "返回降落伞为 ID 14", "SRB 是 Normal 树的叶子",
                        "自带固体 Tank，无需额外挂罐", "顶部也不连接油箱"):
