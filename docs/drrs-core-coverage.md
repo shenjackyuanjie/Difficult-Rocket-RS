@@ -14,13 +14,14 @@
 | 分组实例 / 连接 | `groups/all_parts/keyed_parts`、`PartKey` 定位组/ID/出现次数；相同 ID 不跨组误改。占用、吸附、对接与无向部件对唯一性有事务校验。[connections](../crates/dr-core/src/connections.rs) |
 | 几何与拓扑 | 真实轮廓、框选、旋转/镜像、严格 5% 重叠，生成森林不丢额外边；`reachable/subtree` 和原子换父/断边。[geometry](../crates/dr-core/src/geometry.rs)、[topology](../crates/dr-core/src/topology.rs) |
 | 编辑历史 | 原子批量、属性/分级、多选/剪贴板、重复编号修复；失败/no-op 不破坏重做，单快照交换与内存预算。[edit](../crates/dr-core/src/edit.rs) |
+| SR1 本体数据语义 | 独立的 [sr1](../crates/dr-core/src/sr1/mod.rs) 提供原生标量、目录/部件、船体/分级、Runtime/星系接口；不替换上面的严格编辑模型和事务。[接口与证据边界](sr1-data-restoration.md)、[开发职责导航](development.md) |
 
 ## 明确差异与未完成边界
 
 - **保存策略**：未照搬旧 `SaveStatus_rs(save_default)`；原策略可能省略已启用镜像/激活属性，不能为了名称兼容复制潜在数据丢失。当前 API 使用固定、安全保存合同。
 - **读取严格性**：完整解析和原 `assert_ship` 的快速标签检查不是同一合同。未知字段、异常根或尾随内容明确拒绝；不为了接受历史坏输入削弱检查。
 - **重复实例引用**：已有同组重号连接/分级若歧义，保留读取数据但拒绝相关编辑，要求显式修复；不自动猜测归属。
-- **连接点镜像元数据**：字段保留，但原版自动选择镜像的可执行行为尚未核实；当前预览由用户显式镜像，不仅凭字段名推断自动行为。
+- **连接点镜像**：严格编辑模型保留镜像元数据，当前预览由用户显式镜像，尚未启用原版自动镜像选择行为；独立 sr1 目录层已按 PC 证据实现连接点的静态镜像配对、默认值及非法 swapId 处理，见[目录证据](sr1-evidence/catalog.md#attachpoint-读取与镜像配对)。静态配对不等于编辑器已经接入自动镜像，也不凭字段名推断后续交互行为。
 - **Python 接口**：没有 PyO3 的 `SR1Ship_rs` / `SR1PartList_rs` 或扩展版本兼容层。Rust 库能力不等于可直接替换旧 Python import。
 - **应用 / 平台**：旧 Console stdin/队列和 Windows 任务栏进度属于实际应用层能力，未放进独立核心。Android / iOS / Web 宿主、资源/存储及系统文件选择另行实现；当前不新增平台工程。
 

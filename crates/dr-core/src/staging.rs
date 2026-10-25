@@ -39,7 +39,7 @@ pub enum StagingError {
 /// 归入一张卡，卡片按深度降序、Engine → Detacher → Parachute 排列，卡内按 ID
 /// 升序。异类别的次序是本项目的稳定约定，不代表完全复刻原版的遍历次序。
 ///
-/// 结果按 steps[0] 开始的执行顺序保存，current_stage 为 0，所有 moved 为 false，
+/// 结果按 `steps[0]` 开始的执行顺序保存，`current_stage` 为 0，所有 `moved` 为 false，
 /// 没有空步骤；没有候选部件时返回空计划。此函数不合并或保护旧的手动分级，
 /// 调用方应在用户确认生成/重置后通过一个 SetStaging 事务替换旧计划。
 pub fn generate_basic_staging(

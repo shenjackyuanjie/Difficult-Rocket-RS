@@ -4,21 +4,22 @@
 
 ## 基线与维护规则
 
-新增独立 `rocket-workflow` 后，brief 为 **11 章**，detailed 为 **20 章、48 例、104 个章节产物**。新增内容叠加到旧基线，不改写旧用例或压力数字：
+当前 brief 为 **11 章**；detailed 为 **23 章、54 例、114 个章节产物**。54 例由 51 个边界用例与独立 `rocket-workflow` 的 3 个连续用例组成，不把边界用例数当成总数。当前合同由旧基线逐项叠加，原用例及压力数字保持不变：
 
 | 范围 | brief 章数 | detailed 章数 | detailed 用例 | detailed 章节产物 |
 | --- | --- | --- | --- | --- |
 | 原有基线 | 10 | 19 | 45 | 95 |
 | 连续四物理推进级火箭新增 | 1 | 1 | 3 | 9 |
-| 当前报告合同 | 11 | 20 | 48 | 104 |
+| 触摸、千件拖动、窄窗新增 | 0 | 3 | 6 | 10 |
+| 当前报告合同 | 11 | 23 | 54（51 边界 + 3 连续火箭） | 114 |
 
-原 45 例仍由 Rust [manifest](../crates/dr-editor/src/demo_cases/manifest.rs)维护，新增 3 例由独立工作流报告承载；原 `staging` 的 **64 级、1024 动作**压力章继续保留，新的八卡入门示例不替代它。后续新增 case 时需同步 Rust 实现/测试与 Python [驱动](../scripts/demo_editor.py)的契约，不仅改数字。已有覆盖不重复加需求，也不把内部输入回放当成系统键鼠或 input-to-photon 证据。
+原 45 个边界用例仍由 Rust [manifest](../crates/dr-editor/src/demo_cases/manifest.rs)维护；触摸 2 例、千件拖动 1 例、窄窗 3 例将边界用例扩展为 51 例，连续火箭另有 3 例由独立工作流报告承载。统计口径由[驱动合同回归](../scripts/test_demo_editor.py)核对；原 `staging` 的 **64 级、1024 动作**压力章继续保留，新的八卡入门示例不替代它。后续新增 case 时需同步 Rust 实现/测试与 Python [驱动](../scripts/demo_editor.py)的契约，不仅改数字。已有覆盖不重复加需求，也不把内部输入回放当成系统键鼠或 input-to-photon 证据。
 
 ## 已采纳
 
 - 连接提示与实际提交核对完整 Connection，反向换点拒绝读取真实错误状态；平移锚点保留既有容差。
 - 零长路径使用真实中心挂点，走父中心→挂点→子中心的生产路径，验证有限/零弧长、方向采样 None、真实 Gizmos 顶点增量 0 和安全跳过；保留正常线正向对照与目录复原。[实现](../crates/dr-editor/src/demo_cases.rs)、[回归](../crates/dr-editor/src/demo_cases/tests.rs)。旧“实际画出零长线”指标已删除，不重加兼容项。
-- detailed 驱动继续核对原 45 例的通用 metrics、有限几何误差/严格 5%、实际手势计数及 physical=false；加上工作流 3 例，总计 48 例，并核对章节顺序及新鲜非空证据。[驱动](../scripts/demo_editor.py)、[回归](../scripts/test_demo_editor.py)、[工作流严格验收](../scripts/rocket_workflow_report.py)。
+- detailed 驱动继续核对原 45 例的通用 metrics、有限几何误差/严格 5%、实际手势计数及 physical=false；加上触摸、千件拖动与窄窗 6 例后为 51 个边界用例，另有工作流 3 例，总计 54 例，并核对章节顺序及新鲜非空证据。[驱动](../scripts/demo_editor.py)、[回归](../scripts/test_demo_editor.py)、[工作流严格验收](../scripts/rocket_workflow_report.py)。
 - 分类演示复用真实组标题/全部展开及既有滚动寻址，不增加演示状态或延长超时。
 
 ## 连续四物理推进级火箭章合同
@@ -65,13 +66,13 @@ rocket-manual-staging.xml
 rocket-workflow.json
 ```
 
-这九项与原有 95 项一同构成 detailed 的 104 项章节产物合同。XML/JSON 用于逐字段核验，截图用于观察连续过程，二者不能相互替代。
+这九项与原有 95 项构成加入连续火箭后的中间基线（20 章、104 项产物）；再计入触摸、千件拖动与窄窗三章的 10 项产物，当前 detailed 合计 23 章、114 项产物。XML/JSON 用于逐字段核验，截图用于观察连续过程，二者不能相互替代。
 
 ## 优先候选
 
 ### ① 悬空引用下的新放置 ID
 
-- 现状：next_part_id 取已占 ID 最大值 +1（[model.rs](../crates/dr-core/src/model.rs)），occupied_ids 覆盖连接上的悬空引用（[同文件](../crates/dr-core/src/model.rs)）；修复与粘贴路径同样预留既有 ID（[repair.rs](../crates/dr-core/src/edit/repair.rs)、[selection.rs](../crates/dr-core/src/edit/selection.rs)、[scoped.rs](../crates/dr-core/src/edit/scoped.rs)）；放置入口使用该 ID（[placement.rs](../crates/dr-editor/src/placement.rs)）。
+- 现状：next_part_id 通常取已占 ID 最大值 +1，触及 i64 上界时从低位寻找空正数（[model.rs](../crates/dr-core/src/model.rs)、[编号分配助手](../crates/dr-core/src/part_id.rs)），occupied_ids 覆盖连接上的悬空引用（[同文件](../crates/dr-core/src/model.rs)）；修复与粘贴路径同样预留既有 ID（[repair.rs](../crates/dr-core/src/edit/repair.rs)、[selection.rs](../crates/dr-core/src/edit/selection.rs)、[scoped.rs](../crates/dr-core/src/edit/scoped.rs)）；放置入口使用该 ID（[placement.rs](../crates/dr-editor/src/placement.rs)）。
 - 缺口：已有 unit 覆盖（[model_tests.rs](../crates/dr-core/src/model_tests.rs)、[repair_tests.rs](../crates/dr-core/src/edit/repair_tests.rs)），缺可见 demo。
 - 回放内容：id1 + 缺失 id2 的连接下，预览新 ID 为 3，提交实际 ID 也为 3；历史引用原样保留，undo/redo 与 XML 往返一致。
 - 独立断言：预览 ID == 提交 ID == 3；悬空引用在提交、撤销、XML 后逐字段相同。

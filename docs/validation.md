@@ -4,6 +4,8 @@
 
 以下命令是复现入口，**不是已运行通过的声明**。从仓库根目录执行；每次 GUI 验收使用新输出目录、同一已构建程序，串行运行，勿覆盖旧报告或原版资源。
 
+构建工具、资源和职责边界见[开发导航](development.md#构建先决条件)；本页集中维护可执行的验证入口。
+
 ## 无窗口与 Release 检查
 
 ```powershell
@@ -12,6 +14,18 @@ cargo test --workspace --release --locked
 cargo clippy --workspace --all-targets --release --locked -- -D warnings
 cargo build --workspace --release --locked
 uv run --no-project --python 3.12 python -B -X utf8 -m unittest discover -s scripts -p 'test_*.py' -v
+```
+
+公开 API 文档也要检查链接与警告；PowerShell 中临时开启严格 Rustdoc，并恢复原进程设置：
+
+```powershell
+$previousRustdocFlags = $env:RUSTDOCFLAGS
+try {
+    $env:RUSTDOCFLAGS = '-D warnings'
+    cargo doc --workspace --no-deps --release --locked
+} finally {
+    $env:RUSTDOCFLAGS = $previousRustdocFlags
+}
 ```
 
 Windows 若系统 TEMP 写入受限，可为本次进程将 `TEMP` / `TMP` 设为已创建的 `target/test-temp`。Rust 测试按模块邻近存放；`test_support` 仅在测试编译，共享内存文档/目录及真实系统夹具。不要为了删测试数量删掉输入边沿、事务、XML 或失败数据保护的独立断言。
@@ -34,7 +48,7 @@ cargo run -p dr-core --example verify_history --release --locked -- ../Difficult
 ```powershell
 $env:WGPU_BACKEND = 'dx12' # 仅本次进程；普通编辑器默认后端不改
 
-# 完整详细回归：23 章、51 例、114 项证据，40ms 节拍，完成自动退出
+# 完整详细回归：23 章，51 个边界用例 + 3 个连续火箭用例（共 54），114 项证据，40ms 节拍，完成自动退出
 uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --editor-bin target/release/dr-editor.exe --mode detailed --fast --output target/demo-detailed-new
 
 # 详细观看：450ms 节奏基准，完成自动退出
@@ -52,7 +66,7 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --edi
 | --- | --- |
 | 部件目录与放置 | 真实部件行、预览变换/碰撞/放置、组标题收起及全部展开 |
 | 连接点与吸附 | 沿边与同边多点连接、撤销与 XML |
-| 三级火箭连续操作 | 从 Command Pod 实际选件/放置/吸附搭成 9 件、8 连接，显式自动分级，再分帧拖动动作与整卡，核对草稿/历史/XML |
+| 四物理推进级火箭连续操作 | 从 Command Pod 实际选件/放置/吸附搭成 14 件、13 连接的三级芯级 + 双固体助推器，显式生成八卡，再做六次真实拖放，核对草稿/历史/XML |
 | 旋转/镜像/自由连接 | 精调、自由连断、线设置、整组变换 |
 | 选择与编辑 | 三键配置、框选/后代跟随、连续拖动、复制粘贴与连接分量删除 |
 | 视角与显示 | F/Shift+F、调试/显隐、F1 与输入隔离 |
@@ -65,12 +79,12 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/demo_editor.py --edi
 | 千件拖动（详细） | 真实 Ophioglossum 样本选中 1000 部件拖动，记录真实帧耗时并核对撤销重做与 XML 往返 |
 | 窄窗布局（详细） | 运行中切到 640×360 / 390×844，单侧抽屉与 44px 入口不压船体，章末恢复尺寸 |
 
-详细模式保留放置（3）、精确重叠（6）、自由连接（7）、整组变换（6）、连线（5）、交互回放（4）、历史/属性（7）、拓扑（4）、文件（3）九组原有 45 例，另加连续三级火箭的搭建、自动分级、手动拖放 3 例，以及触摸/鼠标提交 2 例、千件拖动 1 例、窄窗三态 3 例，共 51 例。每例核对内存文档/历史和真实 metrics，不宣称穷举。严格 5% 的几何例用精确事务参数；对接类型夹具显式设置 `dock=true`，不改原资源。详细分级为 64 级/1,024 动作，简略为 8 级/48 动作；驱动核对真实规模及末项修改。详细分级报告另记录实际停靠/船体/目标矩形与组/ID，检查面板不覆盖船体、修改目标完整可见，不能只用布尔字段宣称通过。
+详细模式保留放置（3）、精确重叠（6）、自由连接（7）、整组变换（6）、连线（5）、交互回放（4）、历史/属性（7）、拓扑（4）、文件（3）九组原有 45 例，加上触摸/鼠标提交 2 例、千件拖动 1 例、窄窗三态 3 例，形成 51 个边界用例；独立连续火箭工作流另含搭建、自动分级、手动拖放 3 例，总计 54 项。每例核对内存文档/历史和真实 metrics，不宣称穷举。严格 5% 的几何例用精确事务参数；对接类型夹具显式设置 `dock=true`，不改原资源。详细分级为 64 级/1,024 动作，简略为 8 级/48 动作；驱动核对真实规模及末项修改。详细分级报告另记录实际停靠/船体/目标矩形与组/ID，检查面板不覆盖船体、修改目标完整可见，不能只用布尔字段宣称通过。
 
 - 成功报告 `demo-report.json` 在全模式完成后才原子发布；模式、章节顺序、状态、耗时、路径及新鲜非空产物均须通过。
 - `demo-timeline.jsonl` 记录章首/章尾时间；`demo-actions.jsonl` 仅记录实际重播后的按下/滚轮，供音效同步，不记录移动/松开。
 - 详细模式保留九份 `*-cases.json` 与 45 张 `case-*.png`；三级火箭另有五张连续状态图、三份同几何 XML 和 `rocket-workflow.json`。缺例/缺图、提前关闭、非零退出或简略冒充详细均失败。
-- 火箭搭建截图前，连续两次核对九个唯一部件实体、目录纹理与 `Sprite.image` / 派生 `SpriteMeshMaterial.image`、加载尺寸、local/global 坐标与镜头可见性；观测写入报告供独立校验。该检查覆盖主 World 的身份与派生材质边界，GPU 实际贴图/排序仍须查看原图。四次拖放各保留按下、跨阈值、目标保持、释放四个递增 Update 帧。
+- 火箭搭建截图前，连续两次核对 14 个唯一部件实体、目录纹理与 `Sprite.image` / 派生 `SpriteMeshMaterial.image`、加载尺寸、local/global 坐标与镜头可见性；观测写入报告供独立校验。该检查覆盖主 World 的身份与派生材质边界，GPU 实际贴图/排序仍须查看原图。六次拖放各保留按下、跨阈值、目标保持、释放四个递增 Update 帧。
 - Test.xml / Heronb.xml 只读，成功/异常路径都核对源哈希；输出不得包含源样本或其祖先目录。
 - 演示隔离原生鼠标/键盘/文字/滚轮，使用内部 Bevy/egui 注入，不移动系统指针，不等于系统键鼠、输入法或 input-to-photon 延迟实测。
 
@@ -138,7 +152,7 @@ uv run --no-project --python 3.12 python -B -X utf8 scripts/render_demo_video.py
 uv run --no-project --python 3.12 python -B -X utf8 scripts/render_demo_video.py --render-only target/video-detailed-new --demo-mode detailed
 ```
 
-详细模式默认超时 1800s（简略 600s），可用 `--timeout` 覆盖。
+视频录制报告等待的默认超时为 detailed 1800s、brief 600s，使用 `--timeout` 覆盖。另有独立的 `--media-timeout <秒>`：正有限值，默认 **1800 秒/每条命令**，分别约束原始/成片 ffprobe 探测、动态校验的 ffmpeg 解码及成片 ffmpeg 编码；`--render-only` 同样生效，不是整条流水线共用预算。它不改变录制 `--timeout`，也不改变[自动窗口演示](#自动窗口演示)中 detailed 默认不限时的合同。
 
 录制专用窗口为无边框、scale factor 1 的 1920×1080。脚本仅置顶自建窗口（不激活、不改位置/大小），使用 `gdigrab desktop` 输入端坐标裁剪该物理客户区；不是后台捕获，须保持可见、勿最小化/移动/遮挡。持续所有权、几何与九点遮挡检查不能保证绝对无遮挡。
 
