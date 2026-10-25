@@ -29,6 +29,7 @@ import wave
 import demo_editor as demo
 
 ROOT = demo.ROOT
+DEFAULT_MEDIA_TIMEOUT = 1800
 RAW_NAME = "raw.mp4"
 TIMELINE_NAME = "demo-timeline.jsonl"
 ACTIONS_NAME = "demo-actions.jsonl"
@@ -341,9 +342,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     (output / "progress.ass").write_text(header + "\n".join(dialogues) + "\n", encoding="utf-8")
 
 
-def probe(path):
-    result = subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)],
-                            capture_output=True, text=True, encoding="utf-8", check=True)
+def run_media(command, *, stage, timeout=DEFAULT_MEDIA_TIMEOUT, **options):
+    """每条媒体命令独立计时；run 在超时后负责终止并回收自己创建的子进程。"""
+    if not demo.finite_number(timeout) or timeout <= 0:
+        raise VideoError("媒体命令超时预算必须为正有限秒数")
+    try:
+        return subprocess.run(command, timeout=timeout, **options)
+    except subprocess.TimeoutExpired as error:
+        raise VideoError(f"{stage}超时（单条媒体命令预算 {timeout:g} 秒）") from error
+
+
+def probe(path, timeout=DEFAULT_MEDIA_TIMEOUT):
+    result = run_media(["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)],
+                       stage=f"媒体探测 {Path(path).name}", timeout=timeout,
+                       capture_output=True, text=True, encoding="utf-8", check=True)
     return json.loads(result.stdout)
 
 
@@ -398,11 +410,11 @@ def validate_dynamic_frames(payload, clips, width=128, height=64, sample_fps=2):
             "scope": "低分辨率实质帧变化检查，不代替报告断言或人工内容审查"}
 
 
-def check_raw_dynamics(raw, clips):
+def check_raw_dynamics(raw, clips, timeout=DEFAULT_MEDIA_TIMEOUT):
     command = ["ffmpeg", "-v", "error", "-i", str(raw), "-an", "-vf",
                "crop=iw:ih-120:0:0,fps=2:start_time=0,scale=128:64,format=gray",
                "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"]
-    decoded = subprocess.run(command, capture_output=True, check=True)
+    decoded = run_media(command, stage="原始画面动态解码", timeout=timeout, capture_output=True, check=True)
     return validate_dynamic_frames(decoded.stdout, clips)
 
 
@@ -923,7 +935,8 @@ def render(options, output, manifest, originals):
         raise VideoError("原始报告未通过，禁止成片")
     demo.check_samples(originals)
     raw = output / RAW_NAME
-    raw_info = probe(raw)
+    media_timeout = getattr(options, "media_timeout", DEFAULT_MEDIA_TIMEOUT)
+    raw_info = probe(raw, timeout=media_timeout)
     raw_duration = validate_raw_probe(raw_info)
     manifest["raw_ffprobe"] = raw_info
     chapters = load_timeline(output / TIMELINE_NAME, mode)
@@ -933,7 +946,7 @@ def render(options, output, manifest, originals):
     if any(report_titles[c["id"]] != c["title"] for c in chapters):
         raise VideoError("timeline标题与原报告不一致")
     clips, duration = plan_clips(chapters, manifest.get("capture_start_unix_ms"), raw_duration)
-    manifest["raw_dynamic_validation"] = check_raw_dynamics(raw, clips)
+    manifest["raw_dynamic_validation"] = check_raw_dynamics(raw, clips, timeout=media_timeout)
     sound_effects = bool(getattr(options, "sound_effects", False))
     manifest["sound_effects"] = {"enabled": sound_effects, "voice": False, "music": False}
     if sound_effects:
@@ -968,8 +981,9 @@ def render(options, output, manifest, originals):
     write_json(output / MANIFEST_NAME, manifest)
     try:
         with (output / "render.log").open("w", encoding="utf-8") as log:
-            subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True)
-        info = probe(partial)
+            run_media(command, stage="成片编码", timeout=media_timeout,
+                      stdout=log, stderr=subprocess.STDOUT, check=True)
+        info = probe(partial, timeout=media_timeout)
         spec = validate_probe(info, duration, sound_effects)
         demo.check_samples(originals)
         manifest.update({"status": "validated", "specification": spec, "ffprobe": info,
@@ -995,7 +1009,9 @@ def parse_args(argv=None):
     parser.add_argument("--demo-mode", choices=("brief", "detailed"), default="brief",
                         help="演示模式：brief 简略；detailed 详细，默认 brief")
     parser.add_argument("--timeout", type=demo.positive_seconds,
-                        help="超时秒数；brief 默认 600，detailed 默认 1800")
+                        help="录制报告等待超时秒数；brief 默认 600，detailed 默认 1800")
+    parser.add_argument("--media-timeout", type=demo.positive_seconds, default=DEFAULT_MEDIA_TIMEOUT,
+                        help="每条媒体命令超时秒数（探测/动态解码/编码），默认 1800，与录制 --timeout 独立")
     parser.add_argument("--crf", type=int, choices=(18, 20), default=18)
     parser.add_argument("--sound-effects", action="store_true", help="按真实replay事件自合成低量提示音；默认无音轨，无配音")
     parser.add_argument("--sfx-dir", type=Path,

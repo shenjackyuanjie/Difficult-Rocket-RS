@@ -1,5 +1,8 @@
 """纯单元回归：不启动GUI、ffmpeg或编辑器。"""
 import copy
+from contextlib import redirect_stderr
+import io
+import json
 from array import array
 from pathlib import Path
 import subprocess
@@ -973,6 +976,103 @@ class RenderGateTests(unittest.TestCase):
             self.assertEqual(manifest["sound_effects"]["wav_sha256"], video.sha256(output / video.SOUND_NAME))
             self.assertTrue(manifest["specification"]["audio"])
             self.assertEqual(manifest["status"], "completed")
+
+
+class MediaTimeoutTests(unittest.TestCase):
+    def test_media_timeout_defaults_and_recording_budget_are_independent(self):
+        for mode in ("brief", "detailed"):
+            options = video.parse_args(["--demo-mode", mode, "--timeout", "7"])
+            self.assertEqual(options.timeout, 7)
+            self.assertEqual(options.media_timeout, 1800)
+            options = video.parse_args(["--demo-mode", mode, "--media-timeout", "2.5"])
+            self.assertEqual(options.media_timeout, 2.5)
+            self.assertEqual(options.timeout, 600 if mode == "brief" else 1800)
+        self.assertIsNone(video.demo.parse_args(["--mode", "detailed"]).timeout)
+
+    def test_media_timeout_rejects_nonpositive_and_nonfinite_cli_values(self):
+        for value in ("0", "-1", "nan", "inf", "-inf"):
+            with self.subTest(value=value), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                video.parse_args(["--media-timeout=" + value])
+
+    def test_runner_rejects_invalid_direct_budgets_before_spawning(self):
+        with patch.object(video.subprocess, "run") as run:
+            for value in (None, 0, -1, False, float("nan"), float("inf"), "1"):
+                with self.subTest(value=value), self.assertRaisesRegex(video.VideoError, "正有限"):
+                    video.run_media(["ffprobe", "raw.mp4"], stage="测试探测", timeout=value)
+            run.assert_not_called()
+
+    def test_runner_preserves_process_options_and_default_budget(self):
+        expected = object()
+        with patch.object(video.subprocess, "run", return_value=expected) as run:
+            result = video.run_media(["ffprobe", "raw.mp4"], stage="测试探测",
+                                     capture_output=True, check=True)
+        self.assertIs(result, expected)
+        run.assert_called_once_with(["ffprobe", "raw.mp4"], timeout=1800, capture_output=True, check=True)
+
+    def test_probe_timeout_reports_stage_and_keeps_original_cause(self):
+        failure = subprocess.TimeoutExpired(["ffprobe"], 2.5)
+        with patch.object(video.subprocess, "run", side_effect=failure) as run:
+            with self.assertRaisesRegex(video.VideoError, "媒体探测 raw.mp4.*2.5 秒") as caught:
+                video.probe(Path("raw.mp4"), timeout=2.5)
+        self.assertIs(caught.exception.__cause__, failure)
+        self.assertEqual(run.call_args.kwargs["timeout"], 2.5)
+        self.assertTrue(run.call_args.kwargs["capture_output"])
+
+    def test_dynamic_decode_timeout_does_not_validate_incomplete_frames(self):
+        with patch.object(video.subprocess, "run", side_effect=subprocess.TimeoutExpired(["ffmpeg"], 3)) as run, \
+                patch.object(video, "validate_dynamic_frames") as validate:
+            with self.assertRaisesRegex(video.VideoError, "原始画面动态解码.*3 秒"):
+                video.check_raw_dynamics(Path("raw.mp4"), [], timeout=3)
+        self.assertEqual(run.call_args.kwargs["timeout"], 3)
+        validate.assert_not_called()
+
+    def test_probe_and_dynamic_decode_forward_custom_budgets(self):
+        with patch.object(video.subprocess, "run", return_value=SimpleNamespace(stdout='{"ok": true}')) as run:
+            self.assertEqual(video.probe(Path("raw.mp4"), timeout=4), {"ok": True})
+            self.assertEqual(run.call_args.kwargs["timeout"], 4)
+        with patch.object(video.subprocess, "run", return_value=SimpleNamespace(stdout=b"decoded")) as run, \
+                patch.object(video, "validate_dynamic_frames", return_value={"passed": True}) as validate:
+            self.assertEqual(video.check_raw_dynamics(Path("raw.mp4"), [], timeout=5), {"passed": True})
+            self.assertEqual(run.call_args.kwargs["timeout"], 5)
+            validate.assert_called_once_with(b"decoded", [])
+
+    def test_encoding_timeout_cleans_partial_and_keeps_original_evidence(self):
+        # None 表示老调用者的 options 没有 media_timeout 字段，仍使用默认媒体预算。
+        for custom_budget in (None, 2.5):
+            with self.subTest(budget=custom_budget), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder)
+                evidence = (video.RAW_NAME, video.TIMELINE_NAME, video.demo.REPORT_NAME)
+                for name in evidence:
+                    (output / name).write_bytes(b"original-evidence")
+                chapters = video.validate_timeline(timeline())
+                origin = chapters[0]["started_unix_ms"]
+                clips, _ = video.plan_clips(chapters, origin, 100)
+                report = {"chapters": [{"id": c["id"], "title": c["title"]} for c in chapters]}
+                manifest = {"report_started_ns": 1, "capture_start_unix_ms": origin}
+                options = SimpleNamespace(demo_mode="brief", crf=18)
+                if custom_budget is not None:
+                    options.media_timeout = custom_budget
+                budget = video.DEFAULT_MEDIA_TIMEOUT if custom_budget is None else custom_budget
+
+                def timeout(command, **kwargs):
+                    (output / "render.partial.mp4").write_bytes(b"incomplete")
+                    raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+                with patch.object(video.demo, "read_completed_report", return_value=report), \
+                        patch.object(video, "probe", return_value=dict(valid_probe(), format={"duration": "100", "size": "1000"})) as probe, \
+                        patch.object(video, "load_timeline", return_value=chapters), \
+                        patch.object(video, "check_raw_dynamics", return_value={"passed": True}) as dynamic, \
+                        patch.object(video.subprocess, "run", side_effect=timeout) as run:
+                    with self.assertRaisesRegex(video.VideoError, "成片编码.*超时"):
+                        video.render(options, output, manifest, {})
+                probe.assert_called_once_with(output / video.RAW_NAME, timeout=budget)
+                dynamic.assert_called_once_with(output / video.RAW_NAME, clips, timeout=budget)
+                self.assertEqual(run.call_args.kwargs["timeout"], budget)
+                self.assertFalse((output / "render.partial.mp4").exists())
+                self.assertFalse((output / video.FINAL_NAME).exists())
+                self.assertNotEqual(manifest["status"], "completed")
+                for name in evidence:
+                    self.assertEqual((output / name).read_bytes(), b"original-evidence")
 
 
 class DemoModeTests(unittest.TestCase):
