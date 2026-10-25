@@ -7,7 +7,7 @@ import argparse
 import ctypes
 from ctypes import wintypes
 import editor_session
-from demo_editor import validate_detailed_staging
+from demo_editor import stop_owned_process, validate_detailed_staging
 import json
 from pathlib import Path
 import struct
@@ -162,9 +162,7 @@ def run_case(editor, assets, output, size, user, callback_type, staging=False):
                 if result["exit_code"] != 0:
                     raise RuntimeError(f"编辑器退出码 {result['exit_code']}，查看 {log_path}")
             finally:
-                if process.poll() is None:
-                    process.terminate()
-                    process.wait(timeout=5)
+                stop_owned_process(process)
         screenshot = case / ("target/editor-staging-draft.png" if staging else "target/editor-smoke.png")
         window = json.loads((case / "target/editor-smoke-window.json").read_text(encoding="utf-8"))
         result["bevy_window"] = window

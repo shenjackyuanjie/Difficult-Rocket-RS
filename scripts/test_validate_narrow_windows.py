@@ -4,6 +4,7 @@ import ctypes
 import editor_session
 import json
 import struct
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -235,7 +236,10 @@ class RunCaseExitHandlingTests(unittest.TestCase):
     def test_window_destroyed_during_normal_exit_is_not_pollution(self):
         self.preset()
         user = self.editor_user(alive=(True, False), pids=(4242, 4242))
-        result = self.run_script(self.process((None, None, 0)), user)
+        process = self.process((None, None, 0))
+        result = self.run_script(process, user)
+        process.terminate.assert_not_called()
+        process.kill.assert_not_called()
         self.assertNotIn("ownership_lost", result)
         self.assertEqual(result["exit_code"], 0)
         self.assertTrue(result["passed"])
@@ -258,6 +262,32 @@ class RunCaseExitHandlingTests(unittest.TestCase):
         self.assertNotIn("exit_code", result)
         self.assertFalse(result["passed"])
         process.terminate.assert_called_once()
+
+    def test_cleanup_escalates_after_timeout_and_preserves_the_original_failure(self):
+        process = self.process((None,))
+        original = subprocess.TimeoutExpired("等待窄窗自测完成", 2)
+        process.wait.side_effect = [original, subprocess.TimeoutExpired("清理自有进程", 5), 0]
+        with mock.patch("validate_narrow_windows.time.monotonic", side_effect=[0.0, 46.0]):
+            result = self.run_script(process, self.editor_user(alive=(True,)))
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["error"], str(original))
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
+        self.assertEqual(process.wait.call_args_list,
+                         [mock.call(timeout=2), mock.call(timeout=5), mock.call(timeout=5)])
+
+    def test_cleanup_escalates_without_masking_window_ownership_failure(self):
+        user = self.editor_user(alive=(True,), pids=(4242, 9999))
+        process = self.process((None,))
+        process.wait.side_effect = [subprocess.TimeoutExpired("清理自有进程", 5), 0]
+        result = self.run_script(process, user)
+        self.assertFalse(result["passed"])
+        self.assertIn("所有权丢失", result["error"])
+        self.assertIn("9999", result["error"])
+        self.assertIn("9999", result["ownership_lost"]["detail"])
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
+        self.assertEqual(process.wait.call_args_list, [mock.call(timeout=5), mock.call(timeout=5)])
 
     def test_title_change_still_fails_immediately(self):
         user = self.editor_user(alive=(True,), pids=(4242, 4242), titles=(TITLE_SUFFIX, "别的进程窗口"))
