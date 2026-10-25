@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::sr1::xml::*;
 
 #[test]
 fn attributes_children_and_case_are_ordered() {

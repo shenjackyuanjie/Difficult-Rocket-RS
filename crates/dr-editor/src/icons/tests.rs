@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::icons::*;
 
 #[test]
 fn original_style_toolbar_glyphs_are_vector_shapes_not_text() {

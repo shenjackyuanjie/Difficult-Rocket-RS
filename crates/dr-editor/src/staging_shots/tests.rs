@@ -1,5 +1,5 @@
-
-use super::*;
+use crate::staging_shots::*;
+use dr_core::PartKey;
 #[test]
 fn png_header_requires_signature_ihdr_and_positive_size() {
     let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();

@@ -1,9 +1,29 @@
 //! 真实窗口中的 2D 姿态与自由连接演示；复用实际控件、鼠标与快捷键路径。
-use super::*;
+use crate::connection_lines;
+use crate::demo;
+
+use crate::document::EditorDocument;
+use crate::egui_ui;
+use crate::panels;
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::render;
+use crate::selection::DragState;
+use crate::topology_ui;
+use crate::view;
+
+use crate::window::SmokeTest;
+use bevy::prelude::*;
 use bevy_egui::{EguiInput, egui};
+use dr_core::Connection;
+use dr_core::EditorHistory;
+use dr_core::PartKey;
+use dr_core::Ship;
+use dr_core::load_ship;
+use dr_core::save_ship;
 
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     phase: u8,
     driver: egui_ui::UiTestInput,
     capturing: bool,
@@ -35,7 +55,7 @@ struct PartSearch {
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct Captured(u16);
+pub struct Captured(u16);
 
 fn pointer(state: &mut State, window: &mut Window, point: (f64, f64)) {
     window.focused = true;
@@ -274,7 +294,7 @@ fn capture(
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-pub(crate) fn run(
+pub fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     mut document: ResMut<EditorDocument>,

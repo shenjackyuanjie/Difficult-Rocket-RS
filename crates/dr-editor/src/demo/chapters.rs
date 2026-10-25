@@ -1,15 +1,17 @@
 //! 章节清单、模式及分级夹具。
-use super::*;
+use crate::demo::*;
+use crate::demo_cases;
+use crate::document::EditorDocument;
 
-pub(crate) struct Chapter {
-    pub(crate) id: &'static str,
-    pub(super) title: &'static str,
-    pub(super) description: &'static str,
-    pub(super) artifacts: &'static [&'static str],
+pub struct Chapter {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub description: &'static str,
+    pub artifacts: &'static [&'static str],
 }
 
 impl Chapter {
-    pub(super) fn evidence(&self) -> Vec<String> {
+    pub fn evidence(&self) -> Vec<String> {
         self.artifacts
             .iter()
             .map(|name| (*name).to_owned())
@@ -17,7 +19,7 @@ impl Chapter {
             .collect()
     }
 }
-pub(super) const CHAPTERS: &[Chapter] = &[
+pub const CHAPTERS: &[Chapter] = &[
     Chapter {
         id: "panels",
         title: "部件目录与放置",
@@ -264,28 +266,28 @@ const DETAILED_STAGING: Chapter = Chapter {
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Mode {
+pub enum Mode {
     #[default]
     Brief,
     Detailed,
 }
 
 impl Mode {
-    pub(super) fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Self::Brief => "brief",
             Self::Detailed => "detailed",
         }
     }
 
-    pub(super) fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Brief => "简略",
             Self::Detailed => "详细",
         }
     }
 
-    pub(crate) fn chapters(self) -> Vec<&'static Chapter> {
+    pub fn chapters(self) -> Vec<&'static Chapter> {
         let mut chapters = Vec::new();
         for chapter in CHAPTERS {
             chapters.push(if self == Self::Detailed && chapter.id == "staging" {
@@ -310,7 +312,7 @@ impl Mode {
     }
 }
 
-pub(super) fn staging_fixture(document: &mut EditorDocument, mode: Mode) {
+pub fn staging_fixture(document: &mut EditorDocument, mode: Mode) {
     let (stages, last_id) = match mode {
         Mode::Brief => (8, 7),
         Mode::Detailed => (64, 17),

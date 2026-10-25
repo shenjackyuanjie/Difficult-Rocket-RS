@@ -1,9 +1,29 @@
-use super::*;
 use crate::canvas_input::{keyboard_commands, mouse_editor};
+use crate::connection_lines;
+use crate::demo_cases::*;
+use crate::document::EditorDocument;
+use crate::egui_ui;
+use crate::files;
+use crate::free_mode;
+use crate::mobile_input;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::render;
+use crate::selection::DragState;
+use crate::topology_ui;
+use crate::view;
+use crate::view::CameraDrag;
 use crate::view::camera_controls;
+use crate::window::EditorPaths;
 use bevy::ecs::system::SystemState;
 use bevy::input::mouse::MouseWheel;
 use bevy_egui::egui;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::EditorHistory;
+use dr_core::Ship;
+use std::collections::BTreeSet;
 
 fn world() -> World {
     let mut world = World::new();

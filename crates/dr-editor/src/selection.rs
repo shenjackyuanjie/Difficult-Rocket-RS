@@ -1,27 +1,45 @@
-use super::*;
+use crate::document::EditorDocument;
+
+use crate::panels;
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::render;
+use crate::selection;
+
+use bevy::prelude::*;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::Part;
+use dr_core::PartCatalog;
+use dr_core::PartKey;
+use dr_core::SelectionPose;
+use dr_core::SelectionTransform;
+use dr_core::Ship;
+use dr_core::ShipFragment;
 use dr_core::geometry::Vec2d;
+use std::collections::BTreeSet;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Resource, Default)]
-pub(crate) struct DragState {
-    pub(crate) id: Option<PartKey>,
-    pub(crate) members: BTreeSet<PartKey>,
-    pub(crate) blocked: bool,
-    pub(crate) command: Option<EditorCommand>,
-    pub(crate) rectangle: Option<(f64, f64)>,
-    pub(crate) rect_end: (f64, f64),
-    pub(crate) additive: bool,
-    pub(crate) origin: (f64, f64),
-    pub(crate) offset: (f64, f64),
-    pub(crate) preview: (f64, f64),
-    pub(crate) turns: u8,
-    pub(crate) fine_rotation: f64,
-    pub(crate) flip_x: bool,
-    pub(crate) flip_y: bool,
+pub struct DragState {
+    pub id: Option<PartKey>,
+    pub members: BTreeSet<PartKey>,
+    pub blocked: bool,
+    pub command: Option<EditorCommand>,
+    pub rectangle: Option<(f64, f64)>,
+    pub rect_end: (f64, f64),
+    pub additive: bool,
+    pub origin: (f64, f64),
+    pub offset: (f64, f64),
+    pub preview: (f64, f64),
+    pub turns: u8,
+    pub fine_rotation: f64,
+    pub flip_x: bool,
+    pub flip_y: bool,
 }
 
 impl DragState {
-    pub(crate) fn cancel(&mut self) {
+    pub fn cancel(&mut self) {
         self.id = None;
         self.members.clear();
         self.rectangle = None;
@@ -34,7 +52,7 @@ impl DragState {
     }
     /// 连续跟随指针；常规模式把位移逐轴量化到网格步长，连接面吸附另行计算。
     /// 抓取偏移保留，原点不在网格上的部件按网格位移移动。
-    pub(crate) fn follow(&mut self, logical: (f64, f64), quantize: bool) {
+    pub fn follow(&mut self, logical: (f64, f64), quantize: bool) {
         let preview = (logical.0 + self.offset.0, logical.1 + self.offset.1);
         self.preview = if quantize {
             let delta = dr_core::geometry::quantize_point((
@@ -47,7 +65,7 @@ impl DragState {
         };
     }
 
-    pub(crate) fn moved(&self) -> bool {
+    pub fn moved(&self) -> bool {
         let delta = self.delta();
         !self.turns.is_multiple_of(4)
             || self.fine_rotation.abs() > 1e-10
@@ -57,7 +75,7 @@ impl DragState {
     }
 
     /// 松手后清理所有临时状态；单击仍保留选中，实际拖动不留下高亮。
-    pub(crate) fn finish(&mut self, document: &mut EditorDocument) {
+    pub fn finish(&mut self, document: &mut EditorDocument) {
         if self.id.is_some() && self.moved() {
             let command = self.command.take().unwrap_or_else(|| {
                 selection::drag_command(
@@ -72,23 +90,23 @@ impl DragState {
         self.cancel();
     }
 
-    pub(crate) fn contains(&self, key: PartKey) -> bool {
+    pub fn contains(&self, key: PartKey) -> bool {
         self.id.is_some() && (self.id == Some(key) || self.members.contains(&key))
     }
-    pub(crate) fn keys(&self) -> BTreeSet<PartKey> {
+    pub fn keys(&self) -> BTreeSet<PartKey> {
         if self.id.is_none() {
             BTreeSet::new()
         } else {
             self.members.iter().copied().chain(self.id).collect()
         }
     }
-    pub(crate) fn point(&self, point: Vec2) -> Vec2 {
+    pub fn point(&self, point: Vec2) -> Vec2 {
         let (x, y) = self
             .selection_pose()
             .point((point.x as f64 / 60.0, point.y as f64 / 60.0), self.delta());
         Vec2::new(x as f32, y as f32) * 60.0
     }
-    pub(crate) fn pose(&self, key: PartKey, part: &Part) -> Part {
+    pub fn pose(&self, key: PartKey, part: &Part) -> Part {
         if self.contains(key) {
             dr_core::edit::selection::pose_part(part, None, self.selection_pose(), self.delta())
                 .unwrap_or_else(|_| part.clone())
@@ -96,7 +114,7 @@ impl DragState {
             part.clone()
         }
     }
-    pub(crate) fn delta(&self) -> (f64, f64) {
+    pub fn delta(&self) -> (f64, f64) {
         (
             self.preview.0 - self.origin.0,
             self.preview.1 - self.origin.1,
@@ -105,7 +123,7 @@ impl DragState {
 }
 
 impl DragState {
-    pub(crate) fn selection_pose(&self) -> SelectionPose {
+    pub fn selection_pose(&self) -> SelectionPose {
         SelectionPose {
             pivot: self.origin,
             radians: self.turns as f64 * std::f64::consts::FRAC_PI_2 + self.fine_rotation,
@@ -114,7 +132,7 @@ impl DragState {
         }
     }
 
-    pub(crate) fn mirror(&mut self, x: bool) {
+    pub fn mirror(&mut self, x: bool) {
         if x {
             self.flip_x = !self.flip_x;
         } else {
@@ -128,7 +146,7 @@ impl DragState {
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn click(document: &mut EditorDocument, hit: Option<PartKey>, shift: bool) {
+pub fn click(document: &mut EditorDocument, hit: Option<PartKey>, shift: bool) {
     if shift {
         document.selection = document.selected_keys().into_iter().collect();
         if let Some(key) = hit {
@@ -150,12 +168,7 @@ pub(crate) fn click(document: &mut EditorDocument, hit: Option<PartKey>, shift: 
     }
 }
 
-pub(crate) fn rectangle(
-    document: &mut EditorDocument,
-    a: (f64, f64),
-    b: (f64, f64),
-    additive: bool,
-) {
+pub fn rectangle(document: &mut EditorDocument, a: (f64, f64), b: (f64, f64), additive: bool) {
     let mut selected: BTreeSet<_> = if additive {
         document.selected_keys().into_iter().collect()
     } else {
@@ -181,7 +194,7 @@ pub(crate) fn rectangle(
     document.selection = selected;
 }
 
-pub(crate) fn center(document: &EditorDocument, keys: &[PartKey]) -> (f64, f64) {
+pub fn center(document: &EditorDocument, keys: &[PartKey]) -> (f64, f64) {
     let mut low = (f64::INFINITY, f64::INFINITY);
     let mut high = (f64::NEG_INFINITY, f64::NEG_INFINITY);
     let keys: HashSet<_> = keys.iter().copied().collect();
@@ -276,7 +289,7 @@ fn snaps_pose(
 }
 
 /// 按组内唯一父子引用扩展后代；循环安全，不把对接连接器当作子节点。
-pub(crate) fn drag_keys(ship: &Ship, roots: &[PartKey], follow: bool) -> BTreeSet<PartKey> {
+pub fn drag_keys(ship: &Ship, roots: &[PartKey], follow: bool) -> BTreeSet<PartKey> {
     let mut result: BTreeSet<_> = roots.iter().copied().collect();
     if !follow {
         return result;
@@ -308,7 +321,7 @@ pub(crate) fn drag_keys(ship: &Ship, roots: &[PartKey], follow: bool) -> BTreeSe
 }
 
 /// 删除按无向连接分量扩展；同组重号引用有歧义时拒绝，不猜归属。
-pub(crate) fn connected_keys(ship: &Ship, roots: &[PartKey]) -> Result<BTreeSet<PartKey>, String> {
+pub fn connected_keys(ship: &Ship, roots: &[PartKey]) -> Result<BTreeSet<PartKey>, String> {
     let mut result: BTreeSet<_> = roots.iter().copied().collect();
     let groups: BTreeSet<_> = roots.iter().map(|key| key.group).collect();
     for group in groups {
@@ -356,7 +369,7 @@ pub(crate) fn connected_keys(ship: &Ship, roots: &[PartKey]) -> Result<BTreeSet<
     Ok(result)
 }
 
-pub(crate) fn movement_transformed(
+pub fn movement_transformed(
     document: &EditorDocument,
     keys: &[PartKey],
     pose: SelectionPose,
@@ -373,11 +386,7 @@ pub(crate) fn movement_transformed(
     )
 }
 
-pub(crate) fn drag_command(
-    keys: &[PartKey],
-    pose: SelectionPose,
-    delta: (f64, f64),
-) -> EditorCommand {
+pub fn drag_command(keys: &[PartKey], pose: SelectionPose, delta: (f64, f64)) -> EditorCommand {
     let quarters = pose.radians / std::f64::consts::FRAC_PI_2;
     if !pose.flip_x && !pose.flip_y && (quarters - quarters.round()).abs() < 1e-10 {
         EditorCommand::DragSelection {
@@ -396,7 +405,7 @@ pub(crate) fn drag_command(
 }
 
 #[cfg(test)]
-pub(crate) fn movement_transformed_for(
+pub fn movement_transformed_for(
     ship: &Ship,
     catalog: &PartCatalog,
     keys: &[PartKey],
@@ -493,7 +502,7 @@ fn movement_transformed_with_modes(
     (delta, command, valid)
 }
 
-pub(crate) fn keyboard(
+pub fn keyboard(
     document: &mut EditorDocument,
     cursor: &mut EditorCursor,
     keys: &ButtonInput<KeyCode>,
@@ -601,7 +610,7 @@ pub(crate) fn keyboard(
 }
 
 /// 参考 KSP 的步进/精调：Q/E 为 ±15°，Shift+Q/E 为 ±1°。
-pub(crate) fn rotation_input(keys: &ButtonInput<KeyCode>) -> Option<f64> {
+pub fn rotation_input(keys: &ButtonInput<KeyCode>) -> Option<f64> {
     if keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight) {
         return None;
     }
@@ -712,7 +721,7 @@ fn paste_preview(document: &EditorDocument, cursor: &EditorCursor) -> Option<Pas
     })
 }
 
-pub(crate) fn commit_paste(document: &mut EditorDocument, cursor: &mut EditorCursor) -> bool {
+pub fn commit_paste(document: &mut EditorDocument, cursor: &mut EditorCursor) -> bool {
     let Some(preview) = paste_preview(document, cursor) else {
         return false;
     };
@@ -733,10 +742,10 @@ pub(crate) fn commit_paste(document: &mut EditorDocument, cursor: &mut EditorCur
 }
 
 #[derive(Component)]
-pub(crate) struct PasteVisual;
+pub struct PasteVisual;
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn draw_preview(
+pub fn draw_preview(
     mut commands: Commands,
     document: Res<EditorDocument>,
     cursor: Res<EditorCursor>,

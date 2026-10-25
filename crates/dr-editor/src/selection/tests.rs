@@ -1,5 +1,21 @@
-use super::*;
+use crate::document::EditorDocument;
+use crate::files;
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::selection::*;
 use crate::test_support::{movement, movement_pose};
+use crate::topology_ui;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::LinkKind;
+use dr_core::PartCatalog;
+use dr_core::PartKey;
+use dr_core::PartKind;
+use dr_core::SelectionPose;
+use dr_core::SelectionTransform;
+use dr_core::Ship;
+use dr_core::ShipFragment;
+use std::collections::BTreeSet;
 
 fn document() -> EditorDocument {
     let mut document = crate::test_support::document();

@@ -1,7 +1,19 @@
-use super::*;
+use crate::demo;
+
+use crate::document::EditorDocument;
+use crate::panels;
+use crate::placement;
+use crate::placement::EditorCursor;
+
+use crate::window::SmokeTest;
+use bevy::prelude::*;
+use dr_core::Connection;
+use dr_core::Ship;
+use dr_core::load_ship;
+use dr_core::save_ship;
 
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     phase: u8,
     beam: i64,
     after: Option<Ship>,
@@ -9,11 +21,11 @@ pub(crate) struct State {
 }
 
 #[derive(Resource)]
-pub(crate) struct HintsCaptured;
+pub struct HintsCaptured;
 
 /// 使用原版目录验证长梁边缘的两个独立连接，不依赖桌面鼠标焦点。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
+pub fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     document: Res<EditorDocument>,

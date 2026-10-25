@@ -1,7 +1,13 @@
 //! 运行真实输入→视觉同步→Transform 传播，逐帧断言而非只检查松手落点。
-use super::*;
 use crate::PartKey;
+use crate::canvas_input::*;
+use crate::document::EditorDocument;
+use crate::panels;
+use crate::placement::EditorCursor;
 use crate::render;
+use crate::selection::DragState;
+use crate::view;
+use crate::view::CameraDrag;
 use crate::view::camera_controls;
 use bevy::input::mouse::MouseWheel;
 

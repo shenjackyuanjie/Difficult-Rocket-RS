@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::part_id::*;
 
 #[test]
 fn allocation_keeps_normal_order_and_wraps_only_at_the_upper_boundary() {

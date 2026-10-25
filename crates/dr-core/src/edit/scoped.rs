@@ -1,12 +1,8 @@
-use super::*;
+use crate::edit::*;
 use crate::part_id::{PartIdAllocator, group_ids};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-pub(super) fn resolve(
-    ship: &Ship,
-    id: PartId,
-    scope: Option<PartKey>,
-) -> Result<PartKey, CommandError> {
+pub fn resolve(ship: &Ship, id: PartId, scope: Option<PartKey>) -> Result<PartKey, CommandError> {
     if let Some(key) = scope {
         if key.id != id || ship.part_at(key).is_none() {
             return Err(CommandError::MissingInstance(key));
@@ -22,11 +18,7 @@ pub(super) fn resolve(
     })
 }
 
-pub(super) fn resolve_in_group(
-    ship: &Ship,
-    group: usize,
-    id: PartId,
-) -> Result<PartKey, CommandError> {
+pub fn resolve_in_group(ship: &Ship, group: usize, id: PartId) -> Result<PartKey, CommandError> {
     let key = PartKey::new(group, id, 0);
     let parts = ship
         .group(group)
@@ -39,7 +31,7 @@ pub(super) fn resolve_in_group(
     }
 }
 
-pub(crate) fn disconnect(ship: &mut Ship, key: PartKey) -> Result<(), CommandError> {
+pub fn disconnect(ship: &mut Ship, key: PartKey) -> Result<(), CommandError> {
     let (parts, connections) = ship
         .group_mut(key.group)
         .ok_or(CommandError::MissingInstance(key))?;
@@ -52,7 +44,7 @@ pub(crate) fn disconnect(ship: &mut Ship, key: PartKey) -> Result<(), CommandErr
     Ok(())
 }
 
-pub(crate) fn delete(ship: &mut Ship, key: PartKey) -> Result<(), CommandError> {
+pub fn delete(ship: &mut Ship, key: PartKey) -> Result<(), CommandError> {
     let (parts, connections) = ship
         .group_mut(key.group)
         .ok_or(CommandError::MissingInstance(key))?;
@@ -95,7 +87,7 @@ pub(crate) fn delete(ship: &mut Ship, key: PartKey) -> Result<(), CommandError> 
     Ok(())
 }
 
-pub(super) fn remap_connection(connection: &mut Connection, ids: &HashMap<PartId, PartId>) {
+pub fn remap_connection(connection: &mut Connection, ids: &HashMap<PartId, PartId>) {
     let remap = |id: &mut PartId| {
         if let Some(new) = ids.get(id) {
             *id = *new;
@@ -118,11 +110,11 @@ pub(super) fn remap_connection(connection: &mut Connection, ids: &HashMap<PartId
     }
 }
 
-pub(super) fn namespace(parts: &[Part], connections: &[Connection]) -> BTreeSet<PartId> {
+pub fn namespace(parts: &[Part], connections: &[Connection]) -> BTreeSet<PartId> {
     group_ids(parts, connections).collect()
 }
 
-pub(super) fn connect(
+pub fn connect(
     ship: &mut Ship,
     catalog: Option<&PartCatalog>,
     parent: PartKey,

@@ -1,13 +1,15 @@
 //! 画布连接线的会话级显示设置；不改变连接关系、XML 或编辑历史。
-use super::*;
+use crate::panels;
+
 use bevy::gizmos::config::{GizmoConfig, GizmoConfigGroup, GizmoLineJoint, GizmoLineStyle};
+use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 #[derive(Default, Reflect, GizmoConfigGroup)]
-pub(crate) struct LineGizmos;
+pub struct LineGizmos;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Pattern {
+pub enum Pattern {
     #[default]
     Solid,
     Dashed,
@@ -15,7 +17,7 @@ pub(crate) enum Pattern {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Effect {
+pub enum Effect {
     #[default]
     Still,
     Pulse,
@@ -23,7 +25,7 @@ pub(crate) enum Effect {
 }
 
 #[derive(Resource, Clone, Debug, PartialEq)]
-pub(crate) struct Settings {
+pub struct Settings {
     pub open: bool,
     pub enabled: bool,
     pub rgba: [f32; 4],
@@ -52,7 +54,7 @@ impl Default for Settings {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Control {
+pub enum Control {
     Visible,
     Purple,
     Orange,
@@ -70,9 +72,9 @@ pub(crate) enum Control {
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct Controls(pub Vec<(Control, egui::Rect)>);
+pub struct Controls(pub Vec<(Control, egui::Rect)>);
 
-pub(crate) fn configure(settings: &Settings, config: &mut GizmoConfig) {
+pub fn configure(settings: &Settings, config: &mut GizmoConfig) {
     config.enabled = settings.enabled;
     config.line.width = settings.width.clamp(1.0, 12.0);
     config.line.joints = GizmoLineJoint::Round(4);
@@ -86,7 +88,7 @@ pub(crate) fn configure(settings: &Settings, config: &mut GizmoConfig) {
     };
 }
 
-pub(crate) fn configure_system(
+pub fn configure_system(
     settings: Res<Settings>,
     mut store: ResMut<bevy::gizmos::config::GizmoConfigStore>,
 ) {
@@ -104,7 +106,7 @@ fn color(settings: &Settings, seconds: f32) -> Color {
 }
 
 /// 按总弧长移动，而不是在不同长度的线段上突然跳速。
-pub(crate) fn along(points: &[Vec2], fraction: f32) -> Option<(Vec2, Vec2)> {
+pub fn along(points: &[Vec2], fraction: f32) -> Option<(Vec2, Vec2)> {
     let length: f32 = points.windows(2).map(|p| p[0].distance(p[1])).sum();
     if length < 1e-4 {
         return None;
@@ -124,7 +126,7 @@ pub(crate) fn along(points: &[Vec2], fraction: f32) -> Option<(Vec2, Vec2)> {
     None
 }
 
-pub(crate) fn draw_path(
+pub fn draw_path(
     gizmos: &mut Gizmos<LineGizmos>,
     settings: &Settings,
     points: &[Vec2],
@@ -314,7 +316,7 @@ fn show(
     })
 }
 
-pub(crate) fn ui(
+pub fn ui(
     mut contexts: EguiContexts,
     mut settings: ResMut<Settings>,
     mut controls: ResMut<Controls>,

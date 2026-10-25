@@ -1,5 +1,10 @@
-use super::*;
+use crate::document::load_document;
+use crate::document::*;
 use crate::test_support::{document, move_with_snap};
+use dr_core::EditorCommand;
+use dr_core::PartCatalog;
+use dr_core::PartKey;
+use dr_core::PartKind;
 use dr_core::{Connection, geometry::Vec2d};
 
 #[test]

@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::sr1::staging::*;
 
 #[test]
 fn load_ignores_moved_and_keeps_duplicate_activations_and_empty_steps() {

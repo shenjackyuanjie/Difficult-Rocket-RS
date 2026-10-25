@@ -1,16 +1,26 @@
-use super::*;
+use crate::connection_lines;
+
+use crate::document::EditorDocument;
+use crate::panels;
+use crate::selection::DragState;
 use bevy::asset::AssetId;
+use bevy::prelude::*;
 use bevy::sprite::Anchor;
+use dr_core::Connection;
+use dr_core::Part;
+use dr_core::PartKey;
 use dr_core::PartType;
+use dr_core::Ship;
+use std::collections::BTreeSet;
 use std::collections::{HashMap, HashSet};
 
 /// 未连接部件与从目录拖出的虚影使用同一透明度。
 pub const UNLINKED_ALPHA: f32 = 100.0 / 255.0;
 
 #[derive(Component)]
-pub(crate) struct EditorHud;
+pub struct EditorHud;
 
-pub(crate) fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
+pub fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
     commands
         .spawn((
             Node {
@@ -44,10 +54,7 @@ pub(crate) fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
         });
 }
 
-pub(crate) fn update_hud(
-    document: Res<EditorDocument>,
-    mut labels: Query<&mut Text, With<EditorHud>>,
-) {
+pub fn update_hud(document: Res<EditorDocument>, mut labels: Query<&mut Text, With<EditorHud>>) {
     if !document.is_changed() {
         return;
     }
@@ -82,7 +89,7 @@ pub(crate) fn update_hud(
 /// 原版数据存在大写扩展名（PartList.xml 的 dock-1 是 DockingConnector.PNG，磁盘上是 .png）。
 /// Bevy 只按小写登记 AssetLoader，原样路径会走兜底并打出多 loader 告警；这里只规范化扩展名，
 /// 保持目录与文件名主干原样，避免改动只读样本或目录 XML。
-pub(crate) fn part_sprite_path(sprite: &str) -> String {
+pub fn part_sprite_path(sprite: &str) -> String {
     match sprite.rsplit_once('.') {
         Some((stem, extension)) => {
             format!("textures/parts/{stem}.{}", extension.to_ascii_lowercase())
@@ -92,23 +99,19 @@ pub(crate) fn part_sprite_path(sprite: &str) -> String {
 }
 
 /// 原版贴图使用 PNG 原始像素，不以 PartList 的物理尺寸缩放。
-pub(crate) fn image_size(
-    texture: &str,
-    assets: &AssetServer,
-    images: &Assets<Image>,
-) -> Option<Vec2> {
+pub fn image_size(texture: &str, assets: &AssetServer, images: &Assets<Image>) -> Option<Vec2> {
     let handle = assets.get_handle::<Image>(part_sprite_path(texture))?;
     images.get(&handle).map(|image| image.size().as_vec2())
 }
 
-pub(crate) fn fallback_size(kind: Option<&PartType>) -> Vec2 {
+pub fn fallback_size(kind: Option<&PartType>) -> Vec2 {
     kind.map(|kind| Vec2::new(kind.width as f32 * 30.0, kind.height as f32 * 30.0))
         .unwrap_or(Vec2::splat(30.0))
 }
 
 /// pyglet 的锚点为 floor(width/2)、floor(height/2)。Bevy 的 flip 只翻 UV，
 /// 因此奇数像素的半像素锚点偏移也要随镜像翻转，随后再按实例角度旋转。
-pub(crate) fn pixel_anchor(size: Vec2, flip_x: bool, flip_y: bool) -> Anchor {
+pub fn pixel_anchor(size: Vec2, flip_x: bool, flip_y: bool) -> Anchor {
     let center = size * 0.5;
     let offset = (center.floor() - center) / size.max(Vec2::ONE);
     Anchor(
@@ -120,7 +123,7 @@ pub(crate) fn pixel_anchor(size: Vec2, flip_x: bool, flip_y: bool) -> Anchor {
     )
 }
 
-pub(crate) fn sprite_geometry(
+pub fn sprite_geometry(
     kind: Option<&PartType>,
     image: &Handle<Image>,
     images: &Assets<Image>,
@@ -137,29 +140,29 @@ pub(crate) fn sprite_geometry(
 }
 
 /// 仅供视图适配的可见四角；碰撞和命中仍独立使用 dr_core 的 Shape。
-pub(crate) fn image_corners(part: &Part, size: Vec2) -> [Vec2; 4] {
+pub fn image_corners(part: &Part, size: Vec2) -> [Vec2; 4] {
     dr_core::image_corners(part, (size.x as f64, size.y as f64))
         .map(|p| Vec2::new(p.x as f32, p.y as f32))
 }
 
 #[derive(Component)]
-pub(crate) struct PartVisual {
+pub struct PartVisual {
     pub id: i64,
     pub group: usize,
     pub occurrence: usize,
     texture: String,
 }
 
-pub(crate) type VisualKey = (usize, i64, usize);
+pub type VisualKey = (usize, i64, usize);
 
 /// 少量历史样本同组也有重复 ID；渲染保留每个实例，不修正原始 XML。
-pub(crate) fn parts(ship: &Ship) -> impl Iterator<Item = (VisualKey, &Part)> {
+pub fn parts(ship: &Ship) -> impl Iterator<Item = (VisualKey, &Part)> {
     ship.keyed_parts()
         .map(|(key, part)| ((key.group, key.id, key.occurrence), part))
 }
 
 #[derive(Default)]
-pub(crate) struct VisualIndex {
+pub struct VisualIndex {
     entities: HashMap<VisualKey, (Entity, f32)>,
     dragged: BTreeSet<PartKey>,
     texture_sizes: HashMap<AssetId<Image>, Option<UVec2>>,
@@ -249,7 +252,7 @@ fn appearance(
 }
 
 /// 文档变化时对齐 ID；拖动帧只更新拖动部件，复用其余实体及 GPU 数据。
-pub(crate) fn sync(
+pub fn sync(
     mut commands: Commands,
     document: Res<EditorDocument>,
     drag: Res<DragState>,
@@ -411,7 +414,7 @@ pub(crate) fn sync(
 }
 
 #[derive(Default)]
-pub(crate) struct ConnectionLines(Vec<(usize, Connection, [Vec2; 4])>);
+pub struct ConnectionLines(Vec<(usize, Connection, [Vec2; 4])>);
 
 fn dragged_connection_path(
     document: &EditorDocument,
@@ -438,7 +441,7 @@ fn dragged_connection_path(
     ])
 }
 
-pub(crate) fn connections(
+pub fn connections(
     mut gizmos: Gizmos<connection_lines::LineGizmos>,
     document: Res<EditorDocument>,
     drag: Res<DragState>,

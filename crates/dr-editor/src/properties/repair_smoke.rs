@@ -1,11 +1,20 @@
-use super::*;
+use crate::demo;
+use crate::document::EditorDocument;
+use crate::properties::*;
+use crate::window::SmokeTest;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::PartKey;
+use dr_core::Ship;
+use dr_core::load_ship;
+use dr_core::save_ship;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
 
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     phase: u8,
     before: Option<Ship>,
     after: Option<Ship>,
@@ -16,7 +25,7 @@ pub(crate) struct State {
 
 /// 用 Heronb 的真实发动机/油箱重号验证修复 UI，不自动修改源文件。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
+pub fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     inspector: Res<Inspector>,

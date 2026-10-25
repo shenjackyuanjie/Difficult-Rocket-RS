@@ -1,6 +1,11 @@
-use super::*;
+use crate::connection_lines;
+use crate::demo_cases::*;
+use crate::placement;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::Ship;
 
-pub(super) fn setup(ctx: &mut Context, scenario: Scenario) {
+pub fn setup(ctx: &mut Context, scenario: Scenario) {
     match scenario {
         Scenario::PaletteCancel => {
             ctx.cursor.placing = true;
@@ -242,7 +247,7 @@ fn manual(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
     false
 }
 
-pub(super) fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
+pub fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
     if matches!(
         scenario,
         Scenario::ManualCancel(_)

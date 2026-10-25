@@ -83,7 +83,7 @@ impl Phase {
 }
 
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     phase: Phase,
     wait: u8,
     input: crate::egui_ui::UiTestInput,
@@ -105,9 +105,9 @@ impl State {
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct CaptureResult(Option<Value>);
+pub struct CaptureResult(Option<Value>);
 
-pub(crate) fn ordinary_capture(mode: Res<SmokeTest>) -> bool {
+pub fn ordinary_capture(mode: Res<SmokeTest>) -> bool {
     mode.staging_shots.is_none()
 }
 
@@ -215,7 +215,7 @@ fn image_evidence(image: &Image, marker_region: Option<egui::Rect>) -> Value {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
+pub fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     mut document: ResMut<EditorDocument>,

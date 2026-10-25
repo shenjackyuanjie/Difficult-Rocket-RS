@@ -1,7 +1,19 @@
-use super::*;
+use crate::document::EditorDocument;
+use crate::files;
+use crate::help;
+use crate::mobile_input;
+use crate::native_buttons;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::selection::DragState;
+use bevy::prelude::*;
+use dr_core::EditorCommand;
+use dr_core::Part;
+use dr_core::PartKey;
 use dr_core::{
     Activation, ConnectionRole, DuplicateRepair, ReferenceSite, StageStep, StagingState,
 };
+use std::collections::BTreeSet;
 
 pub mod egui_panel;
 pub mod egui_smoke;

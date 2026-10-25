@@ -1,8 +1,14 @@
-use super::*;
+use crate::demo;
+use crate::document::EditorDocument;
+use crate::panels::*;
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::window::SmokeTest;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+use dr_core::Ship;
 
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     phase: u8,
     pointer: Option<Vec2>,
     before: Option<Ship>,
@@ -53,7 +59,7 @@ fn panel_description(phase: u8) -> &'static str {
 
 /// 在真实窗口和 ECS 调度中验证目录→画布→撤销重做及 UI 输入隔离。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
+pub fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     document: Res<EditorDocument>,

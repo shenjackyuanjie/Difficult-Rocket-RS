@@ -1,8 +1,18 @@
 //! 有渲染窗口的逐帧回归：在 Transform 传播后检查当帧输入，而非下一帧读落点。
-use super::*;
+
+use crate::document::EditorDocument;
+use crate::render;
+use crate::selection::DragState;
+use crate::view;
+use crate::view::CameraDrag;
+
+use crate::window::SmokeTest;
+use bevy::prelude::*;
+use dr_core::EditorHistory;
+use dr_core::Ship;
 
 #[derive(Resource, Default)]
-pub(crate) struct Probe {
+pub struct Probe {
     step: usize,
     expected: Option<(bool, Vec2)>,
     checked: usize,
@@ -10,7 +20,7 @@ pub(crate) struct Probe {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn input(
+pub fn input(
     mode: Res<SmokeTest>,
     mut probe: ResMut<Probe>,
     mut document: ResMut<EditorDocument>,
@@ -108,7 +118,7 @@ pub(crate) fn input(
     probe.step += 1;
 }
 
-pub(crate) fn verify(
+pub fn verify(
     mode: Res<SmokeTest>,
     mut probe: ResMut<Probe>,
     document: Res<EditorDocument>,

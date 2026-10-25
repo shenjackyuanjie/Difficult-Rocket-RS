@@ -1,5 +1,5 @@
-use super::*;
 use crate::catalog_from_xml;
+use crate::geometry::overlap::*;
 
 fn catalog() -> crate::PartCatalog {
     catalog_from_xml(r#"<PartTypes>

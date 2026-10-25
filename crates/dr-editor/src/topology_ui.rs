@@ -1,7 +1,15 @@
 //! 连接树与有向连接图共用文档命令；节点排版不改变船体物理位置。
-use super::*;
+
+use crate::document::EditorDocument;
+use crate::files;
+use crate::properties;
+use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
+use dr_core::EditorCommand;
+use dr_core::LinkKind;
+use dr_core::PartKey;
 use dr_core::{ConnectionRef, LinkForest, Topology};
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -127,7 +135,7 @@ impl ConnectionEditor {
     }
 }
 /// 浮动窗口按 egui 当前可用区域收窄，并给窗口边框与默认阴影（向右下偏移 + blur）留余量。
-pub(crate) fn window_size(ctx: &egui::Context, default: egui::Vec2) -> egui::Vec2 {
+pub fn window_size(ctx: &egui::Context, default: egui::Vec2) -> egui::Vec2 {
     let available =
         (ctx.content_rect().size() - egui::vec2(40.0, 40.0)).max(egui::vec2(160.0, 120.0));
     egui::vec2(default.x.min(available.x), default.y.min(available.y))

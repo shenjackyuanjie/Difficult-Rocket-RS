@@ -1,4 +1,4 @@
-use super::*;
+use crate::connections::*;
 use crate::{EditorCommand, EditorHistory};
 
 fn catalog() -> PartCatalog {

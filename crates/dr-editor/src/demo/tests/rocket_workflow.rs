@@ -1,5 +1,19 @@
 //! 无窗口回归：目录消息/画布生产系统、真实 egui 控件与同一四帧拖放发生器。
-use super::*;
+use crate::canvas_input;
+use crate::demo::rocket_workflow::*;
+use crate::document::EditorDocument;
+use crate::document::new_ship;
+use crate::egui_ui;
+use crate::files;
+use crate::panels;
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::render;
+use dr_core::EditorCommand;
+use dr_core::LinkKind;
+use dr_core::PartKey;
+use dr_core::Ship;
 use properties::Action;
 
 fn document() -> EditorDocument {

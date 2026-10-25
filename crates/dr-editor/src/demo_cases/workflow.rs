@@ -1,6 +1,13 @@
-use super::*;
+use crate::demo_cases::*;
+use crate::properties;
+use crate::topology_ui;
+use dr_core::EditorCommand;
+use dr_core::LinkKind;
+use dr_core::PartKey;
+use dr_core::Ship;
+use std::collections::BTreeSet;
 
-pub(super) fn setup(ctx: &mut Context, scenario: Scenario) {
+pub fn setup(ctx: &mut Context, scenario: Scenario) {
     match scenario {
         Scenario::SelfLink | Scenario::Cycle(_) => {
             ctx.topology.open = true;
@@ -216,7 +223,7 @@ fn files(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
     false
 }
 
-pub(super) fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
+pub fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
     match scenario {
         Scenario::Cycle(graph) => return topology(state, ctx, graph),
         Scenario::InvalidFuel(_) | Scenario::StaleDraft => return draft(state, ctx, scenario),

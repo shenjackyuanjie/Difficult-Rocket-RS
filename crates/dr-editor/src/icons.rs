@@ -2,7 +2,7 @@
 use bevy_egui::egui;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum Icon {
+pub enum Icon {
     Menu,
     Staging,
     Help,
@@ -39,11 +39,11 @@ pub(crate) enum Icon {
     Free,
 }
 
-pub(crate) fn button(ui: &mut egui::Ui, icon: Icon, tooltip: &str) -> egui::Response {
+pub fn button(ui: &mut egui::Ui, icon: Icon, tooltip: &str) -> egui::Response {
     selected_button(ui, icon, tooltip, false)
 }
 
-pub(crate) fn selected_button(
+pub fn selected_button(
     ui: &mut egui::Ui,
     icon: Icon,
     tooltip: &str,
@@ -68,7 +68,7 @@ pub(crate) fn selected_button(
 }
 
 /// 仅绘图，不创建命中区；调用方复用 Button / Response 的点击、焦点和可用状态。
-pub(crate) fn paint(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: egui::Color32) {
+pub fn paint(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: egui::Color32) {
     let side = rect.width().min(rect.height()) * 0.68;
     let glyph = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(side));
     let p = |x: f32, y: f32| glyph.min + egui::vec2(x, y) * (side / 24.0);

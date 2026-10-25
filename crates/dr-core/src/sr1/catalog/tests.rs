@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::sr1::catalog::*;
 
 // 从 PC PartList 逐项摘录，保持各项内部字段和顺序，不访问游戏目录。
 const PC_RESOURCE_FRAGMENT: &str = r#"<PartTypes xmlns="http://jundroo.com/simplerockets/partlist.xsd">

@@ -1,5 +1,26 @@
-use super::*;
+use crate::connection_lines;
+use crate::document::EditorDocument;
+use crate::files;
+use crate::files::*;
+use crate::help;
+use crate::mobile_input;
+use crate::native_buttons;
+use crate::panels;
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::selection;
+use crate::selection::DragState;
+use crate::topology_ui;
+use crate::window::EditorPaths;
 use bevy::ui::Pressed;
+use bevy::ui_widgets::Button;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::PartKey;
+use dr_core::Ship;
+use dr_core::load_ship;
+use dr_core::save_ship;
 use std::collections::VecDeque;
 
 #[derive(Default)]

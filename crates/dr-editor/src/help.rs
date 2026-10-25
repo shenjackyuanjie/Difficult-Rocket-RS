@@ -1,18 +1,29 @@
 //! 按需显示操作说明，不让常驻 HUD 占据画布。
-use super::*;
+use crate::canvas_input;
+use crate::files;
+use crate::mobile_input;
+use crate::native_buttons;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::render;
+use crate::selection::DragState;
+use crate::topology_ui;
+use crate::view::CameraDrag;
+use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
 
 #[derive(Resource, Default)]
-pub(crate) struct HelpState {
+pub struct HelpState {
     pub open: bool,
     pub suppress_frame: bool,
 }
 
 #[derive(Component)]
-pub(crate) struct HelpButton;
+pub struct HelpButton;
 
 /// 图标由共享 egui Painter 覆盖，命中与按压仍属于这个正式原生按钮。
-pub(crate) fn setup(mut commands: Commands) {
+pub fn setup(mut commands: Commands) {
     commands.spawn((
         native_buttons::press_triggered(),
         HelpButton,
@@ -37,7 +48,7 @@ pub(crate) fn setup(mut commands: Commands) {
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-pub(crate) fn input(
+pub fn input(
     keys: Res<ButtonInput<KeyCode>>,
     mut activated: MessageReader<native_buttons::Activated>,
     buttons: Query<Entity, With<HelpButton>>,
@@ -210,7 +221,7 @@ fn show(ctx: &egui::Context, open: &mut bool) {
         .show(ctx, shortcuts);
 }
 
-pub(crate) fn draw(mut contexts: EguiContexts, mut state: ResMut<HelpState>) {
+pub fn draw(mut contexts: EguiContexts, mut state: ResMut<HelpState>) {
     if let Ok(ctx) = contexts.ctx_mut() {
         show(ctx, &mut state.open);
     }

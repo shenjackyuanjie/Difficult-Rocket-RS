@@ -1,6 +1,8 @@
-use super::*;
+use crate::demo_cases::*;
+use dr_core::EditorCommand;
+use dr_core::SelectionTransform;
 
-pub(super) fn setup(state: &mut Run, ctx: &mut Context, scenario: Scenario) {
+pub fn setup(state: &mut Run, ctx: &mut Context, scenario: Scenario) {
     let Scenario::Overlap {
         ratio,
         degrees,
@@ -52,7 +54,7 @@ pub(super) fn setup(state: &mut Run, ctx: &mut Context, scenario: Scenario) {
     state.candidate = Some(candidate);
 }
 
-pub(super) fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
+pub fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
     let candidate = state.candidate.as_ref().unwrap().clone();
     let target = &ctx.document.ship.parts[0];
     let kind = ctx.document.catalog.get(&candidate.part_type).unwrap();

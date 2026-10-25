@@ -1,7 +1,21 @@
 //! 章节初始化、成果停留、成功证据收集与失败退出保留。
-use super::*;
+use crate::demo::*;
+use crate::demo_cases;
+use crate::document::EditorDocument;
+use crate::document::load_document;
+use crate::egui_ui;
+use crate::files;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::selection::DragState;
+use crate::topology_ui;
+use crate::view;
+use crate::view::CameraDrag;
+use crate::window::EditorPaths;
+use crate::window::SmokeTest;
 
-pub(crate) fn begin(world: &mut World) {
+pub fn begin(world: &mut World) {
     let Some(showcase) = world.get_resource::<Showcase>() else {
         return;
     };
@@ -123,7 +137,7 @@ pub(crate) fn begin(world: &mut World) {
 }
 
 /// Last 截获章节自测的成功退出；失败退出永不转为通过。
-pub(crate) fn finish(world: &mut World) {
+pub fn finish(world: &mut World) {
     let Some(showcase) = world.get_resource::<Showcase>() else {
         return;
     };

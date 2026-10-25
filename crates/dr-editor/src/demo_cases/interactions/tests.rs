@@ -1,5 +1,5 @@
-
-use super::*;
+use crate::connection_lines;
+use crate::demo_cases::interactions::*;
 
 #[test]
 fn resetting_line_color_accepts_only_color_space_roundoff_not_real_configuration_errors() {

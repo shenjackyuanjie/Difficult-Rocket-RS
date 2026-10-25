@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::io::*;
 
 #[test]
 fn rejects_wrong_root_trailing_document_and_unmodelled_fields() {

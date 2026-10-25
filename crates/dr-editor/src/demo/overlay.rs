@@ -1,5 +1,11 @@
 //! 非交互的章节条、章节入场说明、指针与输入提示层。
-use super::*;
+use crate::demo::*;
+use crate::demo_cases;
+use crate::egui_ui;
+use crate::files;
+use crate::help;
+use crate::properties;
+use crate::topology_ui;
 use bevy_egui::egui;
 
 const ACCENT: egui::Color32 = egui::Color32::from_rgb(179, 219, 5);
@@ -17,7 +23,7 @@ const CAPTION_MIN_WIDTH: f32 = 900.;
 
 /// 说明区不捕获指针；避免改变被演示控件的焦点与命中。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn overlay(
+pub fn overlay(
     mut contexts: bevy_egui::EguiContexts,
     showcase: Option<Res<Showcase>>,
     inspector: Res<properties::Inspector>,

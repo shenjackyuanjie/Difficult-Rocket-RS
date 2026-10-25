@@ -1,4 +1,15 @@
-use super::*;
+use crate::document::EditorDocument;
+use crate::egui_ui;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::selection::DragState;
+use crate::topology_ui::*;
+use crate::view::CameraDrag;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::PartKey;
+use dr_core::Ship;
 
 pub fn document() -> EditorDocument {
     let mut document = crate::test_support::document();

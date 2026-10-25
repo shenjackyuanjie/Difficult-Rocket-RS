@@ -1,8 +1,8 @@
 //! SR1 PC 星系资源读取及已证实的数据归一，不包含轨道推进或地形生成。
 
-use super::scalars::{read_bool, read_f64, read_i32};
-use super::xml::{self, Element};
-use super::{Error, Result};
+use crate::sr1::scalars::{read_bool, read_f64, read_i32};
+use crate::sr1::xml::{self, Element};
+use crate::sr1::{Error, Result};
 
 /// PC 资源加载器在计算星体质量时使用的常量（VA 0x535260）。
 pub const GRAVITATIONAL_CONSTANT: f64 = 6.67384e-11;

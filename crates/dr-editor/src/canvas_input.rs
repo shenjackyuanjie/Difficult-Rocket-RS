@@ -11,7 +11,7 @@ use dr_core::{
 
 /// 取消未提交的画布交互；保留剪贴板、目录选择和预览变换设置。
 /// 输入屏蔽、触摸导航及光标有效性由各入口按自身策略处理。
-pub(crate) fn cancel_preview(
+pub fn cancel_preview(
     drag: &mut DragState,
     cursor: &mut EditorCursor,
     camera_drag: &mut CameraDrag,
@@ -24,7 +24,7 @@ pub(crate) fn cancel_preview(
 }
 
 /// 处理全局快捷键，并将所有会改变船体的操作记录到历史栈。
-pub(crate) fn keyboard_commands(
+pub fn keyboard_commands(
     keys: Res<ButtonInput<KeyCode>>,
     mut document: ResMut<EditorDocument>,
     mut inspector: ResMut<properties::Inspector>,
@@ -148,7 +148,7 @@ pub(crate) fn keyboard_commands(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn mouse_editor(
+pub fn mouse_editor(
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,

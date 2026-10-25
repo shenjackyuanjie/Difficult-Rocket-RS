@@ -4,7 +4,7 @@
 //! 本体数据以属性为主；text 聚合直接文本，不提供一般混合内容的词法往返。
 //! 本模块不做数值转换，缺省/错误数值如何处理由本体语义模块决定。
 
-use super::{Error, Result};
+use crate::sr1::{Error, Result};
 use quick_xml::{
     Reader,
     events::{BytesStart, Event},

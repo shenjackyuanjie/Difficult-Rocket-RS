@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::properties::staging_smoke::*;
 use bevy_egui::{EguiInput, egui};
 
 #[test]

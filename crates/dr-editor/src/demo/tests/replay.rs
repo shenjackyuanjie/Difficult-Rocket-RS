@@ -1,4 +1,4 @@
-use super::*;
+use crate::demo::tests::*;
 use bevy::input::mouse::MouseWheel;
 use bevy::window::WindowResolution;
 

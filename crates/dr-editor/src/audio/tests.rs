@@ -1,6 +1,8 @@
 //! 合成音效回归：确定性、WAV 头、电平与时长、同帧节流、无声卡降级与导出。
-use super::*;
+use crate::audio::*;
+use crate::document::EditorDocument;
 use crate::test_support;
+use dr_core::EditorCommand;
 
 /// 归一化后的峰值上限，换算到 i16 量级。
 fn peak_limit() -> f32 {

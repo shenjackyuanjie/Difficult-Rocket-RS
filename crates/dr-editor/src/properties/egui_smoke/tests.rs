@@ -1,6 +1,5 @@
-
-use super::*;
 use crate::egui_ui::UiHits;
+use crate::properties::egui_smoke::*;
 
 fn rect(y: f32) -> egui::Rect {
     egui::Rect::from_min_size(egui::pos2(12.0, y), egui::vec2(44.0, 44.0))

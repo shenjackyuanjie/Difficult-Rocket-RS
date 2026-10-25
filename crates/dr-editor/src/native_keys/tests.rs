@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::native_keys::*;
 #[test]
 fn shortcut_scenario_requires_actual_key_events_and_never_tests_focus_or_text_input() {
     assert!(STEPS.len() > 40);

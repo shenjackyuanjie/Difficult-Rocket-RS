@@ -1,5 +1,5 @@
-
-use super::*;
+use crate::panels;
+use crate::transform_smoke::*;
 
 fn rect(x: f32, y: f32, width: f32, height: f32) -> egui::Rect {
     egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(width, height))

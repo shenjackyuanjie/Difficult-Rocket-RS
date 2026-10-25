@@ -20,7 +20,7 @@ const EDITS: [(&str, &str); 5] = [
     ),
 ];
 
-pub(crate) struct SpriteShaderPlugin;
+pub struct SpriteShaderPlugin;
 
 impl Plugin for SpriteShaderPlugin {
     fn build(&self, app: &mut App) {

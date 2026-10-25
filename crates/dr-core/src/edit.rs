@@ -2,7 +2,7 @@ mod repair;
 pub mod selection;
 mod topology;
 pub use selection::{SelectionPose, SelectionTransform, ShipFragment};
-pub(crate) mod scoped;
+pub mod scoped;
 pub use repair::{ConnectionRole, DuplicateRepair, ReferenceSite};
 
 use crate::model::{Connection, Part, PartCatalog, PartId, PartKey, Ship, StagingState};

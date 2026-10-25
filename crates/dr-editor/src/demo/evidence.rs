@@ -1,8 +1,8 @@
 //! 新鲜证据的章节时间线及实际输入动作日志。
-use super::*;
+use crate::demo::*;
 use std::{io::Write, time::UNIX_EPOCH};
 
-pub(super) fn unix_ms(time: SystemTime) -> u64 {
+pub fn unix_ms(time: SystemTime) -> u64 {
     time.duration_since(UNIX_EPOCH)
         .expect("系统时间早于 UNIX_EPOCH")
         .as_millis()
@@ -10,12 +10,7 @@ pub(super) fn unix_ms(time: SystemTime) -> u64 {
         .expect("时间戳溢出")
 }
 
-pub(super) fn append_timeline(
-    output: &std::path::Path,
-    event: &str,
-    chapter: &Chapter,
-    time: SystemTime,
-) {
+pub fn append_timeline(output: &std::path::Path, event: &str, chapter: &Chapter, time: SystemTime) {
     let mut file = std::fs::OpenOptions::new()
         .append(true)
         .open(output.join("demo-timeline.jsonl"))
@@ -26,7 +21,7 @@ pub(super) fn append_timeline(
 }
 
 /// 只在边沿真正应用后写入；与章节时间线分离，移动帧和松手不制造音效点。
-pub(super) fn append_actions(
+pub fn append_actions(
     output: &std::path::Path,
     chapter: &Chapter,
     actions: &[(&str, String)],

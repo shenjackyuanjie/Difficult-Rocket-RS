@@ -2,13 +2,15 @@
 //!
 //! 录制窗口必须保持 1920x1080（render_demo_video.py 持续核对客户区），
 //! 因此 presentation 下跳过物理改窗并在证据里写明，普通 detailed 运行执行完整断言。
-use super::*;
+use crate::demo_cases::*;
+use crate::document::EditorDocument;
+use crate::panels;
 use bevy_egui::egui;
 
 const WAIT_STEPS: u8 = 60;
 
 #[derive(Default)]
-pub(super) struct Probe {
+pub struct Probe {
     stage: u8,
     retries: u8,
 }
@@ -30,7 +32,7 @@ impl Probe {
     }
 }
 
-pub(super) fn setup(state: &mut Run, ctx: &mut Context, scenario: Scenario) {
+pub fn setup(state: &mut Run, ctx: &mut Context, scenario: Scenario) {
     if !matches!(
         scenario,
         Scenario::NarrowWindow { .. } | Scenario::NarrowRestore
@@ -60,7 +62,7 @@ fn size_json(width: f32, height: f32) -> serde_json::Value {
 }
 
 /// 画布矩形从 egui 点换算为窗口逻辑坐标，换算方式与生产 view::controls 一致。
-pub(super) fn canvas_rect(window: &Window, ui: &panels::egui_panel::UiState) -> Option<egui::Rect> {
+pub fn canvas_rect(window: &Window, ui: &panels::egui_panel::UiState) -> Option<egui::Rect> {
     let rect = ui.canvas_area?;
     let factor = ui.pixels_per_point / window.scale_factor();
     let converted = egui::Rect::from_min_max(rect.min * factor, rect.max * factor);
@@ -73,7 +75,7 @@ pub(super) fn canvas_rect(window: &Window, ui: &panels::egui_panel::UiState) -> 
 }
 
 /// 世界坐标到窗口逻辑像素：y 轴向下，与相机平移和正交缩放一致。
-pub(super) fn screen_point(world: (f64, f64), translation: Vec2, scale: f32, window: Vec2) -> Vec2 {
+pub fn screen_point(world: (f64, f64), translation: Vec2, scale: f32, window: Vec2) -> Vec2 {
     Vec2::new(
         window.x / 2. + (world.0 as f32 * 60. - translation.x) / scale,
         window.y / 2. - (world.1 as f32 * 60. - translation.y) / scale,
@@ -81,11 +83,7 @@ pub(super) fn screen_point(world: (f64, f64), translation: Vec2, scale: f32, win
 }
 
 /// 部件中心与部件数一一对应，且全部位于画布矩形内。
-pub(super) fn centers_inside(
-    document: &EditorDocument,
-    centers: &[Vec2],
-    canvas: egui::Rect,
-) -> bool {
+pub fn centers_inside(document: &EditorDocument, centers: &[Vec2], canvas: egui::Rect) -> bool {
     !centers.is_empty()
         && centers.len() == document.ship.all_parts().count()
         && centers
@@ -367,7 +365,7 @@ fn walk_restore(state: &mut Run, ctx: &mut Context) -> bool {
     }
 }
 
-pub(super) fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
+pub fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
     match scenario {
         Scenario::NarrowWindow { width, height } => {
             walk_narrow(state, ctx, f32::from(width), f32::from(height))

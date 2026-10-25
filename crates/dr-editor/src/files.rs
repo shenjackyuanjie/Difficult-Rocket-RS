@@ -1,10 +1,34 @@
-use super::*;
+use crate::connection_lines;
+use crate::demo;
+
+use crate::document::EditorDocument;
+use crate::document::new_ship;
+use crate::egui_ui;
+
+use crate::icons;
+use crate::mobile_input;
+use crate::native_buttons;
+use crate::panels;
+use crate::properties;
+
+use crate::selection::DragState;
+use crate::topology_ui;
+use crate::view::CameraDrag;
+
+use crate::window::EditorPaths;
+use crate::window::SmokeTest;
+use bevy::prelude::*;
 use bevy::window::{FileDragAndDrop, WindowCloseRequested};
 use bevy_egui::egui;
+use dr_core::EditorCommand;
+use dr_core::EditorHistory;
+use dr_core::Ship;
+use dr_core::load_ship;
+use dr_core::save_ship;
 use std::path::{Path, PathBuf};
 
 #[derive(Message, Clone, Debug)]
-pub(crate) enum FileAction {
+pub enum FileAction {
     New,
     OpenDialog,
     Open(PathBuf),
@@ -14,7 +38,7 @@ pub(crate) enum FileAction {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum UnsavedChoice {
+pub enum UnsavedChoice {
     Save,
     Discard,
     Cancel,
@@ -112,13 +136,13 @@ fn save_document(
 
 /// 文件操作事务：等待主窗口确认/原生路径选择时不处理新的文件请求。
 #[derive(Resource, Default)]
-pub(crate) struct PendingFileAction {
+pub struct PendingFileAction {
     action: Option<FileAction>,
     choice: Option<UnsavedChoice>,
     native: Option<NativeSelection>,
     // 关闭确认的这一帧仍隔离输入，避免按钮释放/快捷键穿透。
     suppress_frame: bool,
-    pub(crate) hits: Vec<(UnsavedChoice, bevy_egui::egui::Rect)>,
+    pub hits: Vec<(UnsavedChoice, bevy_egui::egui::Rect)>,
 }
 
 impl PendingFileAction {
@@ -126,7 +150,7 @@ impl PendingFileAction {
         self.action.is_some() || self.native.is_some()
     }
 
-    pub(crate) fn is_blocked(&self) -> bool {
+    pub fn is_blocked(&self) -> bool {
         self.is_waiting() || self.suppress_frame
     }
 }
@@ -270,7 +294,7 @@ impl Dialogs for SelectedPath {
 }
 
 /// 仅绘制并记录选择，文件 I/O 与继续动作留给下一次 Update。
-pub(crate) fn show_confirmation(
+pub fn show_confirmation(
     ctx: &bevy_egui::egui::Context,
     pending: &mut PendingFileAction,
     paths: &EditorPaths,
@@ -342,7 +366,7 @@ fn replace_document(document: &mut EditorDocument, ship: Ship) {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn file_inputs(
+pub fn file_inputs(
     keys: Res<ButtonInput<KeyCode>>,
     mut drops: MessageReader<FileDragAndDrop>,
     mut closes: MessageReader<WindowCloseRequested>,
@@ -417,7 +441,7 @@ pub(crate) fn file_inputs(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn file_actions(
+pub fn file_actions(
     mut actions: MessageReader<FileAction>,
     mut document: ResMut<EditorDocument>,
     mut paths: ResMut<EditorPaths>,
@@ -524,28 +548,28 @@ pub(crate) fn file_actions(
 }
 
 #[derive(Component)]
-pub(crate) struct FileButton(pub(crate) FileAction);
+pub struct FileButton(pub FileAction);
 
 #[derive(Component)]
-pub(crate) struct MenuButton;
+pub struct MenuButton;
 
 /// 文件弹层只记录正式控件的命中；文件操作继续交给 FileAction 状态机。
 #[derive(Resource, Default)]
-pub(crate) struct FileMenu {
-    pub(crate) open: bool,
-    pub(crate) area: Option<egui::Rect>,
-    pub(crate) hits: Vec<(FileAction, egui::Rect)>,
+pub struct FileMenu {
+    pub open: bool,
+    pub area: Option<egui::Rect>,
+    pub hits: Vec<(FileAction, egui::Rect)>,
 }
 
 impl FileMenu {
-    pub(crate) fn close(&mut self) {
+    pub fn close(&mut self) {
         self.open = false;
         self.area = None;
         self.hits.clear();
     }
 }
 
-pub(crate) fn setup_file_toolbar(mut commands: Commands) {
+pub fn setup_file_toolbar(mut commands: Commands) {
     commands.spawn((
         native_buttons::press_triggered(),
         MenuButton,
@@ -570,11 +594,7 @@ pub(crate) fn setup_file_toolbar(mut commands: Commands) {
 }
 
 /// 调用方合并其它抽屉和模态门禁，并将 area 纳入既有画布输入隔离。
-pub(crate) fn show_menu(
-    ctx: &egui::Context,
-    menu: &mut FileMenu,
-    blocked: bool,
-) -> Option<FileAction> {
+pub fn show_menu(ctx: &egui::Context, menu: &mut FileMenu, blocked: bool) -> Option<FileAction> {
     menu.area = None;
     menu.hits.clear();
     if blocked || ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
@@ -669,7 +689,7 @@ pub(crate) fn show_menu(
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-pub(crate) fn toolbar_actions(
+pub fn toolbar_actions(
     mut activated: MessageReader<native_buttons::Activated>,
     buttons: Query<&FileButton>,
     menu_buttons: Query<Entity, With<MenuButton>>,
@@ -731,7 +751,7 @@ pub(crate) fn toolbar_actions(
     }
 }
 
-pub(crate) fn update_window_title(
+pub fn update_window_title(
     document: Res<EditorDocument>,
     paths: Res<EditorPaths>,
     mut windows: Query<&mut Window>,
@@ -755,11 +775,11 @@ pub(crate) fn update_window_title(
 }
 
 #[derive(Resource)]
-pub(crate) struct ModalCaptured;
+pub struct ModalCaptured;
 
 /// 保留旧 CLI 名称；用真实 egui 按下/释放确认，不直接写入内部 choice。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn native_dialog_test(
+pub fn native_dialog_test(
     mode: Res<SmokeTest>,
     mut phase: Local<u8>,
     mut settle: Local<u8>,
@@ -850,7 +870,7 @@ pub(crate) fn native_dialog_test(
 }
 
 #[derive(Default)]
-pub(crate) struct NativeFileDialogTestState {
+pub struct NativeFileDialogTestState {
     phase: u8,
     frames: u64,
     opened_frame: u64,
@@ -865,7 +885,7 @@ pub(crate) struct NativeFileDialogTestState {
 
 /// 独立的原生路径选择验收；外部驱动取消窗口，本系统只记录主 Update 持续运行。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn native_file_dialog_test(
+pub fn native_file_dialog_test(
     mode: Res<SmokeTest>,
     mut state: Local<NativeFileDialogTestState>,
     document: Res<EditorDocument>,

@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::sr1::parts::*;
 
 fn catalog() -> Catalog {
     // PC PartList/DefaultShip 的字段缩小样本，不依赖本机游戏路径。

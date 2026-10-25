@@ -1,5 +1,4 @@
-
-use super::{UiTestInput, configure_theme, egui, test_context, ui_color};
+use crate::egui_ui::{UiTestInput, configure_theme, egui, test_context, ui_color};
 use crate::native_buttons::{self, *};
 use bevy::prelude::*;
 use bevy_egui::EguiInput;

@@ -1,4 +1,12 @@
-use super::*;
+use crate::attachment_hints::*;
+use crate::document::EditorDocument;
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::selection::DragState;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::LinkKind;
+use dr_core::PartKey;
 
 fn document() -> EditorDocument {
     let mut document = crate::test_support::document();

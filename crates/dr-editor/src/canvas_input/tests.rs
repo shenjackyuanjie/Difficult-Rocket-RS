@@ -1,6 +1,14 @@
-use super::*;
+use crate::canvas_input::*;
+use crate::document::EditorDocument;
+use crate::free_mode;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::selection::DragState;
 use crate::test_support::mouse_app;
+use crate::view;
+use crate::view::CameraDrag;
 use crate::{egui_ui, files, help, properties, topology_ui};
+use dr_core::EditorCommand;
 use dr_core::{Connection, PartKey};
 
 fn pointer(app: &mut App, logical: (f64, f64)) {

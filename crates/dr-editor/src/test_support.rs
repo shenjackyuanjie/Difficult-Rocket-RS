@@ -1,8 +1,23 @@
 //! 跨模块共享的内存夹具；仅在 cfg(test) 编译。
-use super::*;
-use canvas_input::mouse_editor;
 
-pub(crate) fn document() -> EditorDocument {
+use crate::document::EditorDocument;
+
+use crate::canvas_input::mouse_editor;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::selection;
+use crate::selection::DragState;
+use crate::view;
+use crate::view::CameraDrag;
+use bevy::prelude::*;
+use dr_core::EditorCommand;
+use dr_core::EditorHistory;
+use dr_core::PartCatalog;
+use dr_core::PartKey;
+use dr_core::SelectionPose;
+use dr_core::Ship;
+
+pub fn document() -> EditorDocument {
     let ship =
         dr_core::ship_from_xml(r#"<Ship><Parts><Part id="1" partType="pod"/></Parts></Ship>"#)
             .unwrap();
@@ -23,7 +38,7 @@ pub(crate) fn document() -> EditorDocument {
 }
 
 /// 使用实际 mouse_editor 系统，测试相机固定为 1 世界像素/逻辑像素。
-pub(crate) fn mouse_app() -> App {
+pub fn mouse_app() -> App {
     use bevy::camera::{ComputedCameraValues, RenderTargetInfo};
     let mut document = document();
     document.catalog = crate::test_support::catalog();
@@ -66,14 +81,14 @@ pub(crate) fn mouse_app() -> App {
 }
 
 /// 屏幕像素位移经网格量化后的世界像素位移；y 轴由屏幕向下翻到世界向上。
-pub(crate) fn grid_pixels(delta: Vec2) -> Vec2 {
+pub fn grid_pixels(delta: Vec2) -> Vec2 {
     let (x, y) =
         dr_core::geometry::quantize_point((f64::from(delta.x) / 60.0, f64::from(-delta.y) / 60.0));
     Vec2::new((x * 60.0) as f32, (y * 60.0) as f32)
 }
 
 /// 将预览落点、断开旧连接和新吸附作为一个可撤销操作。
-pub(crate) fn move_with_snap(
+pub fn move_with_snap(
     ship: &Ship,
     catalog: &PartCatalog,
     id: PartKey,
@@ -97,7 +112,7 @@ pub(crate) fn move_with_snap(
     )
 }
 
-pub(crate) fn movement(
+pub fn movement(
     document: &EditorDocument,
     keys: &[PartKey],
     delta: (f64, f64),
@@ -105,7 +120,7 @@ pub(crate) fn movement(
     movement_pose(document, keys, (0.0, 0.0), 0, delta)
 }
 
-pub(crate) fn movement_pose(
+pub fn movement_pose(
     document: &EditorDocument,
     keys: &[PartKey],
     pivot: (f64, f64),
@@ -124,7 +139,7 @@ pub(crate) fn movement_pose(
     )
 }
 
-pub(crate) fn catalog() -> PartCatalog {
+pub fn catalog() -> PartCatalog {
     dr_core::catalog_from_xml(r#"<PartTypes>
         <PartType id="pod" name="驾驶舱" type="pod" width="2" height="2"><AttachPoints><AttachPoint x="-1"/><AttachPoint x="1"/></AttachPoints></PartType>
         <PartType id="hidden" name="隐藏" hidden="true"/>

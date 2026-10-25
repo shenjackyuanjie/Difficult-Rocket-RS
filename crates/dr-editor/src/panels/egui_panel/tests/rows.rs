@@ -1,4 +1,9 @@
-use super::*;
+use crate::panels::egui_panel::tests::*;
+use crate::render;
+use crate::selection::DragState;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::PartKey;
 
 fn painted_preview_size(size: Vec2) -> egui::Vec2 {
     let ctx = crate::egui_ui::test_context();

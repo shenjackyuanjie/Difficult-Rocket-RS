@@ -1,5 +1,5 @@
-
-use super::*;
+use crate::panels;
+use crate::view_smoke::*;
 
 #[test]
 fn smoke_fit_reads_the_actual_canvas_and_converts_egui_dpi() {

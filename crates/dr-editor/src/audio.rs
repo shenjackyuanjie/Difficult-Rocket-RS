@@ -11,9 +11,9 @@ use dr_core::EditorCommand;
 use std::path::{Path, PathBuf};
 
 /// 合成采样率。
-pub(crate) const SAMPLE_RATE: u32 = 48_000;
+pub const SAMPLE_RATE: u32 = 48_000;
 /// 目标峰值电平；听感轻，不刺耳。
-pub(crate) const PEAK_DBFS: f32 = -24.0;
+pub const PEAK_DBFS: f32 = -24.0;
 /// 播放实体兜底存活时间：无音频设备时 bevy 不会挂上 AudioSink，需要自己回收。
 const PLAYER_LIFETIME_SECONDS: f32 = 1.0;
 /// 音效种类数量，同时是缓存与去重表的长度。
@@ -21,7 +21,7 @@ const COUNT: usize = 8;
 
 /// 音效事件；同帧重复的同类事件只播一次。
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SfxEvent {
+pub enum SfxEvent {
     /// UI 按钮激活。
     Click,
     /// 部件放置成功。
@@ -41,7 +41,7 @@ pub(crate) enum SfxEvent {
 }
 
 impl SfxEvent {
-    pub(crate) const ALL: [Self; COUNT] = [
+    pub const ALL: [Self; COUNT] = [
         Self::Click,
         Self::Place,
         Self::Connect,
@@ -53,7 +53,7 @@ impl SfxEvent {
     ];
 
     /// 导出文件名，去掉扩展名后同时用作音色标识。
-    pub(crate) fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Self::Click => "click",
             Self::Place => "place",
@@ -229,7 +229,7 @@ fn millis_to_samples(millis: u32) -> usize {
 }
 
 /// 合成 16-bit PCM 采样；同参数结果逐字节一致。
-pub(crate) fn pcm(event: SfxEvent) -> Vec<i16> {
+pub fn pcm(event: SfxEvent) -> Vec<i16> {
     let target_peak = 10f32.powf(PEAK_DBFS / 20.0);
     let mut noise = Noise::new(event);
     let mut mono: Vec<f32> = Vec::new();
@@ -262,7 +262,7 @@ pub(crate) fn pcm(event: SfxEvent) -> Vec<i16> {
 }
 
 /// 完整的 WAV 文件字节：标准 PCM 头 + 单声道 16-bit 数据。
-pub(crate) fn wav_bytes(event: SfxEvent) -> Vec<u8> {
+pub fn wav_bytes(event: SfxEvent) -> Vec<u8> {
     let samples = pcm(event);
     let data_len = (samples.len() * 2) as u32;
     let mut bytes = Vec::with_capacity(44 + data_len as usize);
@@ -286,7 +286,7 @@ pub(crate) fn wav_bytes(event: SfxEvent) -> Vec<u8> {
 }
 
 /// 单个 tick 的播放意图：去重并按事件枚举顺序输出；关闭时为空。
-pub(crate) fn plan(enabled: bool, events: impl IntoIterator<Item = SfxEvent>) -> Vec<SfxEvent> {
+pub fn plan(enabled: bool, events: impl IntoIterator<Item = SfxEvent>) -> Vec<SfxEvent> {
     if !enabled {
         return Vec::new();
     }
@@ -301,7 +301,7 @@ pub(crate) fn plan(enabled: bool, events: impl IntoIterator<Item = SfxEvent>) ->
 }
 
 /// 事务命令对应的成功音效：放置优先，其次连接；其余命令保持安静。
-pub(crate) fn command_sfx(command: &EditorCommand) -> Option<SfxEvent> {
+pub fn command_sfx(command: &EditorCommand) -> Option<SfxEvent> {
     match command {
         EditorCommand::Place(_) | EditorCommand::Paste { .. } => Some(SfxEvent::Place),
         EditorCommand::ConnectParts { .. } | EditorCommand::Connect(_) => Some(SfxEvent::Connect),
@@ -326,7 +326,7 @@ pub(crate) fn command_sfx(command: &EditorCommand) -> Option<SfxEvent> {
 }
 
 /// 向可选消息通道写入音效意图；没注册 SfxPlugin 的应用里静默跳过。
-pub(crate) fn emit(sfx: &mut Option<MessageWriter<'_, SfxEvent>>, event: SfxEvent) {
+pub fn emit(sfx: &mut Option<MessageWriter<'_, SfxEvent>>, event: SfxEvent) {
     if let Some(writer) = sfx.as_mut() {
         writer.write(event);
     }
@@ -334,12 +334,12 @@ pub(crate) fn emit(sfx: &mut Option<MessageWriter<'_, SfxEvent>>, event: SfxEven
 
 /// 命令行开关：--no-sfx 完全关闭播放。
 #[derive(Resource, Clone, Debug)]
-pub(crate) struct SfxConfig {
-    pub(crate) enabled: bool,
+pub struct SfxConfig {
+    pub enabled: bool,
 }
 
 impl SfxConfig {
-    pub(crate) fn from_args(args: &[String]) -> Self {
+    pub fn from_args(args: &[String]) -> Self {
         Self {
             enabled: !args.iter().any(|arg| arg == "--no-sfx"),
         }
@@ -347,14 +347,14 @@ impl SfxConfig {
 }
 
 /// --sfx-export 目录参数：把八种音效各导出 WAV，供视频混音脚本复用同一音源。
-pub(crate) fn export_dir(args: &[String]) -> Option<PathBuf> {
+pub fn export_dir(args: &[String]) -> Option<PathBuf> {
     args.windows(2)
         .find(|window| window[0] == "--sfx-export")
         .map(|window| PathBuf::from(&window[1]))
 }
 
 /// 导出全部音效；导出只写文件，与是否播放无关。
-pub(crate) fn export_all(dir: &Path) -> std::io::Result<usize> {
+pub fn export_all(dir: &Path) -> std::io::Result<usize> {
     std::fs::create_dir_all(dir)?;
     for event in SfxEvent::ALL {
         std::fs::write(dir.join(format!("{}.wav", event.name())), wav_bytes(event))?;
@@ -393,12 +393,12 @@ impl SfxClips {
 struct SfxLifetime(Timer);
 
 /// 合成音效插件：注册消息、缓存与每帧末的播放系统。
-pub(crate) struct SfxPlugin {
-    pub(crate) config: SfxConfig,
+pub struct SfxPlugin {
+    pub config: SfxConfig,
 }
 
 impl SfxPlugin {
-    pub(crate) fn from_args(args: &[String]) -> Self {
+    pub fn from_args(args: &[String]) -> Self {
         Self {
             config: SfxConfig::from_args(args),
         }

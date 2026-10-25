@@ -3,12 +3,12 @@
 //! 本模块保留各树实例边界，不调用严格编辑器模型，也不将分离组并入主树。
 //! 拓扑在加载时解析为部件数组索引，重复 XML ID 不会使内部引用失去实例身份。
 
-use super::catalog::Catalog;
-use super::parts::Part;
-use super::scalars::{read_bool, read_i32, write_bool};
-use super::staging::Staging;
-use super::xml::{self, Element};
-use super::{Error, Result};
+use crate::sr1::catalog::Catalog;
+use crate::sr1::parts::Part;
+use crate::sr1::scalars::{read_bool, read_i32, write_bool};
+use crate::sr1::staging::Staging;
+use crate::sr1::xml::{self, Element};
+use crate::sr1::{Error, Result};
 
 /// 连接引用的是 [`PartTree::parts`] 中的实例索引，而不是 XML 部件 ID。
 #[derive(Debug, Clone, PartialEq, Eq)]

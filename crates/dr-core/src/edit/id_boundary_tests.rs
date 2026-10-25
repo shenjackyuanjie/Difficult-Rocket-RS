@@ -1,4 +1,4 @@
-use super::*;
+use crate::edit::*;
 use crate::{ShipGroup, ship_from_xml, ship_to_xml};
 
 fn boundary_ship(maximum: i64) -> Ship {

@@ -1,5 +1,5 @@
-
-use super::*;
+use crate::native_input::*;
+use crate::panels;
 
 #[test]
 fn palette_drag_uses_the_visible_part_widget_and_egui_scale() {

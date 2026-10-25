@@ -1,5 +1,9 @@
-
-use super::*;
+use crate::document::EditorDocument;
+use crate::render::*;
+use crate::selection::DragState;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::PartKey;
 
 #[test]
 fn free_connection_route_tracks_only_the_dragged_endpoint_after_mirrors() {

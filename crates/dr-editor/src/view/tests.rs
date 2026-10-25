@@ -1,5 +1,7 @@
-
-use super::*;
+use crate::panels;
+use crate::render;
+use crate::view::*;
+use dr_core::PartKey;
 
 #[test]
 fn fallback_canvas_has_no_legacy_sidebar_or_top_text_reservation() {

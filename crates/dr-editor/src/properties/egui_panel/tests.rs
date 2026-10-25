@@ -1,4 +1,7 @@
-use super::*;
+use crate::document::EditorDocument;
+use crate::properties::egui_panel::*;
+use crate::render;
+use dr_core::PartKey;
 
 struct Panel {
     ctx: egui::Context,

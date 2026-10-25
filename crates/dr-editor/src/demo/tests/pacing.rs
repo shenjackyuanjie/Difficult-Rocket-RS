@@ -1,4 +1,4 @@
-use super::*;
+use crate::demo::tests::*;
 
 #[test]
 fn changed_configuration_explanation_has_readable_pause_but_fast_keeps_40ms() {

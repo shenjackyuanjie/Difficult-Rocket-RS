@@ -1,5 +1,14 @@
 //! 内部输入回放：当帧视觉跟随与同部件对连接唯一性，不测量物理显示延迟。
-use super::*;
+use crate::attachment_hints;
+use crate::demo_cases::*;
+use crate::document::EditorDocument;
+use crate::placement;
+use crate::render;
+use crate::selection::DragState;
+use crate::view;
+use crate::view::CameraDrag;
+use dr_core::Connection;
+use dr_core::Ship;
 
 #[derive(Clone, Copy)]
 enum Target {
@@ -8,7 +17,7 @@ enum Target {
 }
 
 #[derive(Default)]
-pub(super) struct Probe {
+pub struct Probe {
     target: Option<Target>,
     anchor: Vec2,
     scale: f32,
@@ -41,7 +50,7 @@ const PAN_PATH: &[Vec2] = &[
     Vec2::new(120., 70.),
 ];
 
-pub(super) fn setup(ctx: &mut Context, scenario: Scenario) {
+pub fn setup(ctx: &mut Context, scenario: Scenario) {
     match scenario {
         Scenario::DragContinuous | Scenario::PanGesture => {
             ctx.document.ship = Ship {
@@ -419,7 +428,7 @@ fn manual(state: &mut Run, ctx: &mut Context) -> bool {
     false
 }
 
-pub(super) fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
+pub fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
     match scenario {
         Scenario::DragContinuous => drag(state, ctx),
         Scenario::PanGesture => pan(state, ctx),
@@ -429,7 +438,7 @@ pub(super) fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) ->
     }
 }
 
-pub(super) fn report(state: &mut Run) {
+pub fn report(state: &mut Run) {
     if state.gesture.checks != 0 {
         state.metrics["same_frame_checks"] = state.gesture.checks.into();
         state.metrics["release_frame_checks"] = state.gesture.release_checks.into();
@@ -442,7 +451,7 @@ pub(super) fn report(state: &mut Run) {
 /// 期望值来自本帧实际光标并按生产网格量化，而非计划中的目标或 drag.preview；
 /// 因此也覆盖慢速插值帧与网格台阶。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn verify(
+pub fn verify(
     mut state: ResMut<Run>,
     document: Res<EditorDocument>,
     drag: Res<DragState>,

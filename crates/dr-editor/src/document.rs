@@ -7,7 +7,7 @@ use dr_core::{
 use std::collections::BTreeSet;
 
 #[derive(Resource)]
-pub(crate) struct EditorDocument {
+pub struct EditorDocument {
     /// 自由几何与原有连接保留策略；不切换吸附。
     pub free_mode: bool,
     /// 对齐与新自动连接；关闭时保留已有连接。
@@ -16,17 +16,17 @@ pub(crate) struct EditorDocument {
     pub ship: Ship,
     pub catalog: PartCatalog,
     pub selected: Option<PartKey>,
-    pub(crate) selection: BTreeSet<PartKey>,
+    pub selection: BTreeSet<PartKey>,
     pub dirty: bool,
     pub history: EditorHistory,
-    pub(crate) saved_ship: Ship,
-    pub(crate) status: String,
+    pub saved_ship: Ship,
+    pub status: String,
     /// 事务结果待播音效；SfxPlugin 每帧取走，文档本身不依赖播放后端。
-    pub(crate) sfx: Vec<audio::SfxEvent>,
+    pub sfx: Vec<audio::SfxEvent>,
 }
 
 impl EditorDocument {
-    pub(crate) fn selected_keys(&self) -> Vec<PartKey> {
+    pub fn selected_keys(&self) -> Vec<PartKey> {
         self.selection
             .iter()
             .copied()
@@ -35,18 +35,18 @@ impl EditorDocument {
             .into_iter()
             .collect()
     }
-    pub(crate) fn is_selected(&self, key: PartKey) -> bool {
+    pub fn is_selected(&self, key: PartKey) -> bool {
         self.selected == Some(key) || self.selection.contains(&key)
     }
-    pub(crate) fn clear_selection(&mut self) {
+    pub fn clear_selection(&mut self) {
         self.selected = None;
         self.selection.clear();
     }
-    pub(crate) fn select_only(&mut self, key: Option<PartKey>) {
+    pub fn select_only(&mut self, key: Option<PartKey>) {
         self.clear_selection();
         self.selected = key;
     }
-    pub(crate) fn refresh(&mut self) {
+    pub fn refresh(&mut self) {
         self.revision = self.revision.wrapping_add(1);
         self.dirty = self.ship != self.saved_ship;
         if self
@@ -56,7 +56,7 @@ impl EditorDocument {
             self.selected = None;
         }
     }
-    pub(crate) fn undo(&mut self) -> bool {
+    pub fn undo(&mut self) -> bool {
         let changed = self.history.undo(&mut self.ship);
         if changed {
             self.sfx.push(audio::SfxEvent::Undo);
@@ -65,7 +65,7 @@ impl EditorDocument {
         self.refresh();
         changed
     }
-    pub(crate) fn redo(&mut self) -> bool {
+    pub fn redo(&mut self) -> bool {
         let changed = self.history.redo(&mut self.ship);
         if changed {
             self.sfx.push(audio::SfxEvent::Redo);
@@ -74,7 +74,7 @@ impl EditorDocument {
         self.refresh();
         changed
     }
-    pub(crate) fn execute(&mut self, command: EditorCommand) -> bool {
+    pub fn execute(&mut self, command: EditorCommand) -> bool {
         let command = self.edit_command(command);
         let sfx = audio::command_sfx(&command);
         let before: Vec<_> = self.ship.keyed_parts().map(|(key, _)| key).collect();
@@ -104,7 +104,7 @@ impl EditorDocument {
         }
     }
 
-    pub(crate) fn edit_command(&self, command: EditorCommand) -> EditorCommand {
+    pub fn edit_command(&self, command: EditorCommand) -> EditorCommand {
         if self.free_mode {
             EditorCommand::FreeEdit(Box::new(command))
         } else {
@@ -113,7 +113,7 @@ impl EditorDocument {
     }
 }
 
-pub(crate) fn load_document(
+pub fn load_document(
     ship_path: Option<&str>,
     catalog_path: &str,
 ) -> anyhow::Result<EditorDocument> {
@@ -139,7 +139,7 @@ pub(crate) fn load_document(
 }
 
 /// 与原版 assets/builtin/none_ship.xml 一致，新船体自带隐藏的驾驶舱。
-pub(crate) fn new_ship(catalog: &PartCatalog) -> Ship {
+pub fn new_ship(catalog: &PartCatalog) -> Ship {
     let Some(pod) = catalog.types.iter().find(|kind| kind.kind == PartKind::Pod) else {
         return Ship::default();
     };

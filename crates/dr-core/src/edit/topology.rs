@@ -1,4 +1,4 @@
-use super::{CommandError, LinkKind, scoped};
+use crate::edit::{CommandError, LinkKind, scoped};
 use crate::topology::{ConnectionRef, Topology};
 use crate::{PartCatalog, PartKey, Ship};
 

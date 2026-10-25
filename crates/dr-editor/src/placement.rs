@@ -1,25 +1,41 @@
-use super::*;
+use crate::audio;
+
+use crate::document::EditorDocument;
+use crate::files;
+use crate::free_mode;
+use crate::panels;
+
+use crate::render;
+use bevy::prelude::*;
+use dr_core::EditorCommand;
+use dr_core::LinkKind;
+use dr_core::Part;
+use dr_core::PartCatalog;
+use dr_core::PartKey;
+use dr_core::PartKind;
+use dr_core::Ship;
+use dr_core::ShipFragment;
 
 /// 当前鼠标在编辑器世界坐标中的位置，以及目录中待放置的部件。
 #[derive(Resource, Default)]
-pub(crate) struct EditorCursor {
-    pub(crate) manual_connection: Option<free_mode::Endpoint>,
-    pub(crate) clipboard: Option<ShipFragment>,
-    pub(crate) paste: Option<ShipFragment>,
-    pub(crate) world: (f64, f64),
-    pub(crate) catalog_index: usize,
-    pub(crate) placing: bool,
-    pub(crate) palette_drag: bool,
-    pub(crate) rotation: i32,
-    pub(crate) fine_rotation: f64,
-    pub(crate) flip_x: bool,
-    pub(crate) flip_y: bool,
-    pub(crate) valid: bool,
+pub struct EditorCursor {
+    pub manual_connection: Option<free_mode::Endpoint>,
+    pub clipboard: Option<ShipFragment>,
+    pub paste: Option<ShipFragment>,
+    pub world: (f64, f64),
+    pub catalog_index: usize,
+    pub placing: bool,
+    pub palette_drag: bool,
+    pub rotation: i32,
+    pub fine_rotation: f64,
+    pub flip_x: bool,
+    pub flip_y: bool,
+    pub valid: bool,
 }
 
 impl EditorCursor {
     /// 选择新模板时重置共用预览状态；拖拽标记与光标有效性由输入入口决定。
-    pub(crate) fn select_template(&mut self, index: usize) {
+    pub fn select_template(&mut self, index: usize) {
         self.catalog_index = index;
         self.placing = true;
         self.paste = None;
@@ -30,18 +46,13 @@ impl EditorCursor {
         self.flip_y = false;
     }
 
-    pub(crate) fn cancel_placement(&mut self) {
+    pub fn cancel_placement(&mut self) {
         self.placing = false;
         self.palette_drag = false;
     }
 }
 
-pub(crate) fn collides(
-    ship: &Ship,
-    catalog: &PartCatalog,
-    part: &Part,
-    source: Option<PartKey>,
-) -> bool {
+pub fn collides(ship: &Ship, catalog: &PartCatalog, part: &Part, source: Option<PartKey>) -> bool {
     let Some(kind) = catalog.get(&part.part_type) else {
         return false;
     };
@@ -55,7 +66,7 @@ pub(crate) fn collides(
         })
 }
 
-pub(crate) fn transform(document: &mut EditorDocument, id: PartKey, command: EditorCommand) {
+pub fn transform(document: &mut EditorDocument, id: PartKey, command: EditorCommand) {
     if document.free_mode {
         document.execute(command.at(id));
         return;
@@ -88,7 +99,7 @@ pub(crate) fn transform(document: &mut EditorDocument, id: PartKey, command: Edi
 
 /// 连接提示与实际吸附共用占用、歧义和碰撞判断，不显示无法提交的候选。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn candidate_allowed(
+pub fn candidate_allowed(
     ship: &Ship,
     catalog: &PartCatalog,
     proposed: &Part,
@@ -159,7 +170,7 @@ pub(crate) fn candidate_allowed(
 
 /// 辅助几何下的纯吸附入口，供直接回归复用。
 #[cfg(test)]
-pub(crate) fn snap(
+pub fn snap(
     ship: &Ship,
     catalog: &PartCatalog,
     source: &mut Part,
@@ -169,7 +180,7 @@ pub(crate) fn snap(
 }
 
 /// 候选的目标为父部件、源为子部件；连接点索引转换为 SR1 的 1 基编号。
-pub(crate) fn connection_command(
+pub fn connection_command(
     source: PartKey,
     target: PartKey,
     source_kind: PartKind,
@@ -246,7 +257,7 @@ fn snap_with_mode(
     })
 }
 
-pub(crate) fn preview(
+pub fn preview(
     document: &EditorDocument,
     cursor: &EditorCursor,
 ) -> Option<(Part, Option<EditorCommand>, bool)> {
@@ -290,7 +301,7 @@ pub(crate) fn preview(
     Some((part, connection, allowed))
 }
 
-pub(crate) fn place(document: &mut EditorDocument, cursor: &EditorCursor) -> bool {
+pub fn place(document: &mut EditorDocument, cursor: &EditorCursor) -> bool {
     let Some((part, connection, allowed)) = preview(document, cursor) else {
         return false;
     };
@@ -344,7 +355,7 @@ fn preview_color(allowed: bool, connected: bool, palette_drag: bool) -> Color {
     }
 }
 
-pub(crate) fn cancel_for_file_action(
+pub fn cancel_for_file_action(
     mut actions: MessageReader<files::FileAction>,
     mut cursor: ResMut<EditorCursor>,
 ) {
@@ -358,9 +369,9 @@ pub(crate) fn cancel_for_file_action(
 }
 
 #[derive(Component)]
-pub(crate) struct PlacementVisual;
+pub struct PlacementVisual;
 
-pub(crate) fn draw_preview(
+pub fn draw_preview(
     mut commands: Commands,
     document: Res<EditorDocument>,
     cursor: Res<EditorCursor>,

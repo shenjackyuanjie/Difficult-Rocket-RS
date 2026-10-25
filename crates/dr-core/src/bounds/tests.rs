@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::bounds::*;
 use crate::{ShipGroup, catalog_from_xml};
 #[test]
 fn main_and_all_bounds_use_real_rotated_shapes_without_including_origin() {

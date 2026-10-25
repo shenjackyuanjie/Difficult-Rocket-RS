@@ -1,4 +1,4 @@
-use super::*;
+use crate::edit::*;
 use crate::{Activation, PodState, ShipGroup, StageStep};
 
 fn catalog() -> PartCatalog {

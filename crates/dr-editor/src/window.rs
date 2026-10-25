@@ -3,42 +3,42 @@ use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
 
 #[derive(Resource, Clone)]
-pub(crate) struct EditorPaths {
+pub struct EditorPaths {
     pub ship: Option<String>,
     pub catalog: String,
     pub assets: String,
 }
 
 #[derive(Resource)]
-pub(crate) struct SmokeTest {
-    pub(crate) enabled: bool,
-    pub(crate) window_size: Option<UVec2>,
-    pub(crate) native_dialogs: bool,
-    pub(crate) native_file_dialogs: bool,
-    pub(crate) interaction: bool,
-    pub(crate) topology: bool,
-    pub(crate) panels: bool,
-    pub(crate) properties: bool,
-    pub(crate) connections: bool,
-    pub(crate) transforms: bool,
-    pub(crate) performance: bool,
-    pub(crate) performance_selection_count: usize,
-    pub(crate) scoped: bool,
-    pub(crate) repair: bool,
-    pub(crate) selection: bool,
-    pub(crate) view: bool,
-    pub(crate) browser: bool,
-    pub(crate) staging: bool,
-    pub(crate) staging_shots: Option<std::path::PathBuf>,
-    pub(crate) native_ime: bool,
-    pub(crate) native_input: Option<std::path::PathBuf>,
-    pub(crate) native_keys: Option<std::path::PathBuf>,
-    pub(crate) egui: bool,
-    pub(crate) started: std::time::Instant,
+pub struct SmokeTest {
+    pub enabled: bool,
+    pub window_size: Option<UVec2>,
+    pub native_dialogs: bool,
+    pub native_file_dialogs: bool,
+    pub interaction: bool,
+    pub topology: bool,
+    pub panels: bool,
+    pub properties: bool,
+    pub connections: bool,
+    pub transforms: bool,
+    pub performance: bool,
+    pub performance_selection_count: usize,
+    pub scoped: bool,
+    pub repair: bool,
+    pub selection: bool,
+    pub view: bool,
+    pub browser: bool,
+    pub staging: bool,
+    pub staging_shots: Option<std::path::PathBuf>,
+    pub native_ime: bool,
+    pub native_input: Option<std::path::PathBuf>,
+    pub native_keys: Option<std::path::PathBuf>,
+    pub egui: bool,
+    pub started: std::time::Instant,
 }
 
 /// 窗口截图/组合分级验收指定初始尺寸；普通编辑与演示保留既有窗口配置。
-pub(crate) fn smoke_window_size(args: &[String]) -> anyhow::Result<Option<UVec2>> {
+pub fn smoke_window_size(args: &[String]) -> anyhow::Result<Option<UVec2>> {
     let mut indices = args
         .iter()
         .enumerate()
@@ -69,9 +69,7 @@ pub(crate) fn smoke_window_size(args: &[String]) -> anyhow::Result<Option<UVec2>
 }
 
 /// 截图驱动显式依附窗口自测，目录参数保持原样，允许包含空格。
-pub(crate) fn staging_shots_directory(
-    args: &[String],
-) -> anyhow::Result<Option<std::path::PathBuf>> {
+pub fn staging_shots_directory(args: &[String]) -> anyhow::Result<Option<std::path::PathBuf>> {
     let indices: Vec<_> = args
         .iter()
         .enumerate()
@@ -101,7 +99,7 @@ pub(crate) fn staging_shots_directory(
     Ok(Some(value.into()))
 }
 
-pub(crate) fn initial_window_resolution(
+pub fn initial_window_resolution(
     presentation: bool,
     smoke_size: Option<UVec2>,
 ) -> WindowResolution {
@@ -115,7 +113,7 @@ pub(crate) fn initial_window_resolution(
 }
 
 /// 自动回放显式持续更新并优先无同步呈现；普通编辑保留原策略。
-pub(crate) fn window_runtime_policy(automated: bool) -> (bevy::winit::WinitSettings, PresentMode) {
+pub fn window_runtime_policy(automated: bool) -> (bevy::winit::WinitSettings, PresentMode) {
     if automated {
         (
             bevy::winit::WinitSettings::continuous(),
@@ -129,7 +127,7 @@ pub(crate) fn window_runtime_policy(automated: bool) -> (bevy::winit::WinitSetti
     }
 }
 
-pub(crate) fn smoke_window_matches(window: &Window, requested: UVec2) -> bool {
+pub fn smoke_window_matches(window: &Window, requested: UVec2) -> bool {
     window.physical_width() == requested.x
         && window.physical_height() == requested.y
         && window.width() == requested.x as f32
@@ -138,7 +136,7 @@ pub(crate) fn smoke_window_matches(window: &Window, requested: UVec2) -> bool {
 }
 
 impl SmokeTest {
-    pub(crate) fn from_args(args: &[String], smoke_size: Option<UVec2>) -> Self {
+    pub fn from_args(args: &[String], smoke_size: Option<UVec2>) -> Self {
         Self {
             enabled: args.iter().any(|arg| arg == "--smoke-test"),
             window_size: smoke_size,
@@ -178,7 +176,7 @@ impl SmokeTest {
     }
 }
 
-pub(crate) fn capture_screenshot(
+pub fn capture_screenshot(
     mut commands: Commands,
     mode: Res<SmokeTest>,
     keys: Res<ButtonInput<KeyCode>>,

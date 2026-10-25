@@ -3,12 +3,12 @@
 //! 读取结果保留选择请求与原 XML 半径旁证；星体绑定、保存快照选择均显式提供上下文。
 //! 本模块不推进物理、不从任意路径加载资源，也不把 planetRadius 当成恢复来源。
 
-use super::catalog::Catalog;
-use super::scalars::{parse_f64, read_bool, read_f64, read_i32, write_bool, write_f64};
-use super::ship::Ship;
-use super::solar::{Planet, SolarSystem};
-use super::xml::{self, Element};
-use super::{Error, Result};
+use crate::sr1::catalog::Catalog;
+use crate::sr1::scalars::{parse_f64, read_bool, read_f64, read_i32, write_bool, write_f64};
+use crate::sr1::ship::Ship;
+use crate::sr1::solar::{Planet, SolarSystem};
+use crate::sr1::xml::{self, Element};
+use crate::sr1::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Runtime {

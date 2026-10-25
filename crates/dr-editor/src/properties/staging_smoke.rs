@@ -1,11 +1,20 @@
-use super::*;
+use crate::demo;
+use crate::document::EditorDocument;
+use crate::document::new_ship;
+use crate::properties::*;
+use crate::window::SmokeTest;
+use dr_core::EditorHistory;
+use dr_core::PartKey;
+use dr_core::Ship;
+use dr_core::load_ship;
+use dr_core::save_ship;
 use std::time::Instant;
 
 #[derive(Resource)]
-pub(crate) struct Captured;
+pub struct Captured;
 
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     phase: u8,
     input: crate::egui_ui::UiTestInput,
     before: Option<Ship>,
@@ -112,7 +121,7 @@ fn seek_activation(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
+pub fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     mut document: ResMut<EditorDocument>,

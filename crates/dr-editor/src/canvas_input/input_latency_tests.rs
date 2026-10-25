@@ -1,6 +1,12 @@
 //! 无窗口/GPU：覆盖消息→InputPlugin→相机/编辑→视觉同步→Transform 传播。
-use super::*;
+use crate::canvas_input::*;
+use crate::document::EditorDocument;
+use crate::panels;
+use crate::placement::EditorCursor;
 use crate::render;
+use crate::selection::DragState;
+use crate::view;
+use crate::view::CameraDrag;
 use crate::view::camera_controls;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::MouseButtonInput;

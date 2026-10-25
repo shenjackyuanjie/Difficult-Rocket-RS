@@ -482,10 +482,7 @@ impl Ship {
         }
     }
 
-    pub(crate) fn group_mut(
-        &mut self,
-        group: usize,
-    ) -> Option<(&mut Vec<Part>, &mut Vec<Connection>)> {
+    pub fn group_mut(&mut self, group: usize) -> Option<(&mut Vec<Part>, &mut Vec<Connection>)> {
         if group == 0 {
             Some((&mut self.parts, &mut self.connections))
         } else {
@@ -580,7 +577,7 @@ impl Ship {
     }
 
     /// 全文档已被占用的编号：各组部件、连接两端与对接件、分级里的激活动作。
-    pub(crate) fn occupied_ids(&self) -> impl Iterator<Item = PartId> + '_ {
+    pub fn occupied_ids(&self) -> impl Iterator<Item = PartId> + '_ {
         self.groups()
             .flat_map(|(_, parts, connections)| group_ids(parts, connections))
     }

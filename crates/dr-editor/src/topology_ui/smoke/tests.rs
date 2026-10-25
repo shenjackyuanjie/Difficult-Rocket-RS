@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::topology_ui::smoke::*;
 
 #[test]
 fn smoke_presentation_preserves_native_1080p_and_scale_factor() {

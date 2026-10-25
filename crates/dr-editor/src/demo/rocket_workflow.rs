@@ -1,5 +1,12 @@
 //! 从默认 Command Pod 连续搭建、自动分级、真实分帧拖放；只向生产输入路径送事件。
-use super::*;
+use crate::demo::*;
+use crate::document::EditorDocument;
+use crate::egui_ui;
+use crate::panels;
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::render;
 use bevy::asset::{AssetId, LoadState};
 use bevy::ecs::{query::QueryData, system::SystemParam};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
@@ -7,7 +14,17 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::sprite::Anchor;
 use bevy::sprite_render::{MeshMaterial2d, SpriteMeshMaterial};
 use bevy_egui::{EguiInput, PrimaryEguiContext, egui};
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::LinkKind;
+use dr_core::PartCatalog;
+use dr_core::PartKey;
+use dr_core::PartKind;
+use dr_core::Ship;
 use dr_core::StagingState;
+use dr_core::load_ship;
+use dr_core::save_ship;
+use std::collections::BTreeSet;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -58,7 +75,7 @@ enum Phase {
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct State {
+pub struct State {
     phase: Phase,
     step: u8,
     part: usize,
@@ -81,7 +98,7 @@ pub(crate) struct State {
 }
 
 #[derive(SystemParam)]
-pub(crate) struct Context<'w, 's> {
+pub struct Context<'w, 's> {
     document: Res<'w, EditorDocument>,
     cursor: Res<'w, EditorCursor>,
     inspector: Res<'w, properties::Inspector>,
@@ -717,7 +734,7 @@ fn drag(context: &mut Context, state: &mut State, kind: Drag, step: u8) -> bool 
 }
 
 /// 与其他章节共用 advance_ready/animate；没有直接执行 Place、SetStaging 或拖放 Action。
-pub(crate) fn run(
+pub fn run(
     mut context: Context,
     state: Option<ResMut<State>>,
     mut showcase: Option<ResMut<Showcase>>,

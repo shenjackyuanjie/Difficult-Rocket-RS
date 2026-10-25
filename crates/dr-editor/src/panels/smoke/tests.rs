@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::panels::smoke::*;
 use bevy_egui::egui;
 
 #[test]

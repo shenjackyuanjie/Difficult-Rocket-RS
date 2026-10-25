@@ -8,6 +8,7 @@
 //! 另外，原生按钮只认鼠标主键：中键与右键的指针输入在 picking 的输入边界就被丢弃，
 //! 既不会激活按钮，也不会打断左键按住的状态。触摸走独立的 GestureInput 抬指路径。
 use crate::{audio, files, help, mobile_input, properties};
+
 use bevy::picking::hover::Hovered;
 use bevy::picking::input::PointerInputSettings;
 use bevy::picking::pointer::{PointerAction, PointerButton, PointerId, PointerInput};
@@ -17,19 +18,19 @@ use bevy::ui::Pressed;
 use bevy::ui_widgets::{Activate, ActivateOnPress, Button};
 
 // 原版 sandbox 的中性灰控件与青柠强调色；原生入口和 egui 仍共用这一份配置。
-pub(crate) const BUTTON: Color = Color::srgb(0.19, 0.19, 0.19);
-pub(crate) const HOVERED: Color = Color::srgb(0.27, 0.27, 0.27);
-pub(crate) const PRESSED: Color = Color::srgb(0.31, 0.38, 0.09);
-pub(crate) const SELECTED: Color = Color::srgb(0.24, 0.29, 0.10);
-pub(crate) const TEXT: Color = Color::srgb(0.90, 0.90, 0.90);
-pub(crate) const PANEL: Color = Color::srgb(0.13, 0.13, 0.13);
-pub(crate) const BORDER: Color = Color::srgb(0.07, 0.07, 0.07);
-pub(crate) const ACCENT: Color = Color::srgb(0.70, 0.86, 0.02);
-pub(crate) const BUTTON_FONT_SIZE: f32 = 16.0;
-pub(crate) const RADIUS: u8 = 2;
+pub const BUTTON: Color = Color::srgb(0.19, 0.19, 0.19);
+pub const HOVERED: Color = Color::srgb(0.27, 0.27, 0.27);
+pub const PRESSED: Color = Color::srgb(0.31, 0.38, 0.09);
+pub const SELECTED: Color = Color::srgb(0.24, 0.29, 0.10);
+pub const TEXT: Color = Color::srgb(0.90, 0.90, 0.90);
+pub const PANEL: Color = Color::srgb(0.13, 0.13, 0.13);
+pub const BORDER: Color = Color::srgb(0.07, 0.07, 0.07);
+pub const ACCENT: Color = Color::srgb(0.70, 0.86, 0.02);
+pub const BUTTON_FONT_SIZE: f32 = 16.0;
+pub const RADIUS: u8 = 2;
 
 /// 0.20 的圆角是 Node 的字段；尺寸、触控高度和命中范围仍由调用方决定。
-pub(crate) fn native_corners() -> BorderRadius {
+pub fn native_corners() -> BorderRadius {
     BorderRadius::all(px(f32::from(RADIUS)))
 }
 
@@ -42,7 +43,7 @@ type ButtonVisuals = (
     &'static mut BorderColor,
 );
 
-pub(crate) fn update_native_buttons(
+pub fn update_native_buttons(
     mut buttons: Query<ButtonVisuals, With<Button>>,
     touch: Option<Res<mobile_input::GestureInput>>,
 ) {
@@ -72,18 +73,18 @@ pub(crate) fn update_native_buttons(
 }
 
 #[cfg(test)]
-pub(crate) mod test_support;
+pub mod test_support;
 #[cfg(test)]
 mod tests;
 
 /// 按钮被激活。消费者按实体查询自己的动作组件。
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Activated {
+pub struct Activated {
     pub entity: Entity,
 }
 
 /// 注册按钮桥接：Activated 消息、Activate 观察者、指针输入边界过滤，并关闭 picking 的触摸输入。
-pub(crate) struct NativeButtonsPlugin;
+pub struct NativeButtonsPlugin;
 
 impl Plugin for NativeButtonsPlugin {
     fn build(&self, app: &mut App) {
@@ -113,7 +114,7 @@ impl Plugin for NativeButtonsPlugin {
 }
 
 /// 按下即触发的按钮外壳：无样式 widget 加上悬停与 picking 命中拦截组件。
-pub(crate) fn press_triggered() -> impl Bundle {
+pub fn press_triggered() -> impl Bundle {
     (
         Button,
         ActivateOnPress,

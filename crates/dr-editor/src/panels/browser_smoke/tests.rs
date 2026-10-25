@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::panels::browser_smoke::*;
 use bevy_egui::{EguiInput, egui};
 
 fn rect(y: f32) -> egui::Rect {

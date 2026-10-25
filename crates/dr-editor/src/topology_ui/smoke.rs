@@ -1,6 +1,14 @@
-use super::*;
+use crate::demo;
+use crate::document::EditorDocument;
+use crate::egui_ui;
+use crate::topology_ui::*;
+use crate::window::SmokeTest;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy_egui::{EguiInput, PrimaryEguiContext};
+use dr_core::Connection;
+use dr_core::EditorHistory;
+use dr_core::PartKey;
+use dr_core::Ship;
 
 #[derive(Default)]
 pub struct State {

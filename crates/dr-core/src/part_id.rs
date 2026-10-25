@@ -4,7 +4,7 @@ use crate::model::{Connection, Part, PartId};
 use std::collections::BTreeSet;
 
 /// 历史悬空引用也占用编号，避免新部件无意顶替原来的引用目标。
-pub(crate) fn group_ids<'a>(
+pub fn group_ids<'a>(
     parts: &'a [Part],
     connections: &'a [Connection],
 ) -> impl Iterator<Item = PartId> + 'a {
@@ -30,13 +30,13 @@ pub(crate) fn group_ids<'a>(
 }
 
 /// 通常从最大已占用号加一分配；触及上界后从 1 查找空正数。
-pub(crate) struct PartIdAllocator {
+pub struct PartIdAllocator {
     reserved: BTreeSet<PartId>,
     next: PartId,
 }
 
 impl PartIdAllocator {
-    pub(crate) fn new(ids: impl IntoIterator<Item = PartId>) -> Self {
+    pub fn new(ids: impl IntoIterator<Item = PartId>) -> Self {
         let reserved: BTreeSet<_> = ids.into_iter().collect();
         let next = reserved
             .last()
@@ -49,7 +49,7 @@ impl PartIdAllocator {
     }
 
     /// 返回的编号立即预留，同一事务内连续分配也不会重用。
-    pub(crate) fn allocate(&mut self) -> Option<PartId> {
+    pub fn allocate(&mut self) -> Option<PartId> {
         let start = self.next;
         loop {
             let candidate = self.next;

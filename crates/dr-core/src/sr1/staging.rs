@@ -3,9 +3,9 @@
 //! `moved` 是加载后重新建立的内部状态：PC 忽略 XML 中的同名属性，
 //! 对成功解析、且属于当前部件树的引用一律置为 `true`。
 
-use super::scalars::{read_i32, write_bool};
-use super::xml::{self, Element};
-use super::{Error, Result};
+use crate::sr1::scalars::{read_i32, write_bool};
+use crate::sr1::xml::{self, Element};
+use crate::sr1::{Error, Result};
 
 /// 一个分级动作引用。`part_id` 使用原生 PC 的有符号 32 位 ID。
 #[derive(Debug, Clone, PartialEq, Eq)]

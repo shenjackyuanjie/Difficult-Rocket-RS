@@ -2,8 +2,28 @@
 //! 文本编辑、剪贴板和 IME 由 bevy_egui 处理；原生工具栏沿用 properties::setup/actions。
 //! EguiPrimaryContextPass 由插件在 PostUpdate::EndPass 内执行，不应手动运行。
 
-use super::*;
+use crate::canvas_input;
+use crate::connection_lines;
+
+use crate::document::EditorDocument;
+use crate::files;
+use crate::help;
+use crate::icons;
+use crate::mobile_input;
+use crate::native_buttons;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::render;
+use crate::selection::DragState;
+use crate::topology_ui;
+use crate::view::CameraDrag;
+
+use crate::window::EditorPaths;
+use bevy::prelude::*;
+use bevy::ui_widgets::Button;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
+use dr_core::PartKey;
 
 /// 本次 egui pass 的逻辑坐标，供窗口自动化直接生成 egui 指针事件。
 /// 若测试改为发送 Bevy 窗口事件，还需换算窗口缩放与 ctx.pixels_per_point()。
@@ -38,10 +58,10 @@ impl UiHits {
 
 /// 目录与分级动作共用 Bevy 贴图注册；尺寸每帧读取，避免缓存未加载时的回退值。
 #[derive(Resource, Default)]
-pub(crate) struct PartImages(std::collections::HashMap<String, egui::TextureId>);
+pub struct PartImages(std::collections::HashMap<String, egui::TextureId>);
 
 impl PartImages {
-    pub(crate) fn get(
+    pub fn get(
         &mut self,
         contexts: &mut EguiContexts,
         assets: &AssetServer,
@@ -64,7 +84,7 @@ impl PartImages {
 }
 
 /// 两个部件列表使用同一等比例缩略图绘制，图片不会拉伸或挤占文字列。
-pub(crate) fn paint_part_image(
+pub fn paint_part_image(
     ui: &egui::Ui,
     (texture, size): (egui::TextureId, Vec2),
     bounds: egui::Rect,
@@ -106,7 +126,7 @@ impl Plugin for EditorEguiPlugin {
 }
 
 /// 停靠分级是左侧边栏，不独占画布、目录与快捷键；只有非停靠的属性窗口才是模态。
-pub(crate) fn modal_properties(inspector: Option<&properties::Inspector>) -> bool {
+pub fn modal_properties(inspector: Option<&properties::Inspector>) -> bool {
     inspector.is_some_and(|inspector| inspector.is_open() && !inspector.docked())
 }
 
@@ -253,7 +273,7 @@ fn configure_chinese_font(ctx: &egui::Context, paths: &EditorPaths) {
     }
 }
 
-pub(crate) fn ui_color(color: Color) -> egui::Color32 {
+pub fn ui_color(color: Color) -> egui::Color32 {
     let [r, g, b, a] = color.to_srgba().to_u8_array();
     egui::Color32::from_rgba_unmultiplied(r, g, b, a)
 }
@@ -318,7 +338,7 @@ fn configure_theme(ctx: &egui::Context) {
 }
 
 #[cfg(test)]
-pub(crate) fn test_context() -> egui::Context {
+pub fn test_context() -> egui::Context {
     let ctx = egui::Context::default();
     configure_theme(&ctx);
     ctx

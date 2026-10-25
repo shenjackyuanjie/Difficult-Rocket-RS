@@ -3,9 +3,9 @@
 //! 本模块独立于编辑器的严格目录 DTO。长度、角度、Shape 舍入及缺省值按
 //! PC 加载器还原；原始元素保留未消费字段，不代表本层实现了物理模拟。
 
-use super::scalars::{parse_f64, read_bool, read_f64, read_i32};
-use super::xml::{self, Element};
-use super::{Error, Result};
+use crate::sr1::scalars::{parse_f64, read_bool, read_f64, read_i32};
+use crate::sr1::xml::{self, Element};
+use crate::sr1::{Error, Result};
 
 /// ObjectCreator 的实际工厂分支，不等同于编辑器的展示分类。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

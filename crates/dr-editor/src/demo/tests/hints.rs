@@ -1,4 +1,4 @@
-use super::*;
+use crate::demo::tests::*;
 
 fn key_event(key: bevy_egui::egui::Key, pressed: bool, repeat: bool) -> bevy_egui::egui::Event {
     use bevy_egui::egui;

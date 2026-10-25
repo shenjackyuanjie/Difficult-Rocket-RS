@@ -1,6 +1,19 @@
 //! TouchInput 的小型适配层：独立指针状态复用画布编辑，不污染真实鼠标输入。
-use super::*;
+use crate::canvas_input;
+use crate::connection_lines;
+use crate::files;
+use crate::help;
+
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::selection::DragState;
+use crate::topology_ui;
+use crate::view::CameraDrag;
+
 use bevy::input::touch::{TouchInput, TouchPhase};
+use bevy::prelude::*;
+use bevy::ui_widgets::Button;
 use bevy::window::{PrimaryWindow, WindowFocused};
 use std::collections::BTreeMap;
 
@@ -8,7 +21,7 @@ use std::collections::BTreeMap;
 mod tests;
 
 #[derive(Clone, Debug)]
-pub(crate) enum NativeClick {
+pub enum NativeClick {
     Menu,
     File(files::FileAction),
     Properties,
@@ -37,7 +50,7 @@ enum Session {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct NavigationDelta {
+pub struct NavigationDelta {
     pub from: Vec2,
     pub to: Vec2,
     /// 正交投影的比例：手指张开时值小于 1。
@@ -45,7 +58,7 @@ pub(crate) struct NavigationDelta {
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct GestureInput {
+pub struct GestureInput {
     pub buttons: ButtonInput<MouseButton>,
     pub position: Option<Vec2>,
     pub press_position: Option<Vec2>,
@@ -109,7 +122,7 @@ fn cancel_preview(drag: &mut DragState, cursor: &mut EditorCursor, camera_drag: 
 
 /// 起点决定整次触摸归属；UI 滚动越过边界也不会变成画布拖拽。
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-pub(crate) fn input(
+pub fn input(
     mut events: MessageReader<TouchInput>,
     mut focus: MessageReader<WindowFocused>,
     windows: Query<(Entity, &Window), With<PrimaryWindow>>,

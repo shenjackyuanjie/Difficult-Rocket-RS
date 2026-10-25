@@ -1,4 +1,15 @@
-use super::*;
+use crate::document::EditorDocument;
+use crate::files;
+use crate::help;
+use crate::mobile_input;
+use crate::native_buttons;
+use crate::placement::EditorCursor;
+use crate::properties::*;
+use crate::selection::DragState;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::PartCatalog;
+use dr_core::PartKey;
 use dr_core::load_catalog;
 
 fn document() -> EditorDocument {

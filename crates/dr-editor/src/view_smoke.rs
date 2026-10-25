@@ -1,10 +1,21 @@
-use super::*;
+use crate::demo;
+
+use crate::document::EditorDocument;
+use crate::help;
+use crate::panels;
+use crate::render;
+use crate::view;
+
+use crate::window::SmokeTest;
+use bevy::prelude::*;
+use dr_core::PartKey;
+use dr_core::Ship;
 
 #[derive(Resource)]
-pub(crate) struct HelpCaptured;
+pub struct HelpCaptured;
 
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     phase: u8,
     before: Option<Ship>,
     delay: u8,
@@ -39,7 +50,7 @@ fn view_description(phase: u8) -> &'static str {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
+pub fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     mut document: ResMut<EditorDocument>,

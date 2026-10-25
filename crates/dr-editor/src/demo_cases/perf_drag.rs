@@ -2,7 +2,15 @@
 //!
 //! 帧间隔来自拖动步骤读取的 Time::delta_secs()，是被演示窗口真实渲染一帧的耗时；
 //! 这里不测物理显示延迟，也不把演示节拍当成帧耗时。
-use super::*;
+use crate::demo_cases::*;
+use crate::document::EditorDocument;
+use crate::free_mode;
+use crate::placement::EditorCursor;
+use crate::view;
+use dr_core::EditorHistory;
+use dr_core::PartKey;
+use dr_core::Ship;
+use std::collections::BTreeSet;
 
 const BULK: usize = 1000;
 const STEPS: usize = 32;
@@ -13,11 +21,7 @@ const MAX_PRESS_SCALE: f32 = 3.0;
 
 /// 生产画布在自由模式下会把左键按下交给手动连接点选择，命中半径随缩放变化。
 /// 在副本上用同一函数探测，确保性能样例的按下边沿真的开始拖动。
-pub(super) fn press_is_plain_click(
-    document: &EditorDocument,
-    point: (f64, f64),
-    scale: f32,
-) -> bool {
+pub fn press_is_plain_click(document: &EditorDocument, point: (f64, f64), scale: f32) -> bool {
     let mut probe = EditorDocument {
         free_mode: document.free_mode,
         snap_enabled: document.snap_enabled,
@@ -42,7 +46,7 @@ pub(super) fn press_is_plain_click(
 }
 
 #[derive(Default)]
-pub(super) struct Probe {
+pub struct Probe {
     stage: u8,
     retries: u8,
     keys: Vec<PartKey>,
@@ -77,7 +81,7 @@ impl Probe {
 }
 
 /// 平均、中位、95 分位与最大帧耗时（毫秒）；样本按升序排序。
-pub(super) fn frame_stats(samples: &mut [f64]) -> (f64, f64, f64, f64) {
+pub fn frame_stats(samples: &mut [f64]) -> (f64, f64, f64, f64) {
     assert!(!samples.is_empty(), "帧耗时统计需要至少一个真实样本");
     samples.sort_by(f64::total_cmp);
     let count = samples.len();
@@ -106,7 +110,7 @@ fn set_pointer(state: &mut Run, ctx: &mut Context, world: (f64, f64)) {
 }
 
 /// 建立 1000 部件选区：真实样本、真实选中集合、真实相机取景。
-pub(super) fn setup(state: &mut Run, ctx: &mut Context, scenario: Scenario) {
+pub fn setup(state: &mut Run, ctx: &mut Context, scenario: Scenario) {
     if !matches!(scenario, Scenario::BulkDrag) {
         return;
     }
@@ -299,7 +303,7 @@ fn finish_metrics(state: &mut Run, ctx: &Context, delta: (f64, f64)) {
     state.metrics["xml_roundtrip"] = true.into();
 }
 
-pub(super) fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
+pub fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
     if !matches!(scenario, Scenario::BulkDrag) {
         return false;
     }

@@ -1,4 +1,4 @@
-use super::*;
+use crate::io::catalog::*;
 
 #[test]
 fn catalog_keeps_physics_limits_damage_and_all_static_specs() {

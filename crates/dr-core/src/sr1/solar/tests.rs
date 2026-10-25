@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::sr1::solar::*;
 
 // 按真实 SmolarSystem.xml 缩小：保留 Sun/Smearth/Smoon 层级、轨道和海洋山脉数据。
 const SMOLAR: &str = r#"<SolarSystem name="Smolar System" description="small">

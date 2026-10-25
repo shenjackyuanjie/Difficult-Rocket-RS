@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::sr1::scalars::*;
 
 #[test]
 fn missing_or_invalid_values_preserve_initial_bits() {

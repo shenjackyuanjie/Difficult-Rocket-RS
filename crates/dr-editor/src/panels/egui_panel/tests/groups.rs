@@ -1,4 +1,8 @@
-use super::*;
+use crate::document::EditorDocument;
+use crate::files;
+use crate::panels::egui_panel::tests::*;
+use crate::placement::EditorCursor;
+use crate::selection::DragState;
 
 #[test]
 fn category_header_truncates_long_custom_names_and_keeps_touch_height() {

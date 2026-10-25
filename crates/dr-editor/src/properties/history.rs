@@ -1,4 +1,4 @@
-use super::{Draft, PartKey, StagingState};
+use crate::properties::{Draft, PartKey, StagingState};
 
 /// 只记录可提交的属性；目标选择、预览与展开状态属于界面导航。
 #[derive(Clone, PartialEq)]
@@ -43,14 +43,14 @@ impl Snapshot {
 }
 
 #[derive(Default)]
-pub(super) struct DraftHistory {
+pub struct DraftHistory {
     current: Option<(PartKey, Snapshot)>,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
 }
 
 impl DraftHistory {
-    pub(super) fn changed(draft: &Draft) -> bool {
+    pub fn changed(draft: &Draft) -> bool {
         !Snapshot::new(&Draft::new(draft.key, &draft.original)).matches(draft)
     }
 
@@ -61,7 +61,7 @@ impl DraftHistory {
         }
     }
 
-    pub(super) fn can_undo(&self, draft: &Draft) -> bool {
+    pub fn can_undo(&self, draft: &Draft) -> bool {
         self.pending(draft)
             || (self
                 .current
@@ -70,7 +70,7 @@ impl DraftHistory {
                 && !self.undo.is_empty())
     }
 
-    pub(super) fn can_redo(&self, draft: &Draft) -> bool {
+    pub fn can_redo(&self, draft: &Draft) -> bool {
         !self.pending(draft)
             && self
                 .current
@@ -79,7 +79,7 @@ impl DraftHistory {
             && !self.redo.is_empty()
     }
 
-    pub(super) fn observe(&mut self, draft: Option<&Draft>) {
+    pub fn observe(&mut self, draft: Option<&Draft>) {
         let Some(draft) = draft else {
             *self = Self::default();
             return;
@@ -107,7 +107,7 @@ impl DraftHistory {
         }
     }
 
-    pub(super) fn undo(&mut self, draft: &mut Draft) -> bool {
+    pub fn undo(&mut self, draft: &mut Draft) -> bool {
         self.observe(Some(draft));
         let Some(previous) = self.undo.pop() else {
             return false;
@@ -118,7 +118,7 @@ impl DraftHistory {
         true
     }
 
-    pub(super) fn redo(&mut self, draft: &mut Draft) -> bool {
+    pub fn redo(&mut self, draft: &mut Draft) -> bool {
         self.observe(Some(draft));
         let Some(next) = self.redo.pop() else {
             return false;

@@ -1,6 +1,21 @@
 //! 系统快捷键验收：外部驱动发送 Windows 输入，本系统仅设置初始样本并观察结果。
-use super::*;
+
+use crate::document::EditorDocument;
+use crate::native_input;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::selection::DragState;
+use crate::topology_ui;
+use crate::view;
+
+use crate::window::EditorPaths;
+use crate::window::SmokeTest;
 use bevy::input::{ButtonState, keyboard::KeyboardInput};
+use bevy::prelude::*;
+use dr_core::EditorHistory;
+use dr_core::PartKey;
+use dr_core::Ship;
 
 #[derive(Debug, Clone, Copy)]
 enum Check {

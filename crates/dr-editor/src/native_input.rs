@@ -1,6 +1,22 @@
 //! 只观察真实系统键鼠；不改写 Window.focused、ButtonInput 或 egui RawInput。
 //! 用户要求暂跳过输入法/系统文字专项，此回归不打开文本字段或驱动 IME。
-use super::*;
+
+use crate::document::EditorDocument;
+use crate::panels;
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::render;
+use crate::selection::DragState;
+
+use crate::window::SmokeTest;
+use bevy::prelude::*;
+use dr_core::Connection;
+use dr_core::EditorHistory;
+use dr_core::PartKey;
+use dr_core::PartKind;
+use dr_core::Ship;
+use dr_core::load_ship;
+use dr_core::save_ship;
 use std::path::Path;
 
 #[derive(Default)]

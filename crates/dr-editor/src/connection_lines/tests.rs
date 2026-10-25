@@ -1,5 +1,5 @@
-
-use super::*;
+use crate::connection_lines::*;
+use crate::panels;
 
 #[test]
 fn actual_configuration_system_only_updates_connection_group() {

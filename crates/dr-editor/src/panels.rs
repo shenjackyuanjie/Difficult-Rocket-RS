@@ -1,29 +1,47 @@
-use super::*;
+use crate::audio;
+
+use crate::document::EditorDocument;
+use crate::files;
+use crate::help;
+use crate::mobile_input;
+
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::selection;
+use crate::selection::DragState;
+
+use bevy::prelude::*;
+use dr_core::EditorCommand;
+use dr_core::PartCatalog;
+use dr_core::PartKind;
+use dr_core::load_ship;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-pub(crate) mod browser_smoke;
+pub mod browser_smoke;
 pub mod egui_panel;
-pub(crate) mod smoke;
+pub mod smoke;
 
 #[derive(Component)]
-pub(crate) struct EditorPanel;
+pub struct EditorPanel;
 /// 原生三个入口与 egui 编辑工具共用底部单条工具栏。
 #[derive(Component, Clone, Copy)]
-pub(crate) enum ToolbarItem {
+pub enum ToolbarItem {
     Files,
     Properties,
     Help,
     Status,
 }
 
-pub(crate) const TOOLBAR_HEIGHT: f32 = 56.0;
-pub(crate) const NATIVE_TOOLBAR_WIDTH: f32 = 144.0;
+pub const TOOLBAR_HEIGHT: f32 = 56.0;
+pub const NATIVE_TOOLBAR_WIDTH: f32 = 144.0;
 
-pub(crate) fn compact(width: f32) -> bool {
+pub fn compact(width: f32) -> bool {
     width < 960.0
 }
 
-pub(crate) fn layout_toolbars(
+pub fn layout_toolbars(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut items: Query<(&ToolbarItem, &mut Node)>,
 ) {
@@ -61,13 +79,13 @@ pub(crate) fn layout_toolbars(
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct UiPointer {
+pub struct UiPointer {
     pub blocked: bool,
     pub palette_drop: bool,
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct Palette {
+pub struct Palette {
     collapsed: BTreeSet<String>,
 }
 
@@ -125,7 +143,7 @@ fn category_label(name: &str) -> &str {
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct ShipBrowser {
+pub struct ShipBrowser {
     folder: PathBuf,
     files: Vec<PathBuf>,
     rejected: usize,
@@ -201,7 +219,7 @@ pub enum PanelButton {
     FlipY,
 }
 
-pub(crate) fn over_ui(
+pub fn over_ui(
     position: Vec2,
     panels: &Query<(&ComputedNode, &UiGlobalTransform), With<EditorPanel>>,
     egui_state: Option<&egui_panel::UiState>,
@@ -219,7 +237,7 @@ pub(crate) fn over_ui(
             .any(|(node, transform)| node.contains_point(*transform, position))
 }
 
-pub(crate) fn pointer_over_ui(
+pub fn pointer_over_ui(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     panels: Query<(&ComputedNode, &UiGlobalTransform), With<EditorPanel>>,
     mut pointer: ResMut<UiPointer>,
@@ -256,7 +274,7 @@ pub(crate) fn pointer_over_ui(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn panel_actions(
+pub fn panel_actions(
     mut buttons: MessageReader<PanelButton>,
     mut palette: ResMut<Palette>,
     mut browser: ResMut<ShipBrowser>,
@@ -417,7 +435,7 @@ pub(crate) fn panel_actions(
 }
 
 /// Tab 按目录的分组顺序循环，跳过已收起的组；选择状态与鼠标目录共用。
-pub(crate) fn cycle_part(
+pub fn cycle_part(
     document: &EditorDocument,
     palette: &Palette,
     cursor: &mut EditorCursor,
@@ -441,4 +459,4 @@ pub(crate) fn cycle_part(
 }
 
 #[cfg(test)]
-pub(crate) mod tests;
+pub mod tests;

@@ -1,5 +1,17 @@
-use super::*;
 use crate::canvas_input::{keyboard_commands, mouse_editor};
+use crate::document::EditorDocument;
+use crate::files;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::placement::*;
+use crate::render;
+use crate::selection::DragState;
+use crate::view;
+use crate::view::CameraDrag;
+use dr_core::EditorCommand;
+use dr_core::LinkKind;
+use dr_core::PartKey;
+use dr_core::PartKind;
 
 fn document() -> EditorDocument {
     let mut document = crate::test_support::document();

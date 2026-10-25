@@ -1,17 +1,26 @@
-use super::*;
+use crate::document::EditorDocument;
+use crate::mobile_input;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::render;
+use crate::selection::DragState;
+use crate::view;
+
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+use bevy::prelude::*;
 use dr_core::geometry::Vec2d;
 use dr_core::geometry::{WorldShape, world_shapes};
 
 #[derive(Resource, Default)]
-pub(crate) struct CameraDrag(pub(crate) Option<Vec2>);
+pub struct CameraDrag(pub Option<Vec2>);
 
-pub(crate) fn setup_camera(mut commands: Commands) {
+pub fn setup_camera(mut commands: Commands) {
     commands.spawn((Camera2d, Name::new("Editor camera")));
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn camera_controls(
+pub fn camera_controls(
     mut wheels: MessageReader<MouseWheel>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -123,7 +132,7 @@ pub(crate) fn camera_controls(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BoxSelectButton {
+pub enum BoxSelectButton {
     Left,
     Middle,
 }
@@ -145,7 +154,7 @@ impl BoxSelectButton {
 }
 
 #[derive(Resource)]
-pub(crate) struct ViewOptions {
+pub struct ViewOptions {
     pub debug: bool,
     pub ship_visible: bool,
     pub box_select_button: BoxSelectButton,
@@ -167,7 +176,7 @@ impl Default for ViewOptions {
 /// PostUpdate 才刷新。使用本帧的根相机 Transform、Projection 和窗口尺寸，
 /// 避免平移/缩放/适配后仍读取上一帧视角；不改动渲染使用的相机缓存。
 /// TouchInput 和鼠标共用逻辑窗口坐标，DPI 只用于相机及 UI 的物理坐标换算。
-pub(crate) fn point_world(
+pub fn point_world(
     window: &Window,
     camera: &Camera,
     transform: &Transform,
@@ -193,7 +202,7 @@ pub(crate) fn point_world(
 }
 
 /// UI 尚未生成实际矩形时的全宽画布，底部预留工具栏与 16 像素边距。
-pub(crate) fn canvas(size: Vec2) -> Rect {
+pub fn canvas(size: Vec2) -> Rect {
     Rect::from_corners(
         Vec2::splat(16.0),
         Vec2::new(
@@ -213,7 +222,7 @@ fn fitted(
     fitted_in(document, size, canvas(size), selected, texture_size)
 }
 
-pub(crate) fn fitted_in(
+pub fn fitted_in(
     document: &EditorDocument,
     size: Vec2,
     area: Rect,
@@ -271,7 +280,7 @@ pub(crate) fn fitted_in(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn controls(
+pub fn controls(
     keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     document: Res<EditorDocument>,
@@ -347,10 +356,10 @@ pub(crate) fn controls(
 }
 
 #[derive(Component)]
-pub(crate) struct DebugLabel;
+pub struct DebugLabel;
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn draw_debug(
+pub fn draw_debug(
     mut commands: Commands,
     options: Res<ViewOptions>,
     document: Res<EditorDocument>,

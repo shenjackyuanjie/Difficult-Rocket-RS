@@ -36,13 +36,8 @@ mod window;
 mod test_support;
 
 use bevy::prelude::*;
-use bevy::ui_widgets::Button;
-use dr_core::{
-    Connection, EditorCommand, EditorHistory, LinkKind, Part, PartCatalog, PartKey, PartKind, Ship,
-    load_ship, save_ship,
-};
-use dr_core::{SelectionPose, SelectionTransform, ShipFragment};
-use std::collections::BTreeSet;
+#[cfg(test)]
+use dr_core::PartKey;
 
 use document::{EditorDocument, load_document, new_ship};
 use placement::EditorCursor;

@@ -1,4 +1,4 @@
-use super::CoreError;
+use crate::io::CoreError;
 use crate::model::*;
 use quick_xml::de::from_str;
 use serde::{Deserialize, Serialize};

@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::sr1::runtime::*;
 
 fn catalog() -> Catalog {
     Catalog::from_xml(r#"<PartTypes><PartType id="pod-1" name="Pod" type="pod"><AttachPoints/></PartType></PartTypes>"#).unwrap()

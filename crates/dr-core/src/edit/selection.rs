@@ -1,4 +1,4 @@
-use super::*;
+use crate::edit::*;
 use crate::{ShipGroup, geometry::CollisionSet, part_id::PartIdAllocator};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -179,7 +179,7 @@ fn collides(
     Ok(())
 }
 
-pub(super) fn transform(
+pub fn transform(
     ship: &mut Ship,
     catalog: Option<&PartCatalog>,
     parts: &[PartKey],
@@ -226,7 +226,7 @@ pub fn pose_part(
     Ok(part)
 }
 
-pub(super) fn drag(
+pub fn drag(
     ship: &mut Ship,
     catalog: Option<&PartCatalog>,
     parts: &[PartKey],
@@ -249,7 +249,7 @@ pub(super) fn drag(
     )
 }
 
-pub(super) fn drag_pose(
+pub fn drag_pose(
     ship: &mut Ship,
     catalog: Option<&PartCatalog>,
     parts: &[PartKey],
@@ -324,7 +324,7 @@ fn install(
     Ok(())
 }
 
-pub(super) fn delete(ship: &mut Ship, parts: &[PartKey]) -> Result<(), CommandError> {
+pub fn delete(ship: &mut Ship, parts: &[PartKey]) -> Result<(), CommandError> {
     let keys = keys(ship, parts)?;
     let mut selected = HashMap::<usize, HashSet<PartId>>::new();
     for key in &keys {
@@ -464,7 +464,7 @@ impl ShipFragment {
     }
 }
 
-pub(super) fn paste(
+pub fn paste(
     ship: &mut Ship,
     catalog: Option<&PartCatalog>,
     fragment: &ShipFragment,

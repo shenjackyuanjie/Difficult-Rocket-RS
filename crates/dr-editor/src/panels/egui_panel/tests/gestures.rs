@@ -1,4 +1,4 @@
-use super::*;
+use crate::panels::egui_panel::tests::*;
 
 /// 沿用目录行现成的 `part_row` + ScrollArea 最小框架。
 #[derive(Debug, Default)]

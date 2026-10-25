@@ -1,7 +1,7 @@
 //! 演示回归测试共用夹具；按输入、节拍、证据和配置拆分。
-use super::chapters::CHAPTERS;
-use super::hints::{KEY_HINT_FADE, KEY_HINT_HOLD, button_key_name};
-use super::*;
+use crate::demo::chapters::CHAPTERS;
+use crate::demo::hints::{KEY_HINT_FADE, KEY_HINT_HOLD, button_key_name};
+use crate::demo::*;
 
 mod configuration;
 mod evidence;

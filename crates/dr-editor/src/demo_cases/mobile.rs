@@ -2,8 +2,10 @@
 //!
 //! 触摸走 mobile_input 的单指会话（按下只预览、抬指提交），
 //! 鼠标走画布的按下边沿；两者都必须只提交一次并留下一条历史。
-use super::*;
+use crate::demo_cases::*;
+use crate::placement;
 use bevy::input::touch::TouchPhase;
+use dr_core::Ship;
 
 const WAIT_STEPS: u8 = 60;
 /// 画布上的空白落点（世界单位），远离夹具部件。
@@ -11,7 +13,7 @@ const PLACE_AT: (f64, f64) = (0., 5.);
 const TOUCH_ID: u64 = 7;
 
 #[derive(Default)]
-pub(super) struct Probe {
+pub struct Probe {
     stage: u8,
     retries: u8,
     before: Option<Ship>,
@@ -36,7 +38,7 @@ impl Probe {
     }
 }
 
-pub(super) fn setup(state: &mut Run, ctx: &mut Context, scenario: Scenario) {
+pub fn setup(state: &mut Run, ctx: &mut Context, scenario: Scenario) {
     if !matches!(
         scenario,
         Scenario::TouchPreviewCommit | Scenario::MousePressCommit
@@ -256,7 +258,7 @@ fn mouse_case(state: &mut Run, ctx: &mut Context) -> bool {
     }
 }
 
-pub(super) fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
+pub fn advance(state: &mut Run, ctx: &mut Context, scenario: Scenario) -> bool {
     match scenario {
         Scenario::TouchPreviewCommit => touch_case(state, ctx),
         Scenario::MousePressCommit => mouse_case(state, ctx),

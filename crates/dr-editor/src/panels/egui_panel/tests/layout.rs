@@ -1,4 +1,6 @@
-use super::*;
+use crate::panels;
+use crate::panels::egui_panel::tests::*;
+use crate::properties;
 
 /// 复用生产底栏、抽屉标题及导航；正文占位仅隔离几何和真实输入合同。
 #[derive(Debug)]

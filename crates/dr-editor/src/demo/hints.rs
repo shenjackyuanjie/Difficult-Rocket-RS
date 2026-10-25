@@ -1,17 +1,18 @@
 //! 真实输入边沿的提示采集、寿命与非交互绘制。
-use super::*;
+use crate::demo::*;
+use std::collections::BTreeSet;
 
 /// 提示寿命独立于演示节拍：fast 模式也有可见的停留与淡出。
-pub(super) const KEY_HINT_HOLD: Duration = Duration::from_millis(250);
-pub(super) const KEY_HINT_FADE: Duration = Duration::from_millis(650);
+pub const KEY_HINT_HOLD: Duration = Duration::from_millis(250);
+pub const KEY_HINT_FADE: Duration = Duration::from_millis(650);
 
-pub(super) struct KeyHint {
-    pub(super) text: String,
-    pub(super) applied: Instant,
+pub struct KeyHint {
+    pub text: String,
+    pub applied: Instant,
 }
 
 impl KeyHint {
-    pub(super) fn opacity(&self, now: Instant) -> f32 {
+    pub fn opacity(&self, now: Instant) -> f32 {
         let elapsed = now.saturating_duration_since(self.applied);
         if elapsed <= KEY_HINT_HOLD {
             1.
@@ -23,13 +24,13 @@ impl KeyHint {
 }
 
 #[derive(Default)]
-pub(super) struct KeyHints {
-    pub(super) latest: Option<KeyHint>,
+pub struct KeyHints {
+    pub latest: Option<KeyHint>,
     // 只记已采集的边沿；即使 ButtonInput 在下一帧仍保留 just_pressed，也不重置寿命。
-    pub(super) seen_edges: std::collections::HashSet<KeyCode>,
+    pub seen_edges: std::collections::HashSet<KeyCode>,
 }
 
-pub(super) fn is_modifier(name: &str) -> bool {
+pub fn is_modifier(name: &str) -> bool {
     matches!(
         name,
         "ControlLeft"
@@ -43,7 +44,7 @@ pub(super) fn is_modifier(name: &str) -> bool {
     )
 }
 
-pub(super) fn button_key_name(key: KeyCode) -> String {
+pub fn button_key_name(key: KeyCode) -> String {
     use bevy_egui::egui;
     let name = format!("{key:?}");
     let name = name
@@ -53,7 +54,7 @@ pub(super) fn button_key_name(key: KeyCode) -> String {
     egui::Key::from_name(name).map_or_else(|| name.to_owned(), |key| key.name().to_owned())
 }
 
-pub(super) fn key_combination(name: &str, modifiers: bevy_egui::egui::Modifiers) -> String {
+pub fn key_combination(name: &str, modifiers: bevy_egui::egui::Modifiers) -> String {
     let mut parts = Vec::new();
     if modifiers.ctrl || (modifiers.command && !modifiers.mac_cmd) {
         parts.push("Ctrl");
@@ -73,7 +74,7 @@ pub(super) fn key_combination(name: &str, modifiers: bevy_egui::egui::Modifiers)
 
 impl KeyHints {
     /// 必须在 Motion 的键与事件已重播之后调用；不读取待应用的 Motion 快照。
-    pub(super) fn collect(
+    pub fn collect(
         &mut self,
         keys: &ButtonInput<KeyCode>,
         events: &[bevy_egui::egui::Event],
@@ -127,12 +128,12 @@ impl KeyHints {
 }
 
 #[derive(Default)]
-pub(super) struct MouseHints {
-    pub(super) latest: Option<KeyHint>,
-    pub(super) seen_edges: std::collections::HashSet<MouseButton>,
+pub struct MouseHints {
+    pub latest: Option<KeyHint>,
+    pub seen_edges: std::collections::HashSet<MouseButton>,
 }
 
-pub(super) fn mouse_label(button: MouseButton) -> Option<(&'static str, &'static str)> {
+pub fn mouse_label(button: MouseButton) -> Option<(&'static str, &'static str)> {
     match button {
         MouseButton::Left => Some(("left", "左键")),
         MouseButton::Middle => Some(("middle", "中键")),
@@ -142,7 +143,7 @@ pub(super) fn mouse_label(button: MouseButton) -> Option<(&'static str, &'static
 }
 
 impl MouseHints {
-    pub(super) fn collect(
+    pub fn collect(
         &mut self,
         mouse: &ButtonInput<MouseButton>,
         events: &[bevy_egui::egui::Event],
@@ -206,7 +207,7 @@ impl MouseHints {
 }
 
 /// 仅向 egui pass 的图层添加形状，不创建 Area/控件，也不请求焦点或捕获输入。
-pub(super) fn paint_key_hint(
+pub fn paint_key_hint(
     ctx: &bevy_egui::egui::Context,
     hint: &KeyHint,
     now: Instant,
@@ -215,7 +216,7 @@ pub(super) fn paint_key_hint(
     paint_input_hint(ctx, hint, now, below_help, false);
 }
 
-pub(super) fn paint_input_hint(
+pub fn paint_input_hint(
     ctx: &bevy_egui::egui::Context,
     hint: &KeyHint,
     now: Instant,

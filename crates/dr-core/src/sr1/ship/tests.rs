@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::sr1::ship::*;
 
 fn catalog() -> Catalog {
     Catalog::from_xml(r#"<PartTypes><PartType id="pod" name="Pod" type="pod"><AttachPoints><AttachPoint/><AttachPoint/></AttachPoints></PartType><PartType id="tank" name="Tank" type="tank"><Tank fuel="100"/><AttachPoints><AttachPoint/><AttachPoint/></AttachPoints></PartType><PartType id="dock" name="Dock" type="dockconnector"><AttachPoints><AttachPoint/><AttachPoint/></AttachPoints></PartType></PartTypes>"#).unwrap()

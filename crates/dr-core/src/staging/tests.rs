@@ -1,4 +1,4 @@
-use super::*;
+use crate::staging::*;
 use crate::{
     EditorCommand, EditorHistory, FuelKind, Part, ShipGroup, catalog_from_xml, ship_from_xml,
     ship_to_xml,

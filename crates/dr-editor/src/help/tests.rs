@@ -1,6 +1,17 @@
-
-use super::*;
+use crate::egui_ui;
+use crate::files;
+use crate::help::*;
+use crate::mobile_input;
+use crate::native_buttons;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::selection::DragState;
+use crate::topology_ui;
+use crate::view::CameraDrag;
 use bevy::ui::Pressed;
+use bevy::ui_widgets::Button;
+use dr_core::PartKey;
 
 #[derive(Resource, Default)]
 struct CanvasTicks(u32);

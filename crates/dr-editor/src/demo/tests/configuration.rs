@@ -1,4 +1,7 @@
-use super::*;
+use crate::demo::tests::*;
+use crate::demo_cases;
+use crate::document::new_ship;
+use std::collections::BTreeSet;
 
 #[test]
 fn detailed_staging_uses_the_full_64_stage_1024_action_fixture_while_brief_stays_small() {

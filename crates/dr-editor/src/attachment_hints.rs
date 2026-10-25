@@ -1,5 +1,17 @@
 //! 拖动时显示连接面与可提交的邻近连接候选，不改变文档或历史。
-use super::*;
+
+use crate::document::EditorDocument;
+use crate::free_mode;
+use crate::panels;
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::selection::DragState;
+use crate::view;
+use bevy::prelude::*;
+use dr_core::EditorCommand;
+use dr_core::LinkKind;
+use dr_core::Part;
+use dr_core::PartKey;
 use dr_core::geometry::Vec2d;
 
 const SOURCE_COLOR: Color = Color::srgb(0.55, 0.51, 0.66);
@@ -7,14 +19,14 @@ const CANDIDATE_COLOR: Color = Color::srgb(0.67, 0.56, 0.88);
 const SNAPPED_COLOR: Color = Color::srgb(0.85, 0.74, 1.0);
 
 #[derive(Debug)]
-pub(crate) struct Hint {
-    pub(crate) source: (Vec2d, Vec2d),
-    pub(crate) target: (Vec2d, Vec2d),
-    pub(crate) contact: (Vec2d, Vec2d),
-    pub(crate) snapped: bool,
+pub struct Hint {
+    pub source: (Vec2d, Vec2d),
+    pub target: (Vec2d, Vec2d),
+    pub contact: (Vec2d, Vec2d),
+    pub snapped: bool,
 }
 
-pub(crate) fn nearby(document: &EditorDocument, source: &Part, key: Option<PartKey>) -> Vec<Hint> {
+pub fn nearby(document: &EditorDocument, source: &Part, key: Option<PartKey>) -> Vec<Hint> {
     if !document.snap_enabled {
         return vec![];
     }
@@ -174,7 +186,7 @@ fn group_hints(document: &EditorDocument, drag: &DragState, command: &EditorComm
     }
 }
 
-pub(crate) fn draw(
+pub fn draw(
     mut gizmos: Gizmos,
     document: Res<EditorDocument>,
     drag: Res<DragState>,

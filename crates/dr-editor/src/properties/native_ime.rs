@@ -1,7 +1,12 @@
-use super::*;
+use crate::document::EditorDocument;
+use crate::properties::*;
+use crate::window::SmokeTest;
+use dr_core::Ship;
+use dr_core::load_ship;
+use dr_core::save_ship;
 
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     phase: u8,
     before: Option<Ship>,
     status: String,
@@ -12,7 +17,7 @@ pub(crate) struct State {
 
 /// Windows 主线程上的 IMM 负责预编辑与提交；此处不注入 Bevy IME 消息。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
+pub fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     mut document: ResMut<EditorDocument>,

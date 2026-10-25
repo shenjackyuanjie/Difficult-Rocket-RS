@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::edit::*;
 #[test]
 fn history_byte_budget_evicts_oldest_and_swaps_without_cloning() {
     let mut ship = Ship {
@@ -95,7 +94,7 @@ fn history_keeps_last_oversized_edit_and_counts_nested_staging_capacity() {
     assert!(history.can_redo());
 }
 
-pub(super) fn part(id: i64) -> Part {
+pub fn part(id: i64) -> Part {
     Part {
         id,
         part_type: "pod-1".into(),

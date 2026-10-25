@@ -1,9 +1,9 @@
 //! 动作分类及观看、快速回放的节拍计算。
-use super::*;
+use crate::demo::*;
 
 /// 节拍只给真实动作留阅读时间，轮询/截图等技术等待不冒充重要操作。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Action {
+pub enum Action {
     Technical,
     Navigation,
     Click,
@@ -11,11 +11,11 @@ pub(super) enum Action {
     Drag,
 }
 
-pub(super) fn fast(step: Duration) -> bool {
+pub fn fast(step: Duration) -> bool {
     step <= Duration::from_millis(60)
 }
 
-pub(super) fn action_pause(step: Duration, action: Action) -> Duration {
+pub fn action_pause(step: Duration, action: Action) -> Duration {
     if fast(step) {
         return step;
     }
@@ -34,7 +34,7 @@ pub(super) fn action_pause(step: Duration, action: Action) -> Duration {
     )
 }
 
-pub(super) fn input_hold(step: Duration) -> Duration {
+pub fn input_hold(step: Duration) -> Duration {
     if fast(step) {
         step / 2
     } else {
@@ -42,7 +42,7 @@ pub(super) fn input_hold(step: Duration) -> Duration {
     }
 }
 
-pub(super) fn chapter_pause(step: Duration, intro: bool) -> Duration {
+pub fn chapter_pause(step: Duration, intro: bool) -> Duration {
     if fast(step) {
         step
     } else {
@@ -50,7 +50,7 @@ pub(super) fn chapter_pause(step: Duration, intro: bool) -> Duration {
     }
 }
 
-pub(super) fn movement_duration(step: Duration, distance: f32) -> Duration {
+pub fn movement_duration(step: Duration, distance: f32) -> Duration {
     if fast(step) {
         Duration::ZERO
     } else {
@@ -59,7 +59,7 @@ pub(super) fn movement_duration(step: Duration, distance: f32) -> Duration {
     }
 }
 
-pub(super) fn classify_action(
+pub fn classify_action(
     moved: bool,
     before_mouse: &ButtonInput<MouseButton>,
     mouse: &ButtonInput<MouseButton>,

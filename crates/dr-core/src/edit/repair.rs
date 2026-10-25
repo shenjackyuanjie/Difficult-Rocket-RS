@@ -1,4 +1,4 @@
-use super::*;
+use crate::edit::*;
 use crate::{ShipGroup, part_id::PartIdAllocator};
 use std::collections::BTreeSet;
 
@@ -153,7 +153,7 @@ impl DuplicateRepair {
         Ok(())
     }
 
-    pub(super) fn apply_inner(&self, ship: &mut Ship) -> Result<(), CommandError> {
+    pub fn apply_inner(&self, ship: &mut Ship) -> Result<(), CommandError> {
         let Some((parts, connections)) = ship.group(self.group) else {
             return Err(CommandError::InvalidRepair(
                 "部件组已不存在，请重新打开修复界面".into(),

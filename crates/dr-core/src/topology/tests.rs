@@ -1,4 +1,4 @@
-use super::*;
+use crate::topology::*;
 use crate::{ShipGroup, catalog_from_xml};
 
 fn ship() -> Ship {

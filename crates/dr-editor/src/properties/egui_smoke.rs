@@ -1,8 +1,15 @@
 //! 通过真实 egui 输入事件验收 TextEdit、IME 和模态属性事务。
 //! 不直接修改草稿字段或调用应用 Action；只有打开面板使用既有入口。
 
-use super::*;
+use crate::document::EditorDocument;
+use crate::properties::*;
+use crate::window::SmokeTest;
 use bevy_egui::{EguiInput, PrimaryEguiContext, egui};
+use dr_core::EditorHistory;
+use dr_core::PartKey;
+use dr_core::Ship;
+use dr_core::load_ship;
+use dr_core::save_ship;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -11,7 +18,7 @@ use std::sync::{
 const NAME: &str = "分级 egui 火箭 & <测试>";
 
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     phase: u8,
     before: Option<Ship>,
     after: Option<Ship>,
@@ -69,7 +76,7 @@ fn protected_canvas_keys(keys: &mut ButtonInput<KeyCode>) {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
+pub fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     mut inspector: ResMut<Inspector>,

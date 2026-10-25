@@ -1,6 +1,21 @@
-use super::*;
+use crate::document::EditorDocument;
+use crate::document::new_ship;
+use crate::files;
+use crate::panels::*;
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::selection::DragState;
 use crate::test_support::catalog;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::LinkKind;
+use dr_core::PartKey;
+use dr_core::PartKind;
+use dr_core::Ship;
+use dr_core::ShipFragment;
 use dr_core::load_catalog;
+use dr_core::save_ship;
 
 #[test]
 fn collisions_include_other_instances_with_the_same_id() {

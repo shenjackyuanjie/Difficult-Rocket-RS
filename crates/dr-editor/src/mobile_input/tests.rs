@@ -1,8 +1,21 @@
-use super::*;
 use crate::canvas_input::mouse_editor;
+use crate::document::EditorDocument;
+use crate::egui_ui;
+use crate::files;
+use crate::help;
+use crate::mobile_input::*;
+use crate::native_buttons;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::selection::DragState;
+use crate::topology_ui;
+use crate::view;
+use crate::view::CameraDrag;
 use crate::view::camera_controls;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::window::WindowResolution;
+use dr_core::PartKey;
 
 fn app() -> App {
     let mut app = crate::test_support::mouse_app();

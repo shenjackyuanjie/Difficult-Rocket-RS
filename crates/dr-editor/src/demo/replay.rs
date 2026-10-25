@@ -1,23 +1,23 @@
 //! 内部指针和输入回放；隔离桌面误点，抵达后再应用边沿。
-use super::*;
+use crate::demo::*;
 
-pub(super) struct Motion {
-    pub(super) from: Vec2,
-    pub(super) to: Vec2,
-    pub(super) started: Instant,
-    pub(super) duration: Duration,
-    pub(super) ui: bool,
-    pub(super) action: Action,
-    pub(super) events: Vec<bevy_egui::egui::Event>,
-    pub(super) mouse: ButtonInput<MouseButton>,
-    pub(super) keys: ButtonInput<KeyCode>,
+pub struct Motion {
+    pub from: Vec2,
+    pub to: Vec2,
+    pub started: Instant,
+    pub duration: Duration,
+    pub ui: bool,
+    pub action: Action,
+    pub events: Vec<bevy_egui::egui::Event>,
+    pub mouse: ButtonInput<MouseButton>,
+    pub keys: ButtonInput<KeyCode>,
 }
 
 /// 只保存演示自身消费过的输入，下一帧不接受桌面误点或按键覆盖。
-pub(super) struct ReplayInput {
-    pub(super) mouse: ButtonInput<MouseButton>,
-    pub(super) keys: ButtonInput<KeyCode>,
-    pub(super) focused: bool,
+pub struct ReplayInput {
+    pub mouse: ButtonInput<MouseButton>,
+    pub keys: ButtonInput<KeyCode>,
+    pub focused: bool,
 }
 
 impl Default for ReplayInput {
@@ -31,11 +31,7 @@ impl Default for ReplayInput {
 }
 
 impl ReplayInput {
-    pub(super) fn restore(
-        &self,
-        mouse: &mut ButtonInput<MouseButton>,
-        keys: &mut ButtonInput<KeyCode>,
-    ) {
+    pub fn restore(&self, mouse: &mut ButtonInput<MouseButton>, keys: &mut ButtonInput<KeyCode>) {
         *mouse = self.mouse.clone();
         *keys = self.keys.clone();
         mouse.clear();
@@ -44,7 +40,7 @@ impl ReplayInput {
 }
 
 /// 在所有 Update 注入之后消费节拍。截图观察者不受节拍限制。
-pub(crate) fn pace(
+pub fn pace(
     mut showcase: Option<ResMut<Showcase>>,
     windows: Query<&Window>,
     inputs: Query<&bevy_egui::EguiInput>,
@@ -79,7 +75,7 @@ pub(crate) fn pace(
 
 /// 注入坐标只服务本帧编辑器；PostUpdate 后设 None，阻止 Winit 在 Last 移动系统光标。
 /// 下一帧 Update 再恢复坐标，因此无需把桌面前台或系统鼠标当作演示先决条件。
-pub(crate) fn restore_pointer(
+pub fn restore_pointer(
     showcase: Option<ResMut<Showcase>>,
     mut windows: Query<&mut Window>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -110,7 +106,7 @@ pub(crate) fn restore_pointer(
 /// 线性插值的是编辑器实际使用的指针；按键/按钮边沿在到达目标时再应用。
 /// egui 短点击由共享驱动成对交付；观看节拍只控制下一动作。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn animate(
+pub fn animate(
     showcase: Option<ResMut<Showcase>>,
     mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
     mut inputs: Query<&mut bevy_egui::EguiInput, With<bevy_egui::PrimaryEguiContext>>,
@@ -241,7 +237,7 @@ pub(crate) fn animate(
     input.0.events.extend(events);
 }
 
-pub(crate) fn isolate_pointer(showcase: Option<Res<Showcase>>, mut windows: Query<&mut Window>) {
+pub fn isolate_pointer(showcase: Option<Res<Showcase>>, mut windows: Query<&mut Window>) {
     if showcase.is_some_and(|showcase| !showcase.completed) {
         for mut window in &mut windows {
             window.set_cursor_position(None);

@@ -1,4 +1,5 @@
-use super::*;
+use crate::window::SmokeTest;
+use crate::window::*;
 
 #[test]
 fn smoke_window_size_parses_only_explicit_smoke_dimensions() {

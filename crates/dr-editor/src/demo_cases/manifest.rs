@@ -1,6 +1,6 @@
 //! 详细模式的可审查样例清单：每例都必须有实际断言和独立截图。
 #[derive(Clone, Copy, Debug)]
-pub(super) enum Cancel {
+pub enum Cancel {
     Same,
     Escape,
     Blank,
@@ -8,7 +8,7 @@ pub(super) enum Cancel {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) enum Scenario {
+pub enum Scenario {
     PaletteCancel,
     QuantityLimit,
     DisabledRotation,
@@ -63,12 +63,12 @@ pub(super) enum Scenario {
     BulkDrag,
 }
 
-pub(crate) struct Case {
+pub struct Case {
     pub id: &'static str,
     pub title: &'static str,
     pub expected: &'static str,
     pub input_path: &'static str,
-    pub(super) scenario: Scenario,
+    pub scenario: Scenario,
 }
 
 macro_rules! case {
@@ -83,7 +83,7 @@ macro_rules! case {
     };
 }
 
-pub(crate) const PLACEMENT: &[Case] = &[
+pub const PLACEMENT: &[Case] = &[
     case!(
         "palette-cancel",
         "目录预览取消",
@@ -106,7 +106,7 @@ pub(crate) const PLACEMENT: &[Case] = &[
         Scenario::DisabledRotation
     ),
 ];
-pub(crate) const GEOMETRY: &[Case] = &[
+pub const GEOMETRY: &[Case] = &[
     case!(
         "overlap-below",
         "重叠 4.9%",
@@ -175,7 +175,7 @@ pub(crate) const GEOMETRY: &[Case] = &[
         Scenario::Contained
     ),
 ];
-pub(crate) const FREE: &[Case] = &[
+pub const FREE: &[Case] = &[
     case!(
         "manual-same",
         "重复点击同一端点",
@@ -226,7 +226,7 @@ pub(crate) const FREE: &[Case] = &[
         Scenario::ManualReverse
     ),
 ];
-pub(crate) const GROUPS: &[Case] = &[
+pub const GROUPS: &[Case] = &[
     case!(
         "selection-empty",
         "空选区快捷键",
@@ -270,7 +270,7 @@ pub(crate) const GROUPS: &[Case] = &[
         Scenario::Descendants
     ),
 ];
-pub(crate) const LINES: &[Case] = &[
+pub const LINES: &[Case] = &[
     case!(
         "line-width-min",
         "连接线最小粗细",
@@ -307,7 +307,7 @@ pub(crate) const LINES: &[Case] = &[
         Scenario::HiddenEndpoint
     ),
 ];
-pub(crate) const TOPOLOGY: &[Case] = &[
+pub const TOPOLOGY: &[Case] = &[
     case!(
         "topology-self",
         "树中拒绝自连接",
@@ -337,7 +337,7 @@ pub(crate) const TOPOLOGY: &[Case] = &[
         Scenario::CrossGroup
     ),
 ];
-pub(crate) const HISTORY: &[Case] = &[
+pub const HISTORY: &[Case] = &[
     case!(
         "history-empty",
         "空历史撤销与重做",
@@ -388,7 +388,7 @@ pub(crate) const HISTORY: &[Case] = &[
         Scenario::StaleDraft
     ),
 ];
-pub(crate) const FILES: &[Case] = &[
+pub const FILES: &[Case] = &[
     case!(
         "file-invalid-open",
         "打开损坏 XML",
@@ -412,7 +412,7 @@ pub(crate) const FILES: &[Case] = &[
     ),
 ];
 
-pub(crate) const INTERACTION: &[Case] = &[
+pub const INTERACTION: &[Case] = &[
     case!(
         "drag-continuous",
         "连续拖动：抓取偏移、反向与微移",
@@ -443,7 +443,7 @@ pub(crate) const INTERACTION: &[Case] = &[
     ),
 ];
 
-pub(crate) const NARROW: &[Case] = &[
+pub const NARROW: &[Case] = &[
     case!(
         "narrow-640x360",
         "640×360 紧凑布局与单侧抽屉",
@@ -472,7 +472,7 @@ pub(crate) const NARROW: &[Case] = &[
         Scenario::NarrowRestore
     ),
 ];
-pub(crate) const MOBILE: &[Case] = &[
+pub const MOBILE: &[Case] = &[
     case!(
         "touch-preview-commit",
         "触摸按下预览、抬指一次提交",
@@ -488,7 +488,7 @@ pub(crate) const MOBILE: &[Case] = &[
         Scenario::MousePressCommit
     ),
 ];
-pub(crate) const BULK: &[Case] = &[case!(
+pub const BULK: &[Case] = &[case!(
     "bulk-drag-1000",
     "1000 选中部件连续拖动",
     "真实样本上选中 1000 部件连续拖动：每步记录真实帧间隔，连接与部件数保持不变，松手后一条历史可撤销重做。",
@@ -496,7 +496,7 @@ pub(crate) const BULK: &[Case] = &[case!(
     Scenario::BulkDrag
 )];
 
-pub(crate) fn cases(chapter: &str) -> &'static [Case] {
+pub fn cases(chapter: &str) -> &'static [Case] {
     match chapter {
         "placement-cases" => PLACEMENT,
         "geometry-cases" => GEOMETRY,

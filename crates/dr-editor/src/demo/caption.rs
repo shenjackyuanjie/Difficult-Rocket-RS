@@ -7,7 +7,7 @@ const DETAIL: egui::Color32 = egui::Color32::from_rgb(150, 140, 170);
 const FILL: egui::Color32 = egui::Color32::from_rgb(22, 20, 29);
 const BORDER: egui::Color32 = egui::Color32::from_rgb(64, 54, 92);
 
-pub(super) fn paint(
+pub fn paint(
     ctx: &egui::Context,
     title: &str,
     description: &str,

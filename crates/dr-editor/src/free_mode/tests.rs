@@ -1,4 +1,15 @@
-use super::*;
+use crate::document::EditorDocument;
+use crate::free_mode::*;
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::selection;
+use crate::selection::DragState;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::PartKey;
+use dr_core::SelectionTransform;
+use dr_core::Ship;
+use dr_core::ShipFragment;
 
 fn document() -> EditorDocument {
     let mut document = crate::test_support::document();

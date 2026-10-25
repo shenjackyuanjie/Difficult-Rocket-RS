@@ -3,8 +3,14 @@
 //! TextEdit 独占文本光标、选区、剪贴板与输入法状态；不要同时运行旧的
 //! properties::keyboard/native_ime 输入路径，否则一次输入会被处理两次。
 
-use super::*;
+use crate::document::EditorDocument;
+use crate::native_buttons;
+use crate::properties::*;
+use crate::render;
 use bevy_egui::egui;
+use dr_core::Connection;
+use dr_core::Part;
+use dr_core::PartKey;
 
 /// 停靠面板与剩余船体区由同一次 egui Panel 布局产生，不能用遮罩替代。
 #[derive(Clone, Copy, Debug)]

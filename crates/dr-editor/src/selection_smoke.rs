@@ -1,14 +1,32 @@
-use super::*;
+use crate::demo;
+
+use crate::document::EditorDocument;
+use crate::egui_ui;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::render;
+use crate::selection;
+use crate::selection::DragState;
+use crate::view;
+
+use crate::window::SmokeTest;
+use bevy::prelude::*;
 use bevy_egui::{EguiInput, egui};
+use dr_core::Connection;
+use dr_core::EditorHistory;
+use dr_core::Part;
+use dr_core::Ship;
+use dr_core::load_ship;
+use dr_core::save_ship;
 
 #[derive(Resource)]
-pub(crate) struct PreviewCaptured;
+pub struct PreviewCaptured;
 
 #[derive(Resource)]
-pub(crate) struct DragRotationCaptured;
+pub struct DragRotationCaptured;
 
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     phase: u8,
     before: Option<Ship>,
     after: Option<Ship>,
@@ -78,7 +96,7 @@ fn non_delete_ui_target(
 
 // 将 UI 资源与输入查询打包，保持 Bevy 系统参数数量在支持范围内。
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-pub(crate) fn run(
+pub fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     mut document: ResMut<EditorDocument>,
@@ -878,7 +896,7 @@ pub(crate) fn run(
 }
 
 /// 配置短点击释放并消费后，先回画布再按 Home；不让 UI 指针隔离吞掉重置。
-pub(crate) fn reset_camera_on_canvas(
+pub fn reset_camera_on_canvas(
     window: &mut Window,
     mouse: &mut ButtonInput<MouseButton>,
     keys: &mut ButtonInput<KeyCode>,

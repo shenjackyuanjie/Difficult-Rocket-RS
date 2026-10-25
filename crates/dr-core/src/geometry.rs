@@ -198,7 +198,7 @@ fn cross(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
 }
 
 /// 每条边的其余顶点必须位于同侧；拒绝退化、自交和凹多边形。
-pub(crate) fn valid_polygon(vertices: &[(f64, f64)]) -> bool {
+pub fn valid_polygon(vertices: &[(f64, f64)]) -> bool {
     if vertices.len() < 3
         || vertices
             .iter()

@@ -1,4 +1,4 @@
-use super::*;
+use crate::model::*;
 
 fn kind(id: &str, mass: f64) -> PartType {
     PartType {

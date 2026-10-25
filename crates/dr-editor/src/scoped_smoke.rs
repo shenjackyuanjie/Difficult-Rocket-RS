@@ -1,7 +1,17 @@
-use super::*;
+use crate::document::EditorDocument;
+use crate::render;
+use crate::selection::DragState;
+
+use crate::window::SmokeTest;
+use bevy::prelude::*;
+use dr_core::EditorHistory;
+use dr_core::PartKey;
+use dr_core::Ship;
+use dr_core::load_ship;
+use dr_core::save_ship;
 
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     phase: u8,
     before: Option<Ship>,
     after: Option<Ship>,
@@ -10,7 +20,7 @@ pub(crate) struct State {
 
 /// 真实窗口输入验证重复 ID 的选中、移动、删除、跨组吸附和撤销，不改源样本。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
+pub fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     mut document: ResMut<EditorDocument>,

@@ -1,7 +1,12 @@
-use super::*;
+use crate::demo;
+use crate::document::EditorDocument;
+use crate::panels::*;
+use crate::window::EditorPaths;
+use crate::window::SmokeTest;
+use dr_core::Ship;
 
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     phase: u8,
     delay: u8,
     wait_passes: u16,
@@ -33,7 +38,7 @@ fn wait_for_browser(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
+pub fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     document: Res<EditorDocument>,

@@ -1,5 +1,5 @@
 //! 单窗口演示状态与入口；章节、回放、绘制和证据各自维护。
-use super::*;
+use bevy::prelude::*;
 use std::{
     path::PathBuf,
     time::{Duration, Instant, SystemTime},
@@ -13,9 +13,9 @@ mod lifecycle;
 mod overlay;
 mod pacing;
 mod replay;
-pub(crate) mod rocket_workflow;
+pub mod rocket_workflow;
 
-pub(crate) use chapters::Mode;
+pub use chapters::Mode;
 use chapters::{Chapter, staging_fixture};
 use evidence::{append_actions, append_timeline, unix_ms};
 use hints::{
@@ -26,12 +26,12 @@ use pacing::{
 };
 use replay::{Motion, ReplayInput};
 
-pub(crate) use lifecycle::{begin, finish};
-pub(crate) use overlay::overlay;
-pub(crate) use replay::{animate, isolate_pointer, pace, restore_pointer};
+pub use lifecycle::{begin, finish};
+pub use overlay::overlay;
+pub use replay::{animate, isolate_pointer, pace, restore_pointer};
 
 /// 各章节复用已有步骤的说明，不增加虚构设置或重复操作。
-pub(crate) fn describe(showcase: &mut Option<ResMut<Showcase>>, text: &'static str) {
+pub fn describe(showcase: &mut Option<ResMut<Showcase>>, text: &'static str) {
     if let Some(showcase) = showcase
         && showcase.description != Some(text)
     {
@@ -41,13 +41,13 @@ pub(crate) fn describe(showcase: &mut Option<ResMut<Showcase>>, text: &'static s
 }
 
 #[derive(Resource)]
-pub(crate) struct Showcase {
+pub struct Showcase {
     output: PathBuf,
     mode: Mode,
     chapters: Vec<&'static Chapter>,
     step: Duration,
     exit_on_complete: bool,
-    pub(crate) presentation: bool,
+    pub presentation: bool,
     chapter_start_unix_ms: u64,
     finishing: Option<Instant>,
     key_release: Option<(Instant, Vec<KeyCode>)>,
@@ -136,7 +136,7 @@ impl Showcase {
         self.chapters[self.index]
     }
 
-    pub(crate) fn case_result_pause(&self) -> Duration {
+    pub fn case_result_pause(&self) -> Duration {
         if self.mode == Mode::Detailed && !fast(self.step) {
             self.step * 4
         } else {
@@ -147,13 +147,13 @@ impl Showcase {
 
 /// 详细演示与快速回归不以旧专项的固定时长截断样例；显式超时由外部驱动管理。
 /// 快速回归只校验流程与断言，慢机器上的帧率不应被误判成卡死。
-pub(crate) fn within_timeout(showcase: Option<&Showcase>, started: Instant, seconds: u64) -> bool {
+pub fn within_timeout(showcase: Option<&Showcase>, started: Instant, seconds: u64) -> bool {
     showcase.is_some_and(|showcase| showcase.mode == Mode::Detailed || fast(showcase.step))
         || started.elapsed().as_secs() < seconds
 }
 
 /// 非演示模式不影响任何原有自测；实际编辑器输入、绘制及通道轮询始终每帧运行。
-pub(crate) fn advance_ready(showcase: Option<Res<Showcase>>) -> bool {
+pub fn advance_ready(showcase: Option<Res<Showcase>>) -> bool {
     showcase.is_none_or(|showcase| {
         !showcase.completed
             && !showcase.initialize

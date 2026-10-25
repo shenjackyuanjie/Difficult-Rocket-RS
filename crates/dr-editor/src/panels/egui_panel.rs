@@ -1,7 +1,23 @@
 //! 底部图标工具栏与互斥目录 / 设置抽屉，保留正式 egui 输入和语义消息。
-use super::*;
+use crate::connection_lines;
+use crate::document::EditorDocument;
+use crate::files;
+use crate::free_mode;
+use crate::help;
 use crate::icons::{self, Icon};
+use crate::panels;
+use crate::panels::*;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::selection;
+use crate::selection::DragState;
+use crate::view;
+use crate::window::EditorPaths;
 use bevy_egui::{EguiContexts, egui};
+use dr_core::EditorCommand;
+use dr_core::PartKey;
+use dr_core::SelectionTransform;
+use std::collections::BTreeSet;
 
 #[cfg(test)]
 mod tests;

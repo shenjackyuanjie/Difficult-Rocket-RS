@@ -1,6 +1,9 @@
-use super::*;
 use crate::demo::caption::paint;
+use crate::demo::tests::*;
+use crate::properties;
+use crate::render;
 use bevy_egui::egui;
+use dr_core::PartKey;
 
 #[test]
 fn detailed_property_caption_leaves_real_error_and_apply_cancel_visible_without_taking_input() {

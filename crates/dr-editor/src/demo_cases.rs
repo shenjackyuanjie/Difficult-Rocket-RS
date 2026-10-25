@@ -1,13 +1,36 @@
 //! 详细模式专用边界回放。内部输入与精确事务明确区分，失败断言不会写通过证据。
-use super::*;
+use crate::connection_lines;
+use crate::demo;
+
+use crate::document::EditorDocument;
+use crate::egui_ui;
+use crate::files;
+use crate::mobile_input;
+use crate::panels;
+use crate::placement::EditorCursor;
+use crate::properties;
+use crate::selection::DragState;
+use crate::topology_ui;
+use crate::view;
+use crate::view::CameraDrag;
+
+use crate::window::EditorPaths;
 use bevy::ecs::system::SystemParam;
+use bevy::prelude::*;
 use bevy_egui::EguiInput;
+use dr_core::Connection;
+use dr_core::EditorHistory;
+use dr_core::Part;
+use dr_core::PartCatalog;
+use dr_core::PartKey;
+use dr_core::Ship;
 use dr_core::geometry::Vec2d;
+use std::collections::BTreeSet;
 use std::time::Instant;
 
 mod geometry;
 mod gestures;
-pub(crate) use gestures::verify;
+pub use gestures::verify;
 mod interactions;
 mod layout;
 mod manifest;
@@ -16,14 +39,14 @@ mod perf_drag;
 #[cfg(test)]
 mod tests;
 mod workflow;
-pub(crate) use manifest::cases;
+pub use manifest::cases;
 use manifest::{Cancel, Case, Scenario};
 
 #[derive(Resource, Default)]
-pub(crate) struct Captured(BTreeSet<String>);
+pub struct Captured(BTreeSet<String>);
 
 #[derive(Resource, Default)]
-pub(crate) struct Run {
+pub struct Run {
     chapter: Option<&'static str>,
     case_index: usize,
     step: u16,
@@ -50,14 +73,14 @@ pub(crate) struct Run {
 }
 
 impl Run {
-    pub(crate) fn new(chapter: &'static str) -> Self {
+    pub fn new(chapter: &'static str) -> Self {
         Self {
             chapter: (!cases(chapter).is_empty()).then_some(chapter),
             ..default()
         }
     }
 
-    pub(crate) fn caption(&self) -> Option<String> {
+    pub fn caption(&self) -> Option<String> {
         let list = cases(self.chapter?);
         let case = list.get(self.case_index)?;
         Some(format!(
@@ -76,7 +99,7 @@ impl Run {
     }
 }
 
-pub(crate) fn artifacts(chapter: &str) -> Vec<String> {
+pub fn artifacts(chapter: &str) -> Vec<String> {
     cases(chapter)
         .iter()
         .map(|case| format!("case-{}.png", case.id))
@@ -84,7 +107,7 @@ pub(crate) fn artifacts(chapter: &str) -> Vec<String> {
 }
 
 #[derive(SystemParam)]
-pub(crate) struct Context<'w, 's> {
+pub struct Context<'w, 's> {
     document: ResMut<'w, EditorDocument>,
     cursor: ResMut<'w, EditorCursor>,
     drag: ResMut<'w, DragState>,
@@ -315,7 +338,7 @@ fn setup(state: &mut Run, ctx: &mut Context, case: &Case) {
     );
 }
 
-pub(crate) fn run(
+pub fn run(
     mut state: ResMut<Run>,
     mut ctx: Context,
     mut commands: Commands,
@@ -429,7 +452,7 @@ pub(crate) fn run(
 }
 
 /// 精确几何样例的候选轮廓不伪造实际鼠标预览；颜色表示真实事务的允许/拒绝。
-pub(crate) fn draw(state: Res<Run>, document: Res<EditorDocument>, mut gizmos: Gizmos) {
+pub fn draw(state: Res<Run>, document: Res<EditorDocument>, mut gizmos: Gizmos) {
     if state.chapter.is_none() {
         return;
     }
@@ -488,7 +511,7 @@ fn connection_path(document: &EditorDocument) -> [Vec2; 4] {
     .map(|point| point * 60.0)
 }
 
-pub(crate) fn draw_degenerate(
+pub fn draw_degenerate(
     mut state: ResMut<Run>,
     document: Res<EditorDocument>,
     lines: Res<connection_lines::Settings>,

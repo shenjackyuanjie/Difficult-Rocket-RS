@@ -1,16 +1,26 @@
 //! 自由几何的画布连接工具：两次点击决定手动连接/断开，自动吸附独立控制。
-use super::*;
+
+use crate::document::EditorDocument;
+use crate::placement;
+use crate::placement::EditorCursor;
+use crate::selection::DragState;
+use bevy::prelude::*;
+use dr_core::Connection;
+use dr_core::EditorCommand;
+use dr_core::LinkKind;
+use dr_core::PartKey;
+use dr_core::PartKind;
 use dr_core::geometry::Vec2d;
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Endpoint {
+pub struct Endpoint {
     pub key: PartKey,
     pub attach: usize,
     revision: u64,
     point: Vec2d,
 }
 
-pub(crate) fn discard_stale(document: &EditorDocument, cursor: &mut EditorCursor) {
+pub fn discard_stale(document: &EditorDocument, cursor: &mut EditorCursor) {
     if cursor
         .manual_connection
         .is_some_and(|endpoint| !document.free_mode || endpoint.revision != document.revision)
@@ -19,7 +29,7 @@ pub(crate) fn discard_stale(document: &EditorDocument, cursor: &mut EditorCursor
     }
 }
 
-pub(crate) fn set_enabled(
+pub fn set_enabled(
     document: &mut EditorDocument,
     cursor: &mut EditorCursor,
     drag: &mut DragState,
@@ -183,7 +193,7 @@ fn command(document: &EditorDocument, a: Endpoint, b: Endpoint) -> Result<Editor
 }
 
 /// 返回 true 时消费画布点击，不能同时开始选择拖拽或框选。
-pub(crate) fn click(
+pub fn click(
     document: &mut EditorDocument,
     cursor: &mut EditorCursor,
     position: (f64, f64),
@@ -243,7 +253,7 @@ fn preview_segments(document: &EditorDocument, cursor: &EditorCursor) -> Vec<(Ve
         .collect()
 }
 
-pub(crate) fn draw(
+pub fn draw(
     gizmos: &mut Gizmos,
     document: &EditorDocument,
     drag: &DragState,

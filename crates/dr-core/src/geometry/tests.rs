@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::geometry::*;
 use crate::model::{Part, PartKind};
 fn p(id: i64, x: f64) -> Part {
     Part {

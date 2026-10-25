@@ -1,9 +1,17 @@
-use super::*;
+use crate::document::EditorDocument;
+use crate::render;
+use crate::selection::DragState;
+
+use crate::window::SmokeTest;
+use bevy::prelude::*;
+use dr_core::PartKey;
+use dr_core::Ship;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::time::Instant;
 
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     phase: usize,
     original: Option<Ship>,
     entities: HashMap<render::VisualKey, Entity>,
@@ -16,7 +24,7 @@ pub(crate) struct State {
 
 /// 真实渲染窗口中持续拖动 90 帧；验证实体复用并记录帧耗时，不保存源文档。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
+pub fn run(
     mode: Res<SmokeTest>,
     mut state: Local<State>,
     mut document: ResMut<EditorDocument>,

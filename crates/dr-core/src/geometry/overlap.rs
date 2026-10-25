@@ -1,5 +1,5 @@
 //! 用真实轮廓计算相交面积；多个 Shape 先取并集，圆形保留解析曲线。
-use super::{WorldShape, intersects, world_shapes};
+use crate::geometry::{WorldShape, intersects, world_shapes};
 use crate::{Part, PartType, Vec2d};
 use geo::{Area, BooleanOps, LineString, MultiPolygon, Polygon};
 

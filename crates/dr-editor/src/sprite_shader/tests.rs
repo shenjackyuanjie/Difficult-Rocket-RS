@@ -1,5 +1,4 @@
-
-use super::*;
+use crate::sprite_shader::*;
 use bevy::{
     app::TaskPoolPlugin,
     asset::{AssetServer, io::ErasedAssetReader},

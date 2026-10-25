@@ -4,11 +4,13 @@
 //! fuel/throttle 保持 f64，Lander/Parachute 的部分字段实际为 f32。
 //! 原始元素仅供诊断；`to_element` 只写 PC 保存器支持的字段。
 
-use super::catalog::{Catalog, PartClass};
-use super::scalars::{read_bool, read_f32, read_f64, read_i32, write_bool, write_f32, write_f64};
-use super::staging::Staging;
-use super::xml::{self, Element};
-use super::{Error, Result};
+use crate::sr1::catalog::{Catalog, PartClass};
+use crate::sr1::scalars::{
+    read_bool, read_f32, read_f64, read_i32, write_bool, write_f32, write_f64,
+};
+use crate::sr1::staging::Staging;
+use crate::sr1::xml::{self, Element};
+use crate::sr1::{Error, Result};
 
 /// 比较阈值来自 PC 中由 float 常量提升得到的 double，而非十进制 f64 常量。
 pub const THROTTLE_ZERO_THRESHOLD: f64 = 0.01_f32 as f64;

@@ -1,4 +1,4 @@
-use super::*;
+use crate::demo::tests::*;
 
 #[test]
 fn failed_and_unproven_success_exit_are_not_swallowed() {
