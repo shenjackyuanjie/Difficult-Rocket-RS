@@ -1,5 +1,5 @@
 use super::*;
-use crate::ShipGroup;
+use crate::{ShipGroup, part_id::PartIdAllocator};
 use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,24 +42,10 @@ impl DuplicateRepair {
         if count < 2 {
             return Err(CommandError::InvalidRepair("本组没有重复编号".into()));
         }
-        let mut reserved: BTreeSet<_> = ship
-            .groups()
-            .flat_map(|(_, parts, connections)| scoped::namespace(parts, connections))
-            .collect();
-        let mut next = reserved
-            .last()
-            .copied()
-            .unwrap_or(0)
-            .checked_add(1)
-            .unwrap_or(1)
-            .max(1);
+        let mut allocator = PartIdAllocator::new(ship.occupied_ids());
         let mut ids = vec![key.id];
         for _ in 1..count {
-            while reserved.contains(&next) {
-                next = next.checked_add(1).ok_or(CommandError::Invalid)?;
-            }
-            ids.push(next);
-            reserved.insert(next);
+            ids.push(allocator.allocate().ok_or(CommandError::Invalid)?);
         }
         let mut references = vec![];
         for (index, connection) in connections.iter().enumerate() {
@@ -184,10 +170,7 @@ impl DuplicateRepair {
                 self.unassigned()
             )));
         }
-        let reserved: BTreeSet<_> = ship
-            .groups()
-            .flat_map(|(_, parts, connections)| scoped::namespace(parts, connections))
-            .collect();
+        let reserved: BTreeSet<_> = ship.occupied_ids().collect();
         if self.ids.iter().skip(1).any(|id| reserved.contains(id)) {
             return Err(CommandError::InvalidRepair(
                 "预分配的新编号已被使用，请重新打开修复界面".into(),

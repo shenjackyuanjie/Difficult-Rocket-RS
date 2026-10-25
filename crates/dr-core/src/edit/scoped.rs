@@ -1,4 +1,5 @@
 use super::*;
+use crate::part_id::{PartIdAllocator, group_ids};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub(super) fn resolve(
@@ -118,32 +119,7 @@ pub(super) fn remap_connection(connection: &mut Connection, ids: &HashMap<PartId
 }
 
 pub(super) fn namespace(parts: &[Part], connections: &[Connection]) -> BTreeSet<PartId> {
-    let mut ids: BTreeSet<_> = parts.iter().map(|part| part.id).collect();
-    for connection in connections {
-        match *connection {
-            Connection::Normal { parent, child, .. } => {
-                ids.extend([parent, child]);
-            }
-            Connection::Dock {
-                parent,
-                child,
-                dock,
-            } => {
-                ids.extend([parent, child, dock]);
-            }
-        }
-    }
-    for part in parts {
-        if let Some(staging) = part.pod.as_ref().and_then(|pod| pod.staging.as_ref()) {
-            ids.extend(
-                staging
-                    .steps
-                    .iter()
-                    .flat_map(|step| step.activations.iter().map(|a| a.id)),
-            );
-        }
-    }
-    ids
+    group_ids(parts, connections).collect()
 }
 
 pub(super) fn connect(
@@ -174,18 +150,7 @@ pub(super) fn connect(
     let mut merged = Ship::default();
     let mut used = HashSet::new();
     // 保留历史悬空引用的编号，避免重新编号意外让它们指向新部件。
-    let mut reserved: HashSet<_> = ship
-        .groups()
-        .flat_map(|(_, parts, connections)| namespace(parts, connections))
-        .collect();
-    let mut next = reserved
-        .iter()
-        .copied()
-        .max()
-        .unwrap_or(0)
-        .checked_add(1)
-        .unwrap_or(1)
-        .max(1);
+    let mut allocator = PartIdAllocator::new(ship.occupied_ids());
     let mut remapped_keys = HashMap::new();
     for group in &groups {
         let (parts, connections) = ship.group(*group).unwrap();
@@ -193,11 +158,7 @@ pub(super) fn connect(
         let group_ids = namespace(parts, connections);
         for id in &group_ids {
             if used.contains(id) {
-                while reserved.contains(&next) {
-                    next = next.checked_add(1).ok_or(CommandError::Invalid)?;
-                }
-                ids.insert(*id, next);
-                reserved.insert(next);
+                ids.insert(*id, allocator.allocate().ok_or(CommandError::Invalid)?);
             }
         }
         for key in keys.iter().filter(|key| key.group == *group) {

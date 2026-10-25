@@ -1,5 +1,5 @@
 use super::*;
-use crate::{ShipGroup, geometry::CollisionSet};
+use crate::{ShipGroup, geometry::CollisionSet, part_id::PartIdAllocator};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy)]
@@ -490,26 +490,13 @@ pub(super) fn paste(
             }
         }
     }
-    let mut reserved: BTreeSet<_> = ship
-        .groups()
-        .flat_map(|(_, parts, connections)| scoped::namespace(parts, connections))
-        .collect();
-    let mut next = reserved
-        .last()
-        .copied()
-        .unwrap_or(0)
-        .checked_add(1)
-        .unwrap_or(1)
-        .max(1);
+    let mut allocator = PartIdAllocator::new(ship.occupied_ids());
     for group in &mut groups {
         let mut ids = HashMap::new();
         for part in &mut group.parts {
-            while reserved.contains(&next) {
-                next = next.checked_add(1).ok_or(CommandError::Invalid)?;
-            }
-            ids.insert(part.id, next);
-            reserved.insert(next);
-            part.id = next;
+            let id = allocator.allocate().ok_or(CommandError::Invalid)?;
+            ids.insert(part.id, id);
+            part.id = id;
             SelectionTransform::Translate {
                 dx: offset.0,
                 dy: offset.1,

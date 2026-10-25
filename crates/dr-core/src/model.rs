@@ -1,3 +1,4 @@
+use crate::part_id::{PartIdAllocator, group_ids};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -562,34 +563,26 @@ impl Ship {
             .chain(self.disconnected.iter().flat_map(|g| g.connections.iter()))
     }
     /// 返回所有部件、连接和分级引用中可用的下一个正整数 ID；
-    /// 历史悬空引用保留原编号，新部件不会顶替它们。
+    /// 历史悬空引用保留原编号，新部件不会顶替它们。通常取最大编号加一，
+    /// 达到 i64 上界时从 1 查找空号。
     pub fn next_part_id(&self) -> PartId {
-        self.occupied_ids().max().unwrap_or(0).max(0) + 1
+        // 普通放置仍只扫描一次，不为未触及上界的文档构建预留集合。
+        self.occupied_ids()
+            .max()
+            .unwrap_or(0)
+            .max(0)
+            .checked_add(1)
+            .unwrap_or_else(|| {
+                PartIdAllocator::new(self.occupied_ids())
+                    .allocate()
+                    .expect("正数部件编号已耗尽")
+            })
     }
 
     /// 全文档已被占用的编号：各组部件、连接两端与对接件、分级里的激活动作。
-    fn occupied_ids(&self) -> impl Iterator<Item = PartId> + '_ {
-        self.groups().flat_map(|(_, parts, connections)| {
-            let linked = connections.iter().flat_map(|connection| {
-                let (parent, child, dock) = match connection {
-                    Connection::Normal { parent, child, .. } => (*parent, *child, None),
-                    Connection::Dock {
-                        dock,
-                        parent,
-                        child,
-                    } => (*parent, *child, Some(*dock)),
-                };
-                [Some(parent), Some(child), dock].into_iter().flatten()
-            });
-            let staged = parts.iter().flat_map(|part| {
-                part.pod
-                    .iter()
-                    .flat_map(|pod| pod.staging.iter())
-                    .flat_map(|staging| staging.steps.iter())
-                    .flat_map(|step| step.activations.iter().map(|activation| activation.id))
-            });
-            parts.iter().map(|part| part.id).chain(linked).chain(staged)
-        })
+    pub(crate) fn occupied_ids(&self) -> impl Iterator<Item = PartId> + '_ {
+        self.groups()
+            .flat_map(|(_, parts, connections)| group_ids(parts, connections))
     }
     pub fn part(&self, id: PartId) -> Option<&Part> {
         self.part_at(self.unique_key(id)?)

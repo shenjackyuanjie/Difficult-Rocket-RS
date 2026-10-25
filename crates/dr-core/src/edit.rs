@@ -404,7 +404,7 @@ impl EditorCommand {
             Self::Rotate(id) => {
                 let key = scoped::resolve(ship, *id, scope)?;
                 let part = ship.part_at_mut(key).unwrap();
-                part.editor_angle = (part.editor_angle + 1).rem_euclid(4);
+                part.editor_angle = (part.editor_angle.rem_euclid(4) + 1).rem_euclid(4);
                 part.angle =
                     (part.angle + std::f64::consts::FRAC_PI_2).rem_euclid(std::f64::consts::TAU);
             }
@@ -460,6 +460,9 @@ mod repair_tests;
 mod scoped_tests;
 #[cfg(test)]
 mod selection_tests;
+
+#[cfg(test)]
+mod id_boundary_tests;
 
 #[cfg(test)]
 mod tests {
