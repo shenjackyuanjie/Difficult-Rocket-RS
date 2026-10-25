@@ -83,8 +83,10 @@ impl PartTree {
         }
 
         let root_index = resolve_root(parts.len(), &connections)?;
+        // 每次载入只建立一次，主树及各 Pod 子树共用原连接数组的出边下标。
+        let outgoing_edges = index_outgoing_edges(parts.len(), &connections);
         let (part_order, connection_order) = match root_index {
-            Some(root) => walk(root, parts.len(), &connections)?,
+            Some(root) => walk(root, &connections, &outgoing_edges)?,
             None => (Vec::new(), Vec::new()),
         };
         // 仅根部件自己的 Pod 接收旧根分级；已有自身 Staging 时不覆盖。
@@ -102,7 +104,7 @@ impl PartTree {
         // Pod 的 deferred load 从 Pod 所属 Part 开始遍历，而不是从整船根开始。
         for index in 0..parts.len() {
             if parts[index].pod().is_some() {
-                let (subtree, _) = walk(index, parts.len(), &connections)?;
+                let (subtree, _) = walk(index, &connections, &outgoing_edges)?;
                 let ids = subtree.into_iter().map(|i| parts[i].id).collect::<Vec<_>>();
                 if let Some(pod) = parts[index].pod_mut()
                     && let Some(staging) = &mut pod.staging
@@ -393,10 +395,19 @@ fn resolve_root(part_count: usize, connections: &[Connection]) -> Result<Option<
     }
 }
 
+/// 按原连接次序记录每个 parent 的出边，不复制连接或合并重复边。
+fn index_outgoing_edges(part_count: usize, connections: &[Connection]) -> Vec<Vec<usize>> {
+    let mut outgoing_edges = vec![Vec::new(); part_count];
+    for (index, connection) in connections.iter().enumerate() {
+        outgoing_edges[connection.parent].push(index);
+    }
+    outgoing_edges
+}
+
 fn walk(
     root: usize,
-    part_count: usize,
     connections: &[Connection],
+    outgoing_edges: &[Vec<usize>],
 ) -> Result<(Vec<usize>, Vec<usize>)> {
     enum Visit {
         Part(usize),
@@ -404,7 +415,7 @@ fn walk(
         Edge(usize),
     }
     let mut stack = vec![Visit::Part(root)];
-    let mut active = vec![false; part_count];
+    let mut active = vec![false; outgoing_edges.len()];
     let mut parts = Vec::new();
     let mut edges = Vec::new();
     while let Some(visit) = stack.pop() {
@@ -418,12 +429,7 @@ fn walk(
                 active[index] = true;
                 parts.push(index);
                 stack.push(Visit::Leave(index));
-                for (edge, _) in connections
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .filter(|(_, connection)| connection.parent == index)
-                {
+                for &edge in outgoing_edges[index].iter().rev() {
                     stack.push(Visit::Edge(edge));
                 }
             }
@@ -447,6 +453,245 @@ mod tests {
 
     fn load(body: &str) -> Ship {
         Ship::from_xml(body, &catalog()).unwrap()
+    }
+
+    // 保留优化前的全边扫描算法作为独立参照，不调用出边索引构造器。
+    fn reference_walk(
+        root: usize,
+        part_count: usize,
+        connections: &[Connection],
+    ) -> Result<(Vec<usize>, Vec<usize>)> {
+        enum Visit {
+            Part(usize),
+            Leave(usize),
+            Edge(usize),
+        }
+        let mut stack = vec![Visit::Part(root)];
+        let mut active = vec![false; part_count];
+        let mut parts = Vec::new();
+        let mut edges = Vec::new();
+        while let Some(visit) = stack.pop() {
+            match visit {
+                Visit::Part(index) => {
+                    if active[index] {
+                        return Err(Error::InvalidData(format!(
+                            "PartTree 子树遍历在实例索引 {index} 遇到环"
+                        )));
+                    }
+                    active[index] = true;
+                    parts.push(index);
+                    stack.push(Visit::Leave(index));
+                    for (edge, _) in connections
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .filter(|(_, connection)| connection.parent == index)
+                    {
+                        stack.push(Visit::Edge(edge));
+                    }
+                }
+                Visit::Leave(index) => active[index] = false,
+                Visit::Edge(edge) => {
+                    edges.push(edge);
+                    stack.push(Visit::Part(connections[edge].child));
+                }
+            }
+        }
+        Ok((parts, edges))
+    }
+
+    fn shared_subtree_source() -> Element {
+        xml::parse(r#"<Ship currentStage="7">
+            <Parts>
+                <Part partType="tank" id="4"/>
+                <Part partType="pod" id="2"><Pod><Staging currentStage="2">
+                    <Step><Activate Id="1"/><Activate Id="2"/><Activate Id="3"/><Activate Id="4" moved="0"/><Activate Id="5"/><Activate Id="99"/></Step>
+                    <Step><Activate Id="99"/></Step>
+                </Staging></Pod></Part>
+                <Part partType="pod" id="1"><Pod name="root"/></Part>
+                <Part partType="pod" id="3"><Pod><Staging currentStage="3">
+                    <Step><Activate Id="1"/><Activate Id="2"/><Activate Id="3"/><Activate Id="4" moved="0"/><Activate Id="5"/><Activate Id="99"/></Step>
+                    <Step><Activate Id="99"/></Step>
+                </Staging></Pod></Part>
+                <Part partType="tank" id="5"/>
+                <Part partType="tank" id="99"/>
+            </Parts>
+            <Connections>
+                <Connection parentPart="2" childPart="4" parentAttachPoint="1" childAttachPoint="1"/>
+                <Connection parentPart="1" childPart="3" parentAttachPoint="1" childAttachPoint="1"/>
+                <Connection parentPart="3" childPart="4" parentAttachPoint="2" childAttachPoint="2"/>
+                <Connection parentPart="1" childPart="2" parentAttachPoint="2" childAttachPoint="1"/>
+                <Connection parentPart="4" childPart="5" parentAttachPoint="1" childAttachPoint="1"/>
+            </Connections>
+            <Staging>
+                <Step><Activate Id="1"/><Activate Id="2"/><Activate Id="3"/><Activate Id="4"/><Activate Id="5"/><Activate Id="99"/></Step>
+                <Step><Activate Id="99"/></Step>
+            </Staging>
+        </Ship>"#).unwrap()
+    }
+
+    #[test]
+    fn indexed_walk_matches_full_scan_for_small_graphs_and_duplicate_edges() {
+        // 特意交错不同 parent；穷举三节点有向图，包括自环和不可达环。
+        let candidates = [
+            (2, 1),
+            (0, 2),
+            (1, 0),
+            (1, 2),
+            (2, 0),
+            (0, 1),
+            (2, 2),
+            (0, 0),
+            (1, 1),
+        ];
+        for mask in 0..(1 << candidates.len()) {
+            for repeat_first in [false, true] {
+                let mut connections = Vec::new();
+                for (bit, &(parent, child)) in candidates.iter().enumerate() {
+                    if mask & (1 << bit) != 0 {
+                        connections.push(Connection {
+                            parent,
+                            child,
+                            kind: ConnectionKind::Normal {
+                                parent_attach_point: 1,
+                                child_attach_point: 1,
+                            },
+                        });
+                    }
+                }
+                if repeat_first && let Some(first) = connections.first().cloned() {
+                    connections.push(first);
+                }
+                let outgoing_edges = index_outgoing_edges(3, &connections);
+                for root in 0..3 {
+                    assert_eq!(
+                        walk(root, &connections, &outgoing_edges),
+                        reference_walk(root, 3, &connections),
+                        "mask={mask} repeat_first={repeat_first} root={root}",
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn multiple_pods_share_subtree_without_leaking_staging_or_losing_visit_order() {
+        let ship = Ship::from_element(&shared_subtree_source(), &catalog()).unwrap();
+        assert_eq!(ship.tree.root_index(), Some(2));
+        assert_eq!(ship.selected_pod_id(), Some(1));
+        assert_eq!(
+            ship.tree
+                .traversal()
+                .map(|part| part.id)
+                .collect::<Vec<_>>(),
+            [1, 3, 4, 5, 2, 4, 5]
+        );
+        assert_eq!(
+            ship.tree
+                .unreachable_parts()
+                .map(|part| part.id)
+                .collect::<Vec<_>>(),
+            [99]
+        );
+        let expected_staging: &[(usize, i32, &[i32])] = &[
+            (2, 7, &[1, 2, 3, 4, 5]),
+            (1, 2, &[2, 4, 5]),
+            (3, 3, &[3, 4, 5]),
+        ];
+        for &(index, current_stage, expected_ids) in expected_staging {
+            let staging = ship.tree.parts()[index]
+                .pod()
+                .unwrap()
+                .staging
+                .as_ref()
+                .unwrap();
+            assert_eq!(staging.current_stage, current_stage);
+            assert_eq!(
+                staging.steps[0]
+                    .parts
+                    .iter()
+                    .map(|part| part.part_id)
+                    .collect::<Vec<_>>(),
+                expected_ids
+            );
+            assert!(staging.steps[0].parts.iter().all(|part| part.moved));
+            assert!(staging.steps[1].parts.is_empty());
+        }
+        let reference = reference_walk(
+            ship.tree.root_index().unwrap(),
+            ship.tree.parts().len(),
+            ship.tree.connections(),
+        )
+        .unwrap();
+        assert_eq!(
+            (&ship.tree.part_order, &ship.tree.connection_order),
+            (&reference.0, &reference.1)
+        );
+        let output = ship.to_element();
+        assert_eq!(
+            output
+                .child("Parts")
+                .unwrap()
+                .children
+                .iter()
+                .map(|part| part.attr("id").unwrap())
+                .collect::<Vec<_>>(),
+            ["1", "3", "4", "5", "2", "4", "5"]
+        );
+        assert_eq!(
+            output
+                .child("Connections")
+                .unwrap()
+                .children
+                .iter()
+                .map(|connection| (
+                    connection.attr("parentPart").unwrap(),
+                    connection.attr("childPart").unwrap()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("1", "3"),
+                ("3", "4"),
+                ("4", "5"),
+                ("1", "2"),
+                ("2", "4"),
+                ("4", "5")
+            ]
+        );
+    }
+
+    #[test]
+    fn shared_subtree_cycle_is_detected_after_acyclic_last_parent_root_selection() {
+        let mut source = shared_subtree_source();
+        // 先写回边，后续 1→3 覆盖父指针：父链无环，出边遍历仍必须报环。
+        source.child_mut("Connections").unwrap().children.insert(0, xml::parse(r#"<Connection parentPart="5" childPart="3" parentAttachPoint="2" childAttachPoint="1"/>"#).unwrap());
+        let error = Ship::from_element(&source, &catalog()).unwrap_err();
+        assert_eq!(
+            error,
+            Error::InvalidData("PartTree 子树遍历在实例索引 3 遇到环".into())
+        );
+    }
+
+    #[test]
+    fn pod_deferred_load_still_detects_cycles_outside_main_root() {
+        let mut source = shared_subtree_source();
+        let parts = source.child_mut("Parts").unwrap();
+        parts.children[5].set_attr("partType", "pod");
+        parts
+            .children
+            .push(xml::parse(r#"<Part partType="tank" id="100"/>"#).unwrap());
+        let connections = source.child_mut("Connections").unwrap();
+        for child in [
+            r#"<Connection parentPart="99" childPart="100" parentAttachPoint="1" childAttachPoint="1"/>"#,
+            r#"<Connection parentPart="100" childPart="99" parentAttachPoint="2" childAttachPoint="2"/>"#,
+        ] {
+            connections.children.push(xml::parse(child).unwrap());
+        }
+        let error = Ship::from_element(&source, &catalog()).unwrap_err();
+        assert_eq!(
+            error,
+            Error::InvalidData("PartTree 子树遍历在实例索引 5 遇到环".into())
+        );
     }
 
     #[test]
