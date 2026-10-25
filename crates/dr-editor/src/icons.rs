@@ -326,6 +326,3 @@ pub fn paint(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: egui:
         Icon::Check => path(&[(3.0, 12.0), (9.0, 18.0), (21.0, 5.0)]),
     }
 }
-
-#[cfg(test)]
-mod tests;

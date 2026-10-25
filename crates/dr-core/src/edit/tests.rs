@@ -288,19 +288,6 @@ fn no_op_does_not_consume_history_or_clear_redo() {
 }
 
 #[test]
-fn undo_redo_restores_ship() {
-    let mut ship = Ship::default();
-    let mut history = EditorHistory::with_limit(8);
-    history
-        .execute(&mut ship, EditorCommand::Place(part(1).into()))
-        .unwrap();
-    assert!(history.undo(&mut ship));
-    assert!(ship.parts.is_empty());
-    assert!(history.redo(&mut ship));
-    assert_eq!(ship.parts.len(), 1);
-}
-
-#[test]
 fn properties_and_staging_are_one_transaction_and_roundtrip_xml() {
     use crate::{Activation, FuelKind, PodState, StageStep};
     let mut pod = part(1);

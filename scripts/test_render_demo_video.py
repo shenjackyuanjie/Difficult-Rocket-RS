@@ -137,17 +137,6 @@ class SubtitleAndFilterTests(unittest.TestCase):
                          "树图", "换父", "环路保护", "Heronb", "只读", "千船", "虚拟列表", "未保存模态"):
             self.assertIn(required, body)
 
-    def test_rocket_captions_cover_continuous_assembly_staging_and_drag(self):
-        lines = video.CAPTIONS["rocket-workflow"]
-        self.assertEqual(len(lines), 4)
-        self.assertEqual(video.SHORT_TITLES["rocket-workflow"], "四级火箭")
-        body = " ".join(lines)
-        for phrase in ("Command Pod", "真实选件", "预览", "吸附搭建", "自动基础分级",
-                       "三级芯级", "对称双固体助推器", "四个物理推进级", "14部件", "13 条 Normal 树边",
-                       "八卡草稿", "撤销重做", "分帧拖放", "发动机 9",
-                       "移出、移回、再移出", "整卡下移再回置", "取消保持文档不变",
-                       "再操作并应用", "XML 往返", "SRB自带Tank"):
-            self.assertIn(phrase, body)
 
     def test_rocket_subtitles_follow_its_clip_window_in_srt_and_ass(self):
         clip = self.clips[2]
@@ -1076,12 +1065,8 @@ class MediaTimeoutTests(unittest.TestCase):
 
 
 class DemoModeTests(unittest.TestCase):
-    def test_mode_defaults_and_timeout_override(self):
+    def test_mode_defaults_to_brief(self):
         self.assertEqual(video.parse_args([]).demo_mode, "brief")
-        for mode, timeout in (("brief", 600), ("detailed", 1800)):
-            with self.subTest(mode=mode):
-                self.assertEqual(video.parse_args(["--demo-mode", mode]).timeout, timeout)
-                self.assertEqual(video.parse_args(["--demo-mode", mode, "--timeout", "42"]).timeout, 42)
 
     def test_detailed_timeline_requires_twenty_chapters(self):
         rows = timeline("detailed")

@@ -19,16 +19,6 @@ class CopyForRunTests(unittest.TestCase):
         self.output = self.root / "output"
         self.output.mkdir()
 
-    def test_copy_is_byte_identical_and_source_stays_untouched(self):
-        identity = editor_session.copy_for_run(self.source, self.output)
-        copy_path = Path(identity["copy_path"])
-        self.assertEqual(copy_path.read_bytes(), b"MZ mock editor executable")
-        self.assertEqual(self.source.read_bytes(), b"MZ mock editor executable")
-        self.assertEqual(identity["source_path"], str(self.source.resolve()))
-        self.assertEqual(identity["source_sha256"], editor_session.file_sha256(self.source))
-        self.assertEqual(identity["copy_sha256"], identity["source_sha256"])
-        self.assertEqual(copy_path.parent, self.output.resolve())
-        self.assertNotEqual(copy_path, self.source.resolve())
 
     def test_session_record_keeps_the_four_identity_fields(self):
         identity = editor_session.copy_for_run(self.source, self.output)

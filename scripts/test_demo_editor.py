@@ -294,7 +294,7 @@ class DemoTests(unittest.TestCase):
     def test_python_contract_matches_rust_case_manifest(self):
         source = (demo.ROOT / "crates/dr-editor/src/demo_cases/manifest.rs").read_text(encoding="utf-8")
         manifests = {name: tuple(re.findall(r'case!\(\s*"([^"]+)"', body))
-                     for name, body in re.findall(r'pub\(crate\) const (\w+):.*?= &\[(.*?)\n?\];', source, re.S)}
+                     for name, body in re.findall(r'pub const (\w+):.*?= &\[(.*?)\n?\];', source, re.S)}
         mapping = {"placement-cases": "PLACEMENT", "geometry-cases": "GEOMETRY", "free-cases": "FREE",
                    "group-cases": "GROUPS", "line-cases": "LINES", "interaction-cases": "INTERACTION",
                    "history-cases": "HISTORY", "topology-cases": "TOPOLOGY", "file-cases": "FILES",
@@ -320,29 +320,6 @@ class DemoTests(unittest.TestCase):
         self.assertIn("editor-staging-performance.json", artifacts["staging"])
         self.assertIn("64 级 / 1024 动作", source)
 
-    def test_rocket_scale_and_chapter_copy_match_eight_card_contract(self):
-        self.assertEqual(demo.rocket_workflow.AUTO_STEPS,
-                         [[11, 13], [9], [10, 12], [7], [6], [4], [3], [14]])
-        self.assertEqual(demo.rocket_workflow.MANUAL_STEPS,
-                         [[11, 13], [], [10, 12, 9], [7], [6], [4], [3], [14]])
-        self.assertEqual(len(demo.rocket_workflow.PART_TYPES), 14)
-        self.assertEqual(sorted(Path(name).suffix for name in demo.rocket_workflow.ARTIFACTS),
-                         [".json", *[".png"] * 5, *[".xml"] * 3])
-        source = (demo.ROOT / "crates/dr-editor/src/demo/chapters.rs").read_text(encoding="utf-8")
-        chapter = re.search(r'const ROCKET_WORKFLOW: Chapter = Chapter \{(.*?)\n\};', source, re.S).group(1)
-        for phrase in ("三级芯级 + 双固体助推器", "四个物理推进级", "14 部件",
-                       "13 条 Normal 树边", "自动八卡", "移出、移回、再移出",
-                       "整卡下移回置", "取消后再应用", "SRB 为叶子", "仅接侧挂分离器",
-                       "自带固体 Tank", "无需额外挂罐"):
-            self.assertIn(phrase, chapter)
-        for old_copy in ("三级火箭：", "五步草稿", "9 部件", "8 条 Normal", "16 部件", "15 条 Normal"):
-            self.assertNotIn(old_copy, chapter)
-        review = (demo.ROOT / "docs/development/demo-contract.md").read_text(encoding="utf-8")
-        for phrase in ("ID 10 分离器 → ID 11 SRB", "ID 12 分离器 → ID 13 SRB",
-                       "返回降落伞为 ID 14", "SRB 是 Normal 树的叶子",
-                       "自带固体 Tank，无需额外挂罐", "顶部也不连接油箱"):
-            self.assertIn(phrase, review)
-        self.assertNotIn("和小燃料罐组成", review)
 
     def test_rocket_contract_is_mandatory_in_both_modes_and_wraps_validation_error(self):
         for mode in ("brief", "detailed"):

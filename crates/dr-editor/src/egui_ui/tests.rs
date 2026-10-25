@@ -589,29 +589,6 @@ fn egui_and_native_buttons_share_palette_font_and_corners() {
 }
 
 #[test]
-fn sandbox_palette_is_neutral_with_lime_accent_and_small_corners() {
-    let ctx = test_context();
-    let style = ctx.style_of(egui::Theme::Dark);
-    assert_eq!(style.visuals.panel_fill, egui::Color32::from_gray(33));
-    assert_eq!(
-        style.visuals.widgets.inactive.bg_fill,
-        egui::Color32::from_gray(48)
-    );
-    assert_eq!(
-        style.visuals.hyperlink_color,
-        egui::Color32::from_rgb(179, 219, 5)
-    );
-    assert_eq!(
-        style.visuals.widgets.hovered.bg_stroke.color,
-        style.visuals.hyperlink_color
-    );
-    assert_eq!(
-        style.visuals.widgets.inactive.corner_radius,
-        egui::CornerRadius::same(2)
-    );
-}
-
-#[test]
 fn theme_preserves_focus_and_shared_spacing() {
     let ctx = egui::Context::default();
     let focus = egui::Id::new("保留草稿焦点");

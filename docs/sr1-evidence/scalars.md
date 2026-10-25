@@ -191,7 +191,7 @@ print(out.value)
 
 ## Rust 离线测试与验证状态
 
-9 个测试全部位于 [scalars.rs 的测试模块](../../crates/dr-core/src/sr1/scalars.rs#L218-L430)：
+9 个测试全部位于 [独立标量测试](../../crates/dr-core/src/sr1/scalars/tests.rs#L1)：
 
 - `missing_or_invalid_values_preserve_initial_bits`：初值、NaN payload 和负零保留。
 - `crt_integer_prefix_and_wrapping_golden`：CRT 前缀及回绕金样。

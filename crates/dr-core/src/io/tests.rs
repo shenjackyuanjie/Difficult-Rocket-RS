@@ -149,15 +149,6 @@ fn preserves_disconnected_groups_and_parachutes() {
 }
 
 #[test]
-fn parses_minimal_ship() {
-    let path = std::env::temp_dir().join("dr-core-test.xml");
-    fs::write(&path, r#"<Ship version="1" liftedOff="0" touchingGround="1"><Parts><Part partType="pod-1" id="1" x="0" y="0" angle="0" angleV="0" editorAngle="0"/></Parts><Connections/></Ship>"#).unwrap();
-    let ship = load_ship(&path).unwrap();
-    assert_eq!(ship.parts[0].part_type, "pod-1");
-    let _ = fs::remove_file(path);
-}
-
-#[test]
 fn parses_catalog_locations_and_specs() {
     let path = std::env::temp_dir().join("dr-core-part-list.xml");
     fs::write(

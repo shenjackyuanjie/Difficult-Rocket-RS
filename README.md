@@ -28,8 +28,8 @@ cargo run --locked --release -p dr-editor -- --ship ../Difficult-Rocket/assets/s
 
 | 检查 | 结果 |
 | --- | --- |
-| Rust 工作区 Release | 663 项通过：核心 223、跨模块 6、编辑器 434；比 649 基线新增 14 项 |
-| Python 离线回归 | 215 项通过；比 203 基线新增 12 项 |
+| Rust 工作区 Release | 658 项通过：核心 221、跨模块 6、编辑器 431；精简 5 个重复或实现细节测试 |
+| Python 离线回归 | 212 项通过；精简 3 个重复或逐词快照测试 |
 | 质量与构建 | 严格 Release Clippy、Release build、严格全工作区 Rustdoc、rustfmt 全部通过 |
 | 本体资源只读复验 | 27 种部件、3 部件旧船、12 节点/2 船及 16 星体绑定通过，四份输入 SHA256 不变 |
 
