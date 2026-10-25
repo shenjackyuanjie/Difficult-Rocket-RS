@@ -76,6 +76,24 @@ class PackageTests(unittest.TestCase):
             self.build()
         self.assertFalse(self.output.exists())
 
+    def test_missing_part_texture_directory_fails_before_creating_output(self):
+        texture = self.assets / "textures/parts/Pod.png"
+        texture.unlink()
+        texture.parent.rmdir()
+        with self.assertRaisesRegex(FileNotFoundError, "部件纹理目录"):
+            self.build()
+        self.assertFalse(self.output.exists())
+        self.assertFalse(self.output.with_suffix(".zip.sha256").exists())
+        self.assertFalse(self.output.parent.exists())
+
+    def test_empty_part_texture_directory_fails_before_creating_output(self):
+        (self.assets / "textures/parts/Pod.png").unlink()
+        with self.assertRaisesRegex(FileNotFoundError, "部件纹理目录"):
+            self.build()
+        self.assertFalse(self.output.exists())
+        self.assertFalse(self.output.with_suffix(".zip.sha256").exists())
+        self.assertFalse(self.output.parent.exists())
+
     def test_existing_zip_is_preserved(self):
         self.output.parent.mkdir(parents=True)
         self.output.write_bytes(b"existing")

@@ -109,8 +109,11 @@ def build_package(root, editor, assets, output, revision):
     license_path = assets.parent / "LICENSE"
     entries = [(editor, "dr-editor.exe"), (license_path, "LICENSE"),
                (assets / "builtin/PartList.xml", "assets/builtin/PartList.xml")]
-    entries.extend((path, "assets/" + path.relative_to(assets).as_posix())
-                   for path in sorted((assets / "textures/parts").glob("*.png")))
+    texture_directory = assets / "textures/parts"
+    textures = sorted(texture_directory.glob("*.png"))
+    if not texture_directory.is_dir() or not textures:
+        raise FileNotFoundError(f"部件纹理目录不存在或没有 PNG：{texture_directory}")
+    entries.extend((path, "assets/" + path.relative_to(assets).as_posix()) for path in textures)
     entries.extend((assets / FONT_DIR / name, (Path("assets") / FONT_DIR / name).as_posix())
                    for name in ("HarmonyOS_Sans_SC_Regular.ttf", "LICENSE.txt"))
     entries.extend((assets / "ships" / name, "assets/ships/" + name) for name in SAMPLES)
