@@ -260,31 +260,13 @@ fn snaps_pose(
                 continue;
             }
             for candidate in dr_core::connections::candidates(&source, st, target, tt, distance) {
-                let kind = if candidate.dock {
-                    LinkKind::Dock {
-                        connector: if st.kind == PartKind::DockConnector {
-                            source_key
-                        } else {
-                            target_key
-                        },
-                    }
-                } else {
-                    LinkKind::Normal {
-                        parent_attach: candidate.target_index as i32 + 1,
-                        child_attach: candidate.source_index as i32 + 1,
-                    }
-                };
                 result.push((
                     candidate.distance,
                     (
                         delta.0 + candidate.position.x - source.x,
                         delta.1 + candidate.position.y - source.y,
                     ),
-                    EditorCommand::ConnectParts {
-                        parent: target_key,
-                        child: source_key,
-                        kind,
-                    },
+                    placement::connection_command(source_key, target_key, st.kind, &candidate),
                 ));
             }
         }

@@ -280,16 +280,9 @@ pub(crate) fn panel_actions(
         match action {
             PanelButton::Part(index) | PanelButton::DragPart(index) => {
                 if document.catalog.visible().nth(*index).is_some() {
-                    cursor.catalog_index = *index;
-                    cursor.placing = true;
+                    cursor.select_template(*index);
                     cursor.palette_drag = matches!(action, PanelButton::DragPart(_));
                     cursor.valid = false;
-                    cursor.paste = None;
-                    cursor.rotation = 0;
-                    cursor.fine_rotation = 0.0;
-                    cursor.manual_connection = None;
-                    cursor.flip_x = false;
-                    cursor.flip_y = false;
                     drag.cancel();
                 }
             }
@@ -443,15 +436,8 @@ pub(crate) fn cycle_part(
     } else {
         (current + 1) % indices.len()
     };
-    cursor.catalog_index = indices[next];
-    cursor.rotation = 0;
-    cursor.fine_rotation = 0.0;
-    cursor.manual_connection = None;
-    cursor.flip_x = false;
-    cursor.flip_y = false;
-    cursor.placing = true;
+    cursor.select_template(indices[next]);
     cursor.palette_drag = false;
-    cursor.paste = None;
 }
 
 #[cfg(test)]

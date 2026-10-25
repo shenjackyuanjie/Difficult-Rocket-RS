@@ -247,6 +247,140 @@ fn palette_click_selects_template_without_mutating_ship_or_history() {
 }
 
 #[test]
+fn template_entry_points_reset_shared_state_and_keep_input_specific_validity() {
+    for valid in [false, true] {
+        for action in [
+            Some(PanelButton::Part(2)),
+            Some(PanelButton::DragPart(2)),
+            None,
+        ] {
+            let tab = action.is_none();
+            let palette_drag = matches!(action, Some(PanelButton::DragPart(_)));
+            let mut document = crate::test_support::document();
+            document.catalog = catalog();
+            document.free_mode = true;
+            assert!(document.execute(EditorCommand::SetActive(1, true)));
+            assert!(document.execute(EditorCommand::SetMetadata {
+                name: "临时名称".into(),
+                description: String::new(),
+            }));
+            assert!(document.undo());
+            let key = PartKey::new(0, 1, 0);
+            let fragment = ShipFragment::capture(&document.ship, &[key]).unwrap();
+            let clipboard = fragment.parts().cloned().collect::<Vec<_>>();
+            let mut cursor = EditorCursor {
+                clipboard: Some(fragment.clone()),
+                paste: Some(fragment),
+                world: (12.25, -4.75),
+                catalog_index: 1,
+                placing: true,
+                palette_drag: true,
+                rotation: 3,
+                fine_rotation: 0.37,
+                flip_x: true,
+                flip_y: true,
+                valid,
+                ..default()
+            };
+            assert!(crate::free_mode::click(
+                &mut document,
+                &mut cursor,
+                (0.5, 0.0),
+                0.1
+            ));
+            assert!(cursor.manual_connection.is_some());
+            let before = document.ship.clone();
+            let saved = document.saved_ship.clone();
+            let selected = document.selected_keys();
+            let status = document.status.clone();
+            let state = (
+                document.dirty,
+                document.revision,
+                document.history.undo_len(),
+                document.history.redo_len(),
+            );
+            // 目录入口取消现有拖动；Tab 仅在没有拖动时进入模板循环。
+            let drag = if tab {
+                DragState::default()
+            } else {
+                DragState {
+                    id: Some(key),
+                    members: [key].into_iter().collect(),
+                    command: Some(EditorCommand::Delete(key.id)),
+                    blocked: true,
+                    turns: 2,
+                    fine_rotation: 0.25,
+                    flip_x: true,
+                    flip_y: true,
+                    ..default()
+                }
+            };
+            let mut app = App::new();
+            app.insert_resource(document)
+                .insert_resource(cursor)
+                .insert_resource(drag)
+                .init_resource::<Palette>()
+                .init_resource::<ShipBrowser>()
+                .init_resource::<properties::Inspector>()
+                .init_resource::<UiPointer>()
+                .init_resource::<ButtonInput<KeyCode>>()
+                .add_message::<files::FileAction>()
+                .add_message::<PanelButton>()
+                .add_systems(
+                    Update,
+                    (panel_actions, crate::canvas_input::keyboard_commands).chain(),
+                );
+            if let Some(action) = action {
+                app.world_mut().write_message(action);
+            } else {
+                app.world_mut()
+                    .resource_mut::<ButtonInput<KeyCode>>()
+                    .press(KeyCode::Tab);
+            }
+            app.update();
+            let cursor = app.world().resource::<EditorCursor>();
+            assert_eq!(cursor.catalog_index, 2);
+            assert!(cursor.placing && cursor.paste.is_none());
+            assert_eq!((cursor.rotation, cursor.fine_rotation), (0, 0.0));
+            assert!(!cursor.flip_x && !cursor.flip_y);
+            assert!(cursor.manual_connection.is_none());
+            assert_eq!(cursor.palette_drag, palette_drag);
+            assert_eq!(cursor.valid, tab && valid);
+            assert_eq!(cursor.world, (12.25, -4.75));
+            assert_eq!(
+                cursor
+                    .clipboard
+                    .as_ref()
+                    .unwrap()
+                    .parts()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                clipboard
+            );
+            let drag = app.world().resource::<DragState>();
+            assert!(drag.id.is_none() && drag.members.is_empty() && drag.command.is_none());
+            assert!(drag.rectangle.is_none() && !drag.blocked);
+            assert_eq!((drag.turns, drag.fine_rotation), (0, 0.0));
+            assert!(!drag.flip_x && !drag.flip_y);
+            let document = app.world().resource::<EditorDocument>();
+            assert_eq!(document.ship, before);
+            assert_eq!(document.saved_ship, saved);
+            assert_eq!(document.selected_keys(), selected);
+            assert_eq!(document.status, status);
+            assert_eq!(
+                (
+                    document.dirty,
+                    document.revision,
+                    document.history.undo_len(),
+                    document.history.redo_len(),
+                ),
+                state
+            );
+        }
+    }
+}
+
+#[test]
 fn preview_and_placement_share_snap_and_undo_restores_whole_operation() {
     let mut document = crate::test_support::document();
     document.catalog = catalog();

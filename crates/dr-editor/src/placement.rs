@@ -18,6 +18,18 @@ pub(crate) struct EditorCursor {
 }
 
 impl EditorCursor {
+    /// 选择新模板时重置共用预览状态；拖拽标记与光标有效性由输入入口决定。
+    pub(crate) fn select_template(&mut self, index: usize) {
+        self.catalog_index = index;
+        self.placing = true;
+        self.paste = None;
+        self.rotation = 0;
+        self.fine_rotation = 0.0;
+        self.manual_connection = None;
+        self.flip_x = false;
+        self.flip_y = false;
+    }
+
     pub(crate) fn cancel_placement(&mut self) {
         self.placing = false;
         self.palette_drag = false;
@@ -156,6 +168,34 @@ pub(crate) fn snap(
     snap_with_mode(ship, catalog, source, source_key, false)
 }
 
+/// 候选的目标为父部件、源为子部件；连接点索引转换为 SR1 的 1 基编号。
+pub(crate) fn connection_command(
+    source: PartKey,
+    target: PartKey,
+    source_kind: PartKind,
+    candidate: &dr_core::SnapCandidate,
+) -> EditorCommand {
+    let kind = if candidate.dock {
+        LinkKind::Dock {
+            connector: if source_kind == PartKind::DockConnector {
+                source
+            } else {
+                target
+            },
+        }
+    } else {
+        LinkKind::Normal {
+            parent_attach: candidate.target_index as i32 + 1,
+            child_attach: candidate.source_index as i32 + 1,
+        }
+    };
+    EditorCommand::ConnectParts {
+        parent: target,
+        child: source,
+        kind,
+    }
+}
+
 /// 预览和落点提交共用的吸附计算，不改变文档。
 fn snap_with_mode(
     ship: &Ship,
@@ -195,25 +235,7 @@ fn snap_with_mode(
                 continue;
             }
             let child = source_key.unwrap_or_else(|| PartKey::new(0, source.id, 0));
-            let kind = if candidate.dock {
-                LinkKind::Dock {
-                    connector: if source_type.kind == PartKind::DockConnector {
-                        child
-                    } else {
-                        target_key
-                    },
-                }
-            } else {
-                LinkKind::Normal {
-                    parent_attach: candidate.target_index as i32 + 1,
-                    child_attach: candidate.source_index as i32 + 1,
-                }
-            };
-            let connection = EditorCommand::ConnectParts {
-                parent: target_key,
-                child,
-                kind,
-            };
+            let connection = connection_command(child, target_key, source_type.kind, &candidate);
             best = Some((connection, candidate));
         }
     }

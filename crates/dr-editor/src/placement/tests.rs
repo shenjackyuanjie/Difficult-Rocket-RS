@@ -18,6 +18,64 @@ fn dragged(world: (f64, f64)) -> EditorCursor {
 }
 
 #[test]
+fn snap_connection_keeps_instance_keys_and_converts_normal_indices_to_one_based() {
+    let source = PartKey::new(2, 7, 1);
+    let target = PartKey::new(3, 7, 2);
+    for (source_index, target_index) in [(0, 0), (2, 5)] {
+        let candidate = dr_core::SnapCandidate {
+            source_index,
+            target_index,
+            position: dr_core::Vec2d { x: 1.25, y: -3.5 },
+            distance: 0.2,
+            dock: false,
+        };
+        let EditorCommand::ConnectParts {
+            parent,
+            child,
+            kind:
+                LinkKind::Normal {
+                    parent_attach,
+                    child_attach,
+                },
+        } = connection_command(source, target, PartKind::DockConnector, &candidate)
+        else {
+            panic!("普通候选必须生成 Normal 连接");
+        };
+        assert_eq!((parent, child), (target, source));
+        assert_eq!(parent_attach, target_index as i32 + 1);
+        assert_eq!(child_attach, source_index as i32 + 1);
+    }
+}
+
+#[test]
+fn snap_connection_uses_the_connector_key_on_either_side_of_docking() {
+    let source = PartKey::new(2, 7, 1);
+    let target = PartKey::new(3, 7, 2);
+    let candidate = dr_core::SnapCandidate {
+        source_index: 2,
+        target_index: 5,
+        position: dr_core::Vec2d { x: 1.25, y: -3.5 },
+        distance: 0.2,
+        dock: true,
+    };
+    for (source_kind, expected) in [
+        (PartKind::DockConnector, source),
+        (PartKind::DockPort, target),
+    ] {
+        let EditorCommand::ConnectParts {
+            parent,
+            child,
+            kind: LinkKind::Dock { connector },
+        } = connection_command(source, target, source_kind, &candidate)
+        else {
+            panic!("对接候选必须生成 Dock 连接");
+        };
+        assert_eq!((parent, child), (target, source));
+        assert_eq!(connector, expected);
+    }
+}
+
+#[test]
 fn palette_drag_ghost_uses_the_same_alpha_as_unlinked_parts_for_all_preview_colors() {
     for allowed in [false, true] {
         for connected in [false, true] {
